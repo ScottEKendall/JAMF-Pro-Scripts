@@ -1,11 +1,22 @@
 #!/bin/zsh
 
+# DeviceCompliance
+
+# Written: 11/20/2024
+# Last updated: 02/13/2025
+# by: Scott Kendall
+#
+# If the user doesn't have the Workplace Join Key (WPJ) in their Keychain, it will prompt them to run the device compliance from SS
+#
+# 1.0 - Initial rewrite using Swift Dialog prompts
+# 1.1 - Merge updated global library functions into app
+
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Gobal "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/usr/local/bin:/bin:/usr/sbin:/sbin
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -21,7 +32,12 @@ MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareData
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
+# Swift Dialog version requirements
 SW_DIALOG="/usr/local/bin/dialog"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+MIN_SD_REQUIRED_VERSION="2.3.3"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
 ###################################################
 #
@@ -29,28 +45,20 @@ SW_DIALOG="/usr/local/bin/dialog"
 #
 ###################################################
 
-
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
-OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/DiskSpace.png"
+OVERLAY_ICON="/Applications/Self Service.app"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 
 LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/EntraID Registration.log"
+LOG_FILE="${LOG_DIR}/DeviceCompliance.log"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
-JSONOptions=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
-BANNER_TEXT_PADDING="      "
+JSON_OPTIONS=$(mktemp /var/tmp/DeviceCompliance.XXXXX)
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_INFO_BOX_MSG=""
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Device Compliance Registration"
-
-# Swift Dialog version requirements
-
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
@@ -137,7 +145,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ -x "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -170,12 +178,11 @@ function welcomemsg ()
         --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}. ${message}"
 		--ontop
 		--icon "${icon}"
-		--overlayicon "/Applications/Self Service.app"
+		--overlayicon "${OVERLAY_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
         --helpmessage "Device Compliance is necessary to ensure that your device meets specific security standards and protocols, helping protect and maintain the integrity of your data."
 		--width 920
-        --ignorednd
 		--quitkey 0
 		--button1text "OK"
         --button2text "Create Ticket"
