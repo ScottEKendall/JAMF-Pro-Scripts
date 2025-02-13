@@ -33,14 +33,12 @@ MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareData
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
-SD_BANNER_IMAGE="/Library/Application Support/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="/Library/Application Support/GiantEagle/logs"
-LOG_FILE="${LOG_DIR}/ViewFVKey.log"
+LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
-OVERLAY_ICON="${ICON_FILES}FileVaultIcon.icns"
 
 # Swift Dialog version requirements
 
@@ -49,6 +47,8 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
+JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
 
 ###################################################
 #
