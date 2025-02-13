@@ -1,40 +1,54 @@
 #!/bin/zsh
-
-####################################################################################################
 #
-# Variables
+# by: Scott Kendall
 #
-####################################################################################################
-
-
+# Written: 01/24/2025
+# Last updated: 02/13/2025
+#
+# Script Purpose: Display information about Crowdstrike sensor
+#
+# 1.0 - Initial code
+# 1.1 - Code cleanup to be more consistant with all apps
+#
+######################################################################################################
+#
+# Gobal "Common" variables (do not change these!)
+#
+######################################################################################################
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-SW_DIALOG="/usr/local/bin/dialog"
-
-anticipationDuration="${6:-"3"}"
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
-OVERLAY_ICON="/Applications/Falcon.app"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 
+
 LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/AppDelete.log"
+LOG_FILE="${LOG_DIR}/CrowdstrikeInspector.log"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-
-BANNER_TEXT_PADDING="      "
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Crowdstrike Inspector"
-DIALOG_COMMAND_FILE=$( mktemp /var/tmp/FalconInspector.XXXX )
-chmod 644 ${DIALOG_COMMAND_FILE}
 # Swift Dialog version requirements
 
+SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
+
+JSON_OPTIONS=$(mktemp /var/tmp/NetworkIP.XXXXX)
+chmod 644 $JSON_OPTIONS
+DIALOG_COMMAND_FILE=$( mktemp /var/tmp/FalconInspector.XXXX )
+chmod 644 ${DIALOG_COMMAND_FILE}
+BANNER_TEXT_PADDING="      " #5 Spaces to accomodate for Logo
+SD_WINDOW_TITLE=$BANNER_TEXT_PADDING"Crowdstrike Inspector"
+SD_INFO_BOX_MSG=""
+OVERLAY_ICON="/Applications/Falcon.app"
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 FALCON_PATH="/Applications/Falcon.app/Contents/Resources/falconctl"
+TIMER_IN_SECONDS=2
 
 #icon="https://ics.services.jamfcloud.com/icon/hash_c9f81b098ecb0a2d527dd9fe464484892f1df5990d439fa680d54362023a5b5a"
 
@@ -53,16 +67,12 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
-	if [[ ! -d "${LOG_DIR}" ]]; then
-		/bin/mkdir -p "${LOG_DIR}"
-		/bin/chmod 755 "${LOG_DIR}"
-	fi
+	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
+	/bin/chmod 755 "${LOG_DIR}"
 
 	# If the log file does not exist - create it and set the permissions
-	if [[ ! -f "${LOG_FILE}" ]]; then
-		/usr/bin/touch "${LOG_FILE}"
-		/bin/chmod 644 "${LOG_FILE}"
-	fi
+	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
+	/bin/chmod 644 "${LOG_FILE}"
 }
 
 function logMe () 
@@ -76,7 +86,7 @@ function logMe ()
     #
     # RETURN: None
     echo "${1}" 1>&2
-    echo "$(/bin/date '+%Y%m%d %H:%M:%S'): ${1}\n" | tee -a "${LOG_FILE}"
+    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
 function check_swift_dialog_install ()
@@ -116,33 +126,32 @@ function check_support_files ()
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
-function create_welcome_msg ()
-{
-     MainDialogBody="${SW_DIALOG} \
-        --bannerimage \"${SD_BANNER_IMAGE}\" \
-        --bannertitle \"${SD_WINDOW_TITLE}\" \
-        --icon \"${OVERLAY_ICON}\" --iconsize 100 \
-        --message \"This script analyzes the installation of CrowdStrike Falcon then reports the findings in this window.  \n\nPlease wait …\" \
-        --iconsize 135 \
-        --messagefont name=Arial,size=17 \
-        --button1disabled \
-        --progress \
-        --progresstext \"$welcomeProgressText\" \
-        --button1text \"Wait\" \
-        --height 400 \
-        --width 650 \
-        --moveable \
-        --commandfile \"$DIALOG_COMMAND_FILE\" "
-}
-
 function cleanup_and_exit ()
 {
-        logMe "Quitting …"
-    updateWelcomeDialog "quit: "
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
 	exit 0
+}
+
+function create_welcome_msg ()
+{
+     MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${OVERLAY_ICON}" --iconsize 100
+        --message "This script analyzes the installation of CrowdStrike Falcon then reports the findings in this window.  \n\nPlease wait …"
+        --iconsize 135
+        --messagefont name=Arial,size=17
+        --button1disabled
+        --progress
+        --progresstext "$welcomeProgressText"
+        --button1text "Wait"
+        --height 400
+        --width 650
+        --moveable
+        --commandfile "$DIALOG_COMMAND_FILE"
+        )
 }
 
 function update_display_list ()
@@ -172,7 +181,7 @@ function update_display_list ()
         "create" | "show" )
  
             # Display the Dialog prompt
-            eval "${DYNAMIC_DIALOG_BASE_STRING}"
+            eval "${JSON_OPTIONS}"
             ;;
      
         "add" )
@@ -319,12 +328,12 @@ function get_falcon_stats ()
 {
     logMe "Create Welcome Dialog …"
 
-    eval "${MainDialogBody}" & sleep 0.3
+	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null & sleep .3
 
 
     update_display_list "progress" "" "" "" "Inspecting..." "5"
 
-    #sleep "${anticipationDuration}"
+    sleep "${TIMER_IN_SECONDS}"
 
     SECONDS="0"
 
@@ -366,12 +375,13 @@ function get_falcon_stats ()
     timestamp="$( date '+%Y-%m-%d-%H:%M:%S' )"
     update_display_list "progress" "" "" "" "Complete!" "100"
     update_display_list "message" "" "" "message: **Results for ${LOGGED_IN_USER} on ${timestamp}**<br><br>**Installation Status:** Installed<br>**Version:** ${falconVersion}<br>**System Extension:** ${systemExtensionStatus}<br>**Agent ID:** ${falconAgentID}<br>**Heartbeats:** ${falconHeartbeats6}"
-    sleep "${anticipationDuration}"
+    sleep "${TIMER_IN_SECONDS}"
     update_display_list "buttonchange" "Done"
     update_display_list "buttonenable"
     #updateWelcomeDialog "progresstext: Elapsed Time: $(printf '%dh:%dm:%ds\n' $((SECONDS/3600)) $((SECONDS%3600/60)) $((SECONDS%60)))"
 
 }
+
 ####################################################################################################
 #
 # Main Script
