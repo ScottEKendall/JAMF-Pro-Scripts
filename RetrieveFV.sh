@@ -1,43 +1,68 @@
 #!/bin/zsh
 
-# This script retrieves the Personal FileVault Key for a particular computer
-# 
-# Written by: Scott Kendall 12-20-2024
-# Last Modified on: 12-20-2024
 
-declare api_token
-declare api_authentication_check
-declare ID
-declare reason
-declare serial_num
+#
+# ResetKeychain
+#
+# by: Scott Kendall
+#
+# Written: 12/20/2024
+# Last updated: 02/13/2025
+#
+# Script Purpose: View Users Filevault Key
+#
+# 1.0 - Initial
+# 1.1 - Code cleanup to be more consistant with all apps
 
 ######################################################################################################
 #
 # Gobal "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-SW_DIALOG="/usr/local/bin/dialog"
-OVERLAY_ICON="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FileVaultIcon.icns"
+OS_PLATFORM=$(/usr/bin/uname -p)
+
+[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+
+SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
+MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
+MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
+MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
+MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_VERSION=$( sw_vers -productVersion | xargs)
+
 SD_BANNER_IMAGE="/Library/Application Support/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
-SD_WINDOW_TITLE="     View FileVault Recovery Key"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 LOG_DIR="/Library/Application Support/GiantEagle/logs"
-LOG_FILE="${LOG_DIR}/View_FileVault_Key.log"
+LOG_FILE="${LOG_DIR}/ViewFVKey.log"
+
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+OVERLAY_ICON="${ICON_FILES}FileVaultIcon.icns"
 
 # Swift Dialog version requirements
+
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
+###################################################
+#
+# App Specfic variables (Feel free to change these)
+#
+###################################################
+
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_INFO_BOX_MSG=""
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}View FileVault Key"
+
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-
-
 ##################################################
 #
 # Passed in variables
@@ -118,8 +143,9 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ -x "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
 }
+
 function display_welcome_message ()
 {
      MainDialogBody=(
@@ -148,8 +174,8 @@ function display_welcome_message ()
      buttonpress=$?
     [[ $buttonpress = 2 ]] && exit 0
 
-     serial_num=$(echo $message | grep "Device" | awk -F '"Device" : "' '{print$2}' | awk -F '"' '{print$1}')
-     reason=$(echo $message | grep "Reason" | awk -F '"Reason" : "' '{print$2}' | awk -F '"' '{print$1}') # Thanks to ons-mart https://github.com/ons-mart
+     serial_num=$(echo $message | grep "Device" | awk -F '"Device" : "' '{print $2}' | awk -F '"' '{print $1}')
+     reason=$(echo $message | grep "Reason" | awk -F '"Reason" : "' '{print $2}' | awk -F '"' '{print $1}') # Thanks to ons-mart https://github.com/ons-mart
 }
 
 function Get_JAMF_DeviceID ()
@@ -225,6 +251,12 @@ function FileVault_Recovery_Key_Retrieval ()
 # Start of Main Program
 #
 ########################
+
+declare api_token
+declare api_authentication_check
+declare ID
+declare reason
+declare serial_num
 
 autoload 'is-at-least'
 # Get Jamf Pro API bearer token
