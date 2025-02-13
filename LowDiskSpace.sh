@@ -1,11 +1,23 @@
 #!/bin/zsh
+#
+# Low Disk Space
+#
+# by: Scott Kendall
+#
+# Written: 01/03/2025
+# Last updated: 02/13/2025
+#
+# Script Purpose: Display user friendly dialog to users about their disk space
+#
+# 1.0 - Initial 
+# 1.1 - Code cleanup to be more consistant with all apps
 
 ######################################################################################################
 #
 # Gobal "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -22,27 +34,36 @@ FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
 SW_DIALOG="/usr/local/bin/dialog"
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/DiskSpace.png"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_DIR="${SUPPORT_DIR}/logs"
-
+SD_BANNER_IMAGE="/Library/Application Support/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+LOG_DIR="/Library/Application Support/GiantEagle/logs"
 LOG_FILE="${LOG_DIR}/LowDiskSpace.log"
 
-JSONOptions=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
-SD_WINDOW_TITLE="     Disk Space Notification"
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/FixProfileOwner.XXXXX)
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/DiskSpace.png"
 
 # Swift Dialog version requirements
+
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-SHOW_DISK_USAGE="ShowDiskUsage"
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/DiskSpace.png"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_INFO_BOX_MSG=""
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Disk Space Notification"
+SHOW_DISK_USAGE="ShowDiskUsage"
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ##################################################
 #
@@ -58,6 +79,7 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 # Functions
 #
 ####################################################################################################
+
 function create_log_directory ()
 {
     # Ensure that the log directory and the log files exist. If they
@@ -125,7 +147,7 @@ function check_support_files ()
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
-function create_infobox_message ()
+function create_infobox_message()
 {
 	################################
 	#
@@ -134,11 +156,19 @@ function create_infobox_message ()
 	################################
 
 	SD_INFO_BOX_MSG="## System Info ##\n"
-	#SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
 	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
-	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE} GB Available<br>"
+	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
 	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+}
+
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit 0
 }
 
 function welcomemsg ()
@@ -174,7 +204,7 @@ function welcomemsg ()
 
 	# Show the dialog screen and allow the user to choose
 
-    "${SW_DIALOG}" "${MainDialogBody[@]}"
+    "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
 	buttonpress=$?
 
 	# User wants to continue, so delete the files
