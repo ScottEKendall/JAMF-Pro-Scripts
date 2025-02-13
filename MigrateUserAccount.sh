@@ -1,20 +1,42 @@
 #!/bin/zsh
+#
+# MigrateUserAccount
+#
+# by: Scott Kendall
+#
+# Written: 02/01/2025
+# Last updated: 02/13/2025
+#
+# Script Purpose: Change the name of the user folder and migrate data to new folder
+#
+# 1.0 - Initial
+# 1.1 - Code cleanup to be more consistant with all apps
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Gobal "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/local/bin:/usr/sbin:/sbin
+
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
+
+SW_DIALOG="/usr/local/bin/dialog"
+SD_BANNER_IMAGE="/Library/Application Support/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
+LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+LOG_DIR="/Library/Application Support/GiantEagle/logs"
+LOG_FILE="${LOG_DIR}/MigrateAccount.log"
+
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
 # Swift Dialog version requirements
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.4.0"
+MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
 
 ###################################################
 #
@@ -26,7 +48,7 @@ SUPPORT_DIR="/Library/Application Support/GiantEagle"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 
 LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/AppDelete.log"
+LOG_FILE="${LOG_DIR}/MigrateAccount.log"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
@@ -308,7 +330,7 @@ function cleanup_and_exit ()
 function create_welcome_dialog ()
 {
 
-	DialogBody=(
+	MainDialogBody=(
         --message "Please enter the following information below. During this process, the data from the old user will be moved to the new user"
 		--ontop
 		--icon "${GROUP_ICON}"
@@ -325,10 +347,7 @@ function create_welcome_dialog ()
         --button2text "Cancel"
     )
 
-    # Example of appending items to the display array
-    #    [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && DialogBody+=(--height 520 --image "${SD_IMAGE_TO_DISPLAY}")
-
-	returnval=$("${SW_DIALOG}" "${DialogBody[@]}" 2>/dev/null)
+	returnval=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     [[ "$?" == "2" ]] && cleanup_and_exit "Good"
 
     oldUser=$(echo $returnval | grep "SelectedOption" | awk '{print $3}' | tr -d '"' | xargs )
@@ -367,8 +386,8 @@ function test_root_user ()
     	MainDialogBody=(
         --message "In order for this script to function properly, it must be run as an admin user!"
 		--ontop
-		--icon "$STOP_ICON"
-		--overlayicon computer
+		--icon computer
+		--overlayicon "$STOP_ICON"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
 		--button1text "OK"
