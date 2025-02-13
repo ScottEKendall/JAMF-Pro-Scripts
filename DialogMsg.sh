@@ -1,11 +1,16 @@
 #!/bin/zsh
 #
-# Written by: Scott E. Kendall
+# DialogMsg
+# 
+# Written by: Scott Kendall
 #
 # Created Date: 01/227/2025
-# Last modified: 01/27/2025
+# Last modified: 02/13/2025
+#
+# Script Purpose: Display a generic SWifDialog notification to JAMF users.  Pass in variables to customize display
 #
 # v1.0 - Inital script
+# v1.1 - Code cleanup to be more consistant with all apps
 #
 # Expected Paramaters: 
 # #4 - Title
@@ -44,7 +49,7 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
-JSONOptions=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
+JSONOptions=$(mktemp /var/tmp/DialogNotify.XXXXX)
 BANNER_TEXT_PADDING="      "
 SD_INFO_BOX_MSG=""
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
@@ -139,11 +144,6 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    if [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]]; then
-        [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -trigger ${SD_IMAGE_POLCIY}     
-    fi   
-    # Make sure it is readable by everyone
-    chmod +r "${SD_IMAGE_TO_DISPLAY}"
 }
 
 function display_msg ()
@@ -164,7 +164,6 @@ function display_msg ()
 	# Show the dialog screen and allow the user to choose
 
     "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-    returnCode=$?
 }
 
 function create_infobox_message()
@@ -183,7 +182,11 @@ function create_infobox_message()
 	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
 }
 
-
+####################################################################################################
+#
+# Main Script
+#
+####################################################################################################
 autoload 'is-at-least'
 
 check_swift_dialog_install
