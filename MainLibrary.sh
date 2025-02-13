@@ -1,5 +1,14 @@
 #!/bin/zsh
-
+#
+# App Delete
+# Purpose: Allow end users to delete apps using Swift Dialog
+#
+# Written: Aug 3, 2022
+# Last updated: Feb 13, 2025
+#
+# v1.0 - Initial Release
+# v1.1 - Major code cleanup & documentation
+#		 Structred code to be more inline / consistent across all apps
 ######################################################################################################
 #
 # Gobal "Common" variables (do not change these!)
@@ -44,7 +53,7 @@ LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
-JSONOptions=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
+JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_INFO_BOX_MSG=""
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Disk Space Notification"
@@ -133,6 +142,30 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+}
+
+function create_infobox_message()
+{
+	################################
+	#
+	# Swift Dialog InfoBox message construct
+	#
+	################################
+
+	SD_INFO_BOX_MSG="## System Info ##\n"
+	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
+	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
+	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+}
+
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit 0
 }
 
 function welcomemsg ()
@@ -384,54 +417,6 @@ function Contains ()
 function alltrim ()
 {
     echo "${1}" | /usr/bin/xargs
-}
-
-function create_infobox_message()
-{
-	################################
-	#
-	# Swift Dialog InfoBox message construct
-	#
-	################################
-
-	SD_INFO_BOX_MSG="## System Info ##\n"
-	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
-	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
-	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
-}
-
-function get_hardware_platform_icon ()
-{
-    case $(alltrim "${MAC_HARDWARE_CLASS}") in
-        "MacBook Air" )
-            HARDWARE_ICON="${ICON_DIRECTORY}/com.apple.macbookair-2018-gold.icns"
-            ;;           
-        "MacBook Pro" )
-            HARDWARE_ICON="${ICON_DIRECTORY}/com.apple.macbookpro-16-silver.icns"
-            ;;
-        "Mac Mini" )
-            HARDWARE_ICON="${ICON_DIRECTORY}/com.apple.macmini-2020.icns"
-            ;;
-        "iMac" )
-            HARDWARE_ICON="${ICON_DIRECTORY}/com.apple.imac-2021-blue.icns"
-            ;;
-        "Mac Pro" )
-            HARDWARE_ICON="${ICON_DIRECTORY}/com.apple.macpro-2019.icns"
-            ;;
-        "Mac Studio" )
-            HARDWARE_ICON="${ICON_DIRECTORY}/com.apple.macstudio.icns"
-            ;;
-    esac
-}
-
-function cleanup_and_exit ()
-{
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
 }
 
 function unload_and_delete_daemon ()
