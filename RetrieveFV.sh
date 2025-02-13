@@ -1,8 +1,6 @@
 #!/bin/zsh
-
-
 #
-# ResetKeychain
+# RetrieveFV
 #
 # by: Scott Kendall
 #
