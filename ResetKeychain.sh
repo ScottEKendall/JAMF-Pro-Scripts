@@ -1,11 +1,23 @@
 #!/bin/zsh
+#
+# ResetKeychain
+#
+# by: Scott Kendall
+#
+# Written: 02/03/2025
+# Last updated: 02/13/2025
+#
+# Script Purpose: Backup the keychain file and delete the current keychain file(s)
+#
+# 1.0 - Initial
+# 1.1 - Code cleanup to be more consistant with all apps
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Gobal "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -21,6 +33,14 @@ MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareData
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
+SD_BANNER_IMAGE="/Library/Application Support/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
+LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+LOG_DIR="/Library/Application Support/GiantEagle/logs"
+LOG_FILE="${LOG_DIR}/ResetKeychain.log"
+
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+
 # Swift Dialog version requirements
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
@@ -33,15 +53,6 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 # App Specfic variables (Feel free to change these)
 #
 ###################################################
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-
-LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/ResetKeychain.log"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 JSON_OPTIONS=$(mktemp /var/tmp/ResetKeychain.XXXXX)
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
@@ -153,6 +164,14 @@ function create_infobox_message ()
 	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
 }
 
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit 0
+}
+
 function display_msg ()
 {
     # Expected Parms
@@ -162,12 +181,11 @@ function display_msg ()
     # Parm $3 - Overlay Icon to display
     # Parm $4 - Welcome message (Yes/No)
     [[ "${4}" == "Yes" ]] && message="${SD_DIALOG_GREETING} ${SD_FIRST_NAME}. $1" || message="$1"
-    if [[ "${MACOS_VERSION}" >= "15" ]]; then
-        icon="/System/Library/CoreServices/Applications/Keychain Access.app"
-    else
-        icon="/System/Applications/Utilities/Keychain access.app"
-    fi
 
+    icon="/System/Applications/Utilities/Keychain access.app"
+    if is-at-least "15" "${MACOS_VERSION}"; then    #File location change in Sequoia and higher
+        icon="/System/Library/CoreServices/Applications/Keychain Access.app"
+    fi
 
 	MainDialogBody=(
         --message "${message}"
@@ -194,14 +212,6 @@ function display_msg ()
 
     [[ $returnCode == 2 || $returnCode == 10 ]] && cleanup_and_exit
 
-}
-
-function cleanup_and_exit ()
-{
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
 }
 
 function perform_reset ()
