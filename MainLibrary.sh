@@ -1,20 +1,22 @@
 #!/bin/zsh
 #
-# App Delete
-# Purpose: Allow end users to delete apps using Swift Dialog
+# <appname>
 #
-# Written: Aug 3, 2022
-# Last updated: Feb 13, 2025
+# by: Scott Kendall
 #
-# v1.0 - Initial Release
-# v1.1 - Major code cleanup & documentation
-#		 Structred code to be more inline / consistent across all apps
+# Written: 
+# Last updated:
+#
+# Script Purpose: 
+#
+# 1.0 - Initial
+
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Gobal "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -30,12 +32,22 @@ MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareData
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
+LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+LOG_DIR="${SUPPORT_DIR}/logs"
+
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+
 # Swift Dialog version requirements
+
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
+JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
 
 ###################################################
 #
@@ -43,23 +55,14 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 #
 ###################################################
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/DiskSpace.png"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-
-LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/AppDelete.log"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-
-JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}View FileVault Key"
 SD_INFO_BOX_MSG=""
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Disk Space Notification"
+LOG_FILE="${LOG_DIR}/ViewFVKey.log"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+OVERLAY_ICON="${ICON_FILES}FileVaultIcon.icns"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-
 
 ##################################################
 #
@@ -69,7 +72,6 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 
 JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
-ENROLL_POLICY_ID=$4                             # Policy # to run for registration
 
 ####################################################################################################
 #
