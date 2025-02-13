@@ -1,15 +1,16 @@
 #!/bin/zsh
-
+#
 # FixProfileOwner
-
-# Written: 9/20/2023
-# Last updated: 01/02/2025
+#
 # by: Scott Kendall
+#
+# Written: 9/20/2023
+# Last updated: 02/13/2025
 #
 # Script Purpose: change the permissions on the files in the users directory so that they are the owner of all the files
 #
 # 1.0 - Initial rewrite using Swift Dialog prompts
-# 1.1 - Merge updated global library functions into app
+# 1.1 - Code cleanup to be more consistant with all apps
 
 ######################################################################################################
 #
@@ -30,21 +31,18 @@ LOG_FILE="${LOG_DIR}/FixProfileOwner.log"
 BANNER_TEXT_PADDING="     "
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Fix Profile Ownership"
 DIALOG_COMMAND_FILE=$(mktemp /var/tmp/FixProfileOwner.XXXXX)
-chmod 777 "${DIALOG_COMMAND_FILE}"
+chmod 644 "${DIALOG_COMMAND_FILE}"
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
-typeset -i total_app_count=0
-typeset SD_INFO_BOX_MSG
-
 # Swift Dialog version requirements
-
-[[ -e "/usr/local/bin/dialog" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+SW_DIALOG="/usr/local/bin/dialog"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-USER_SCAN_DIR="${USER_DIR}/Downloads"
+USER_SCAN_START_DIR="${USER_DIR}"
 
 ####################################################################################################
 #
@@ -116,23 +114,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ -x "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-}
-
-function create_infobox_message()
-{
-	################################
-	#
-	# Swift Dialog InfoBox message construct
-	#
-	################################
-
-	SD_INFO_BOX_MSG="## System Info ##\n"
-	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
-	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
-	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function update_display_list ()
@@ -162,7 +144,7 @@ function update_display_list ()
         "create" | "show" )
  
             # Display the Dialog prompt
-            eval "${DYNAMIC_DIALOG_BASE_STRING}"
+            eval "${DIALOG_COMMAND_FILE}"
             ;;
      
         "add" )
@@ -299,25 +281,26 @@ function show_welcome_message ()
     # Purpose: Display dialog message to user 
     # Return: None
 
-    ${SW_DIALOG} \
-        --message "Please wait while determining which files to analyze...<br>Starting the scan at folder: ${USER_SCAN_DIR}" \
-        --messagealignment center \
-        --icon "${SD_ICON_FILE}" \
-        --iconsize 128 \
-        --overlayicon computer \
-        --bannerimage "${SD_BANNER_IMAGE}" \
-        --bannertitle "${SD_WINDOW_TITLE}" \
-        --moveable \
-        --quitkey Q \
-        --titlefont shadow=1, size=24 \
-        --messagefont size=18 \
-        --width 770 \
-        --height 350 \
-        --button1disabled \
-        --commandfile "${DIALOG_COMMAND_FILE}" \
-        --button1text "none" \
-        --progress \
-        --ontop & sleep 0.5
+    MainDialogBody=(
+        --message "Please wait while determining which files to analyze...<br>Starting the scan at folder: ${USER_SCAN_START_DIR}"
+        --icon "${SD_ICON_FILE}"
+        --iconsize 128
+        --overlayicon computer
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --moveable
+        --titlefont shadow=1, size=24
+        --messagefont size=18
+        --width 770
+        --height 350
+        --button1disabled
+        --commandfile "${DIALOG_COMMAND_FILE}"
+        --button1text "none"
+        --progress
+        --ontop
+    )
+
+    "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null & sleep 0.5
 
 }
 
@@ -328,7 +311,7 @@ function get_total_app_count ()
     # Expectations: total_app_count needs to be a global var
     #
     update_display_list "progress" "" "" "" "Performing Directory Scan"
-    for file in ${USER_SCAN_DIR}/**/*(.); do
+    for file in ${USER_SCAN_START_DIR}/**/*(.); do
         update_display_list "progress" "" "" "" "Files found so far: $total_app_count" 0
         total_app_count+=1
     done
@@ -345,7 +328,7 @@ function change_permissions ()
     # Change owernship of all the files in the user's home folder to correct ID
 
      update_display_list "clear" "Changing the permissions to make sure you are the owner,<br> and your files are set correctly."
-    for file in  ${USER_SCAN_DIR}/**/*(.); do
+    for file in  ${USER_SCAN_START_DIR}/**/*(.); do
         chown $LOGGED_IN_USER ${file}
         progress_percentage=$(((appcounter*100)/total_app_count))
         update_display_list "progress" "" "" "" "Fixing Permisions on: $appcounter of $total_app_count files" "$progress_percentage"
@@ -367,10 +350,9 @@ function change_permissions ()
 
 function cleanup_and_exit ()
 {
-    # Purpose: Remove any temp files and exit the script
-    # Return: 0 for successful
-
-    /bin/rm ${DIALOG_COMMAND_FILE}
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
 	exit 0
 }
 
@@ -386,12 +368,14 @@ autoload 'is-at-least'
 # Start of Main Script
 #############################
 
+typeset -i total_app_count && total_app_count=0
+
 check_swift_dialog_install
 check_support_files
-create_infobox_message
 show_welcome_message
 get_total_app_count
-sleep 2  #sleep a bit so the user can see the progress status
+sleep 4  #sleep a bit so the user can see the progress status
 change_permissions
+sleep 4
 update_display_list "Destroy"
 cleanup_and_exit
