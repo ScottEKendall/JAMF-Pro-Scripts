@@ -1,16 +1,28 @@
 #!/bin/zsh
-
+#
+# App Delete
+# Purpose: Allow end users to delete apps using Swift Dialog
+#
+# Written: Sept 3, 2024
+# Last updated: Feb 13, 2025
+#
 # This script should detect the names of any present specified network ports and
 # configure the search domains settings accordingly.
-
+#
 # Based loosely off the JAMF script that does the same thing for policy compatibility reasons.
-
-# Set variables up here
-# Casper reserves $1 to 3 for itself, so we have to use $4 onwards.
-# So when calling this script, use the following fields of information:
-# Field 4: Name of a Network Service
-# Field 5: First search domain address. (eg. arts.local)
-# Field 6: Second search domain address. (eg. arts.ac.uk)
+#
+# Parm #4: Name of a Network Service
+# Parm #5: First search domain address. (eg. arts.local)
+# Parm #6: Second search domain address. (eg. arts.ac.uk)
+#
+# v1.0 - Initial Release
+# v1.1 - Major code cleanup & documentation
+#		 Structured code to be more inline / consistent across all apps
+######################################################################################################
+#
+# Gobal "Common" variables (do not change these!)
+#
+######################################################################################################
 
 searchNetwork="${1:-""}"
 searchDomain1="${2:-""}"
@@ -18,13 +30,15 @@ searchDomain2="${3:-""}"
 PrimaryDNS="${4:-""}"
 SecondaryDNS="${5:-""}"
 
-logDir="/Library/Application Support/GiantEagle/logs"
-logStamp=$(echo $(date +%Y%m%d))
-logFile="${logDir}/SetDefaultDomain.log"
+LOG_DIR="${SUPPORT_DIR}/logs"
+LOG_FILE="${LOG_DIR}/SetDomain.log"
+LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
-###########
+####################################################################################################
+#
 # Functions
-###########
+#
+####################################################################################################
 
 function create_log_directory ()
 {
@@ -34,16 +48,12 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
-	if [[ ! -d "${logDir}" ]]; then
-		mkdir -p "${logDir}"
-		chmod 755 "${logDir}"
-	fi
+	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
+	/bin/chmod 755 "${LOG_DIR}"
 
 	# If the log file does not exist - create it and set the permissions
-	if [[ ! -f "${logFile}" ]]; then
-		touch "${logDir}"
-		chmod 644 "${logDir}"
-	fi
+	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
+	/bin/chmod 644 "${LOG_FILE}"
 }
 
 function logMe () 
@@ -57,13 +67,13 @@ function logMe ()
     #
     # RETURN: None
     echo "${1}" 1>&2
-    echo "$(date '+%Y%m%d %H:%M:%S'): ${1}" >> "${logFile}"
+    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
 # Let's check to see if we've been passed the Search Domain details in field 4, 5 & 6.
 
 if [[ -z "${searchNetwork}" ]]; then
-    echo "Error:  No network service name in parameter 4 was specified."
+    logMe "Error:  No network service name in parameter 4 was specified."
     exit 1
 fi
 # Read the output of the networksetup command
