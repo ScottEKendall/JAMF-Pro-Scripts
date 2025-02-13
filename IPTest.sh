@@ -1,33 +1,61 @@
 #!/bin/zsh
+#
+# IP Test
+#
+# by: Scott Kendall
+#
+# Written: 9/20/2023
+# Last updated: 02/13/2025
+#
+# Script Purpose: Display the IP address on all adapters as well as Cisco VPN if they are connected
+#
+# 1.0 - Initial rewrite using Swift Dialog prompts
+# 1.1 - Code cleanup to be more consistant with all apps
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Gobal "Common" variables (do not change these!)
 #
 ######################################################################################################
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-SW_DIALOG="/usr/local/bin/dialog"
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-OVERLAY_ICON="${SUPPORT_DIR}/DiskSpace.png"
-SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/GiantEagle/logs"
+
+
+LOG_DIR="${SUPPORT_DIR}/logs"
 LOG_FILE="${LOG_DIR}/NetworkIP.log"
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/NetworkIP.XXXXX)
-chmod 777 $JSON_DIALOG_BLOB
-SD_WINDOW_TITLE="     What's my IP?"
+LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
 # Swift Dialog version requirements
 
-[[ -e "/usr/local/bin/dialog" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+SW_DIALOG="/usr/local/bin/dialog"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
+
+JSON_OPTIONS=$(mktemp /var/tmp/NetworkIP.XXXXX)
+chmod 777 $JSON_OPTIONS
+BANNER_TEXT_PADDING="      " #5 Spaces to accomodate for Logo
+SD_WINDOW_TITLE=$BANNER_TEXT_PADDING"What's my IP?"
+SD_INFO_BOX_MSG=""
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
+##################################################
+#
+# Passed in variables
+# 
+#################################################
+
+JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
+
 
 typeset -a adapter
 typeset -a ip_address
@@ -40,16 +68,12 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
-	if [[ ! -d "${LOG_DIR}" ]]; then
-		/bin/mkdir -p "${LOG_DIR}"
-		/bin/chmod 755 "${LOG_DIR}"
-	fi
+	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
+	/bin/chmod 755 "${LOG_DIR}"
 
 	# If the log file does not exist - create it and set the permissions
-	if [[ ! -f "${LOG_FILE}" ]]; then
-		/usr/bin/touch "${LOG_FILE}"
-		/bin/chmod 644 "${LOG_FILE}"
-	fi
+	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
+	/bin/chmod 644 "${LOG_FILE}"
 }
 
 function logMe () 
@@ -63,12 +87,7 @@ function logMe ()
     #
     # RETURN: None
     echo "${1}" 1>&2
-    echo "$(/bin/date '+%Y%m%d %H:%M:%S'): ${1}\n" >> "${LOG_FILE}"
-}
-
-function check_support_files ()
-{
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
 function check_swift_dialog_install ()
@@ -96,16 +115,24 @@ function check_swift_dialog_install ()
 function install_swift_dialog ()
 {
     # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy # from JAMF
+    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
     #
     # RETURN: None
 
 	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
 }
 
-function alltrim ()
+function check_support_files ()
 {
-    echo "${1}" | /usr/bin/xargs
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+}
+
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit 0
 }
 
 function get_nic_info
@@ -128,6 +155,9 @@ function get_nic_info
             ip_address+=$ip
         fi
     done
+
+    # Section for VPN IP Collection
+
     if [[ "$( echo 'state' | /opt/cisco/anyconnect/bin/vpn -s | grep -m 1 ">> state:" )" == *'Connected' ]]; then
         ip_address+=**$(/opt/cisco/anyconnect/bin/vpn -s stats | grep 'Client Address (IPv4)' | awk -F ': ' '{ print $2 }' | xargs)**
         adapter+="VPN "
@@ -141,14 +171,6 @@ function get_geolocation ()
     myregionName=$(echo $myLocationInfo | egrep -o '<regionName>.*</regionName>'| sed -e 's/^.*<regionName/<regionName/' | cut -f2 -d'>'| cut -f1 -d'<')
     echo "($mycity, $myregionName)"
     return 0
-}
-
-function cleanup_and_exit ()
-{
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
 }
 
 function construct_dialog_header_settings()
@@ -176,7 +198,7 @@ function display_welcome_message()
 {
 	# Display welcome message to user
     #
-	# VARIABLES expected: JSON_DIALOG_BLOB & SD_WINDOW_TITLE must be set
+	# VARIABLES expected: JSON_OPTIONS & SD_WINDOW_TITLE must be set
 	# PARMS Passed: None
     # RETURN: None
 
@@ -186,10 +208,10 @@ function display_welcome_message()
         WelcomeMsg+=" * $adapter[$i] address: $ip_address[$i]<br>"
     done
     
-	construct_dialog_header_settings "${WelcomeMsg}" > "${JSON_DIALOG_BLOB}"
-	echo '}'>> "${JSON_DIALOG_BLOB}"
+	construct_dialog_header_settings "${WelcomeMsg}" > "${JSON_OPTIONS}"
+	echo '}'>> "${JSON_OPTIONS}"
 
-	${SW_DIALOG} --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null
+	${SW_DIALOG} --jsonfile "${JSON_OPTIONS}" 2>/dev/null
 }
 
 ##############################
