@@ -1,12 +1,23 @@
 #!/bin/zsh
 
+# EntraIDRegistration
+#
+# by: Scott Kendall
+#
+# Written: 02/03/2025
+# Last updated: 02/17/2025
+#
+# Script Purpose: Backup the keychain file and delete the current keychain file(s)
+#
+# 1.0 - Initial
+# 1.1 - Code cleanup to be more consistant with all apps
+#
 ######################################################################################################
 #
 # Gobal "Common" variables (do not change these!)
 #
 ######################################################################################################
 
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -22,7 +33,20 @@ MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareData
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+LOG_DIR="${SUPPORT_DIR}/logs"
+
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+
+# Swift Dialog version requirements
+
 SW_DIALOG="/usr/local/bin/dialog"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+MIN_SD_REQUIRED_VERSION="2.3.3"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
 ###################################################
 #
@@ -30,31 +54,15 @@ SW_DIALOG="/usr/local/bin/dialog"
 #
 ###################################################
 
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
 OVERLAY_ICON="/Applications/Company Portal.app"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 SD_WPJ_IMAGE="${SUPPORT_DIR}/SupportFiles/WPJKeychain.png"
 
-LOG_DIR="${SUPPORT_DIR}/logs"
 LOG_FILE="${LOG_DIR}/AppDelete.log"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-IMAGE_ICON="computer"
-
-JSONOptions=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
-BANNER_TEXT_PADDING="      "
-SD_INFO_BOX_MSG=""
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}EntraID Registration"
 REGISTRATION_POLICY=9
-
-# Swift Dialog version requirements
-
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+SD_INFO_BOX_MSG=""
 inTuneStatus=""
 
 ####################################################################################################
@@ -62,6 +70,7 @@ inTuneStatus=""
 # Functions
 #
 ####################################################################################################
+
 function create_log_directory ()
 {
     # Ensure that the log directory and the log files exist. If they
@@ -138,7 +147,7 @@ function create_infobox_message()
 	################################
 
 	SD_INFO_BOX_MSG="## System Info ##\n"
-	#SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
 	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
@@ -270,8 +279,6 @@ function welcomemsg ()
     button=$?
     [[ $button == 2 && "${NoInTuneLaunch}" == "No" ]] && /usr/local/bin/jamf policy -id $REGISTRATION_POLICY
 }
-
-
 
 ####################################################################################################
 #
