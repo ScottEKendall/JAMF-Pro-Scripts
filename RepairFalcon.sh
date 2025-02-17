@@ -1,9 +1,16 @@
 #!/bin/zsh
 #
-# Written by: Scott Kendall
-# Date Created: 01/21/2025
-# Date Last Revised: 01/23/2025
-# 
+# RepairFalcon
+#
+# by: Scott Kendall
+#
+# Written: 01/21/2025
+# Last updated: 02/17.2025
+#
+# Script Purpose: Try to determine what is preventing Falcon sensor from running on the mac and remediate
+#
+# 1.0 - Initial
+
 # Borrowed heavily from @Snelson: source code @ https://snelson.us/2023/03/crowdstrike-falcon-kickstart-0-0-2/
 #
 ######################################################################################################
