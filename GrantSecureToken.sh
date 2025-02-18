@@ -316,7 +316,7 @@ display_msg "Enter the passwords for the following users" "password" "OK" "cauti
 passCheck=$(dscl /Local/Default -authonly ${adminUser} "${adminPassword}")
 
 # If the credentials pass, continue, if not, tell user password is incorrect and exit.
-[ -z "$passCheck" ]] && logMe "Password Verified" || display_msg "Password verification failed for $adminUser.  Please try again" "password" "Retry" "warning"
+[[ -z "$passCheck" ]] && logMe "Password Verified" || display_msg "Password verification failed for $adminUser.  Please try again" "password" "Retry" "warning"
     
 logMe "Granting secure token."
 
