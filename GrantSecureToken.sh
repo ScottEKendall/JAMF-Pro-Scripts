@@ -301,7 +301,7 @@ done
 
 # If there are no valid users, then show the error
 
-if [[ ! -z "${SecureTokenUsers[@]}" ]]; then
+if [[ -z "${SecureTokenUsers[@]}" ]]; then
     display_msg "There are no users on this computer that have a Secure Token already.  Please create a ticket with the TSD so this can be investigated" "message" "Done" "warning" 
     cleanup_and_exit 0
 fi
