@@ -285,8 +285,8 @@ MissingSecureTokenCheck
 
 # do some quick tests on the results
 
-[[ "$result" == "UNDEFINED" ]] && { display_msg "I am unable to determine the status of your secure token.  Please create a ticket with the TSD so this can be investigated" "message" "Done" "warning" "welcome"; exit 0; }
-[[ "$result" == "YES" ]] && { display_msg "Congratulatons!  Your account already has a secure token assigned to it.  No further action is necessary." "message" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy"; exit 0; }
+[[ "$result" == "UNDEFINED" ]] && { display_msg "I am unable to determine the status of your secure token.  Please create a ticket with the TSD so this can be investigated" "message" "Done" "warning" "welcome"; cleanup_and_exit 0; }
+[[ "$result" == "YES" ]] && { display_msg "Congratulatons!  Your account already has a secure token assigned to it.  No further action is necessary." "message" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy"; cleanup_and_exit 0; }
 
 # if we made it this far, the user doesn't have a token on their account
 
