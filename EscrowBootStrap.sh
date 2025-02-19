@@ -220,6 +220,79 @@ function display_msg ()
     [[ "$2" == "password" ]] && userPass=$(echo $returnval | grep "Enter Password" | awk -F " : " '{print $NF}')
 }
 
+function check_filevault_status ()
+{
+    ## Check to make sure that this user has FV account
+    userCheck=$(fdesetup list | awk -F "," '{print $1}')
+    if [[ "${userCheck}" != *"${LOGGED_IN_USER}"* ]]; then
+        logMe "This user is not a FileVault 2 enabled user."
+        display_msg "It doesn't appear that your account has the correct permissions to create a Bootstrap Token. Please contact support @ $SUPPORT_INFO."  "welcome" "Done" "warning" "No"
+        cleanup_and_exit 1
+    fi
+}
+
+function check_bootstrap_status ()
+{
+
+    # Set some local variables here
+
+    BootStrapSupportedYes="supported on server: YES"
+    BootStrapSupportedNo="supported on server: NO"
+    BootStrapEscrowedYes="escrowed to server: YES"
+    BootStrapEscrowedNo="escrowed to server: NO"
+
+    ## Check to see if the bootstrap token is already escrowed
+    BootstrapToken=$(profiles status -type bootstraptoken 2>/dev/null)
+
+    if [[ "$BootstrapToken" == *"$BootStrapSupportedYes"* ]] && [[ "$BootstrapToken" == *"$BootStrapEscrowedYes"* ]]; then
+        logMe "The bootstrap token is already escrowed."
+        display_msg "Your Bootstrap token has been successfully stored on the JAMF server!" "message" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy" "No"
+        cleanup_and_exit 0
+    fi
+}
+
+function get_users_password ()
+{
+
+    ## Counter for Attempts
+    try=0
+    maxTry=3
+
+    # Display a prompt for the user to enter their password
+
+    display_msg "## Bootstrap token\n\nYour Bootstrap token is not currently stored on the JAMF server. This token is used to help keep your Mac account secure.\n\n Please enter your Mac password to store your Bootstrap token." "password" "OK" "caution"
+
+    until /usr/bin/dscl /Search -authonly "$LOGGED_IN_USER" "${userPass}" &>/dev/null; do
+        (( TRY++ ))
+        display_msg "## Bootstrap token\n\nYour Bootstrap token is not currently stored on the JAMF server. This token is used to help keep your Mac account secure.\n\n ### Password Incorrect please try again:" "password" "OK" "caution"
+        if (( TRY >= $maxTry )); then
+            logMe "Stopping after failed attempts for password entry"
+            display_msg "## Please check your password and try again.\n\nIf issue persists, please contact support @ $SUPPORT_INFO."  "message" "Done" "warning" "No"
+            cleanup_and_exit 1
+        fi
+    done
+}
+
+function escrow_token_to_server ()
+{
+    logMe "Escrowing bootstrap token"
+
+    # This process uses an EXPECT file to deal with interactive portion of bootstrap tokens
+    # Do not change anything in the follow lines
+
+    result=$(expect -c "
+    spawn profiles install -type bootstraptoken
+    expect \"Enter the admin user name:\"
+    send ${LOGGED_IN_USER}\r
+    expect \"Enter the password for user ${LOGGED_IN_USER}:\"
+    send '${userPass}'\r
+    expect eof
+    ")
+
+    # Log the results
+    logMe $result
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -229,74 +302,13 @@ autoload 'is-at-least'
 
 declare userPass
 
-# Set some local variables here
-
-BootStrapSupportedYes="supported on server: YES"
-BootStrapSupportedNo="supported on server: NO"
-BootStrapEscrowedYes="escrowed to server: YES"
-BootStrapEscrowedNo="escrowed to server: NO"
-
-## Counter for Attempts
-try=0
-maxTry=3
 
 check_swift_dialog_install
 check_support_files
 create_infobox_message
-
-## This first user check sees if the logged in account is already authorized with FileVault 2
-userCheck=$(fdesetup list | awk -F "," '{print $1}')
-if [[ "${userCheck}" != *"${LOGGED_IN_USER}"* ]]; then
-	logMe "This user is not a FileVault 2 enabled user."
-	display_msg "It doesn't appear that your account has the correct permissions to create a Bootstrap Token. Please contact support @ $SUPPORT_INFO."  "welcome" "Done" "warning" "No"
-    cleanup_and_exit 1
-fi
-
-
-## Check to see if the bootstrap token is already escrowed
-BootstrapToken=$(profiles status -type bootstraptoken 2>/dev/null)
-
-if [[ "$BootstrapToken" == *"$BootStrapSupportedYes"* ]] && [[ "$BootstrapToken" == *"$BootStrapEscrowedYes"* ]]; then
-	logMe "The bootstrap token is already escrowed."
-	display_msg "Your Bootstrap token has been successfully stored on the JAMF server!" "welcome" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy" "No"
-	cleanup_and_exit 0
-fi
-
-# Display a prompt for the user to enter their password
-
-display_msg "## Bootstrap token\n\nYour Bootstrap token is not currently stored on the JAMF server. This token is used to help keep your Mac account secure.\n\n Please enter your Mac password to store your Bootstrap token." "password" "OK" "caution"
-
-until /usr/bin/dscl /Search -authonly "$LOGGED_IN_USER" "${userPass}" &>/dev/null; do
-	(( TRY++ ))
-    display_msg "## Bootstrap token\n\nYour Bootstrap token is not currently stored on the JAMF server. This token is used to help keep your Mac account secure.\n\n ### Password Incorrect please try again:" "password" "OK" "caution"
-	if (( TRY >= $maxTry )); then
-        logMe "Stopping after failed attempts for password entry"
-        display_msg "## Please check your password and try again.\n\nIf issue persists, please contact support @ $SUPPORT_INFO."  "message" "Done" "warning" "No"
-		cleanup_and_exit 1
-	fi
-done
-
-logMe "Escrowing bootstrap token"
-
-# This process uses an EXPECT file to deal with interactive portion of bootstrap tokens
-# Do not change anything in the follow lines
-
-result=$(expect -c "
-spawn profiles install -type bootstraptoken
-expect \"Enter the admin user name:\"
-send \"${LOGGED_IN_USER}\r\"
-expect \"Enter the password for user '${LOGGED_IN_USER}':\"
-send \"${userPass}\r\"
-expect eof
-")
-
-# Log the results
-logMe $result
-
+check_filevault_status
+check_bootstrap_status
+get_users_password
+escrow_token_to_server
 # Check to ensure token was escrowed
-BootstrapToken=$(profiles status -type bootstraptoken 2>/dev/null)
-if [[ "$BootstrapToken" == *"$BootStrapSupportedYes"* ]] && [[ "$BootstrapToken" == *"$BootStrapEscrowedYes"* ]]; then
-	logMe "Bootstrap token escrowed for $LOGGED_IN_USER"
-    display_msg "Your Bootstrap token has been successfully stored on the JAMF server!" "message" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy" "No"
-	cleanup_and_exit 0
-fi
+check_bootstrap_status
