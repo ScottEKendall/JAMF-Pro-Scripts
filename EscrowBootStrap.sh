@@ -80,15 +80,6 @@ LOGGED_IN_USER_UUID=$(dscl . -read /Users/$LOGGED_IN_USER/ GeneratedUID | awk '{
 JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
-# Banner image for message
-banner="${4:-"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTRgKEFxRXAMU_VCzaaGvHKkckwfjmgGncVjA&usqp=CAU"}"
-# More Information Button shown in message
-infotext="${5:-"More Information"}"
-infolink="${6:-"https://support.apple.com/guide/deployment/use-secure-and-bootstrap-tokens-dep24dbdcf9e/web"}"
-# Swift Dialog icon to be displayed in message
-icon="${7:-"/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/LockedIcon.icns"}"
-supportInformation="${8:-"support@organization.com"}"
-
 ####################################################################################################
 #
 # Functions
