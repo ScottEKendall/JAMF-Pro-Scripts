@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/18/2025
-# Last updated:
+# Last updated: 02/19/2025
 #
 # Script Purpose: Escrow a users bootstrap token to the server if it isn't already.
 # Based off of script by: Robert Schroeder
@@ -21,7 +21,6 @@
 ######################################################################################################
 
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
 OS_PLATFORM=$(/usr/bin/uname -p)
@@ -51,8 +50,6 @@ MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
-
 ###################################################
 #
 # App Specfic variables (Feel free to change these)
@@ -64,12 +61,9 @@ SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Escrow Bootstrap Token"
 SD_INFO_BOX_MSG=""
 LOG_FILE="${LOG_DIR}/EscrowBootstrap.log"
 SD_ICON_FILE=${ICON_FILES}"LockedIcon.icns"
-OVERLAY_ICON="${ICON_FILES}FileVaultIcon.icns"
 SUPPORT_INFO="TSD_Mac_Support@gianteagle.com"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-
-LOGGED_IN_USER_UUID=$(dscl . -read /Users/$LOGGED_IN_USER/ GeneratedUID | awk '{print $2}')
 
 ##################################################
 #
