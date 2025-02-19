@@ -1,22 +1,22 @@
+
 #!/bin/zsh
 #
+# BatteryInfo.sh
+#
 # Written by: Scott E. Kendall
-# Created: 2025-01-15
-# Last Modified: 2025-01-15
+# Created: 01-15-2025
+# Last Modified: 2025-02-20-2025
 #
-# Prompt user if battery needs service
+# Script Purpose: Prompt user if battery needs service
 #
-
+# 1.0 - Initial
+# 1.1 - Code cleanup to be more consistant with all apps
 
 ######################################################################################################
 #
 # Gobal "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
-
-JAMF_LOGGED_IN_USER=$3
-BATTERY_CONDITION="${4:-"info"}"
 
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -33,23 +33,36 @@ MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareData
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
-SW_DIALOG="/usr/local/bin/dialog"
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
-IMAGE_ICON="SF=minus.plus.batteryblock, color=green, weight=normal"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
+LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_FILE="${LOG_DIR}/BatteryService.log"
-SD_WINDOW_TITLE="     Battery Condition"
 
 # Swift Dialog version requirements
 
-SD_VERSION=$( ${SW_DIALOG} --version)
+SW_DIALOG="/usr/local/bin/dialog"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
+
+###################################################
+#
+# App Specfic variables (Feel free to change these)
+#
+###################################################
+
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Battery Condition"
+SD_INFO_BOX_MSG=""
+LOG_FILE="${LOG_DIR}/BatteryCondition.log"
+SD_ICON_FILE="SF=minus.plus.batteryblock, color=green, weight=normal"
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
 
 SYSTEM_PROFILER_BATTERY_BLOB=$( /usr/sbin/system_profiler 'SPPowerDataType')
 
@@ -60,6 +73,14 @@ BatteryCurrentCharge=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "State of Charg
 BatteryCharging=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Connected:" | sed 's/.*Connected: //')
 BatteryChargingWattage=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Wattage (W)" | sed 's/.*Wattage (W): //')
 
+##################################################
+#
+# Passed in variables
+# 
+#################################################
+
+JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"  
 
 ####################################################################################################
 #
@@ -130,7 +151,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ -x "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message ()
@@ -152,8 +173,7 @@ function create_infobox_message ()
 function welcomemsg ()
 {
     if [[ "${BATTERY_CONDITION:l}" == "info" ]]; then
-    Firstname="${(C)JAMF_LOGGED_IN_USER%%.*}"
-        messagebody="$Firstname, here is the current state of your laptop battery:<br><br>"
+        messagebody="$SD_DIALOG_GREETING, here is the current state of your laptop battery:<br><br>"
         messagebody+="Condition: **${BatteryCondition}**<br>"
         messagebody+="Current # of Cycles: **${BatteryCycleCount}**<br>"
         messagebody+="Total Capacity Remain: **${BatteryCapacity}**<br>"
@@ -162,9 +182,9 @@ function welcomemsg ()
         if [[ "$BatteryCharging" == "Yes" ]]; then
             messagebody+="Charger Wattage: **${BatteryChargingWattage}W**<br>"
         fi
-        OVERLAY_ICON=
+        OVERLAY_ICON=""
     else
-        messagebody="Greetings ${Firstname}!  This is an automated message from JAMF "
+        messagebody="$SD_DIALOG_GREETING!  This is an automated message from JAMF "
         messagebody+="to let you know that the battery in your laptop is below acceptable"
         messagebody+=" limits declared by Apple.  The runtime while on battery and "
         messagebody+="performance may be severly affected.  Please raise a ticket with the"
@@ -173,23 +193,25 @@ function welcomemsg ()
         OVERLAY_ICON="warning"
     fi
 
-	MainDialogBody="${SW_DIALOG} \
-		--message '${messagebody}' \
-		--icon '${IMAGE_ICON}' \
-        --overlayicon '${OVERLAY_ICON}' \
-		--height 420 \
-		--ontop \
-		--bannerimage '${SD_BANNER_IMAGE}' \
-		--bannertitle '${SD_WINDOW_TITLE}' \
-        --infobox '${SD_INFO_BOX_MSG}' \
-        --titlefont shadow=1 \
-        --moveable \
-		--button1text 'OK' \
-		--buttonstyle center"
+	MainDialogBody=(
+		--message "${messagebody}"
+		--icon "${IMAGE_ICON}"
+        --overlayicon "${OVERLAY_ICON}"
+		--height 420
+		--ontop
+		--bannerimage "${SD_BANNER_IMAGE}"
+		--bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --titlefont shadow=1
+        --moveable
+		--button1text 'OK'
+		--buttonstyle center
+    )
 
 	# Show the dialog screen and allow the user to choose
 
-	eval "${MainDialogBody}" 2>/dev/null
+	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+    returnCode=$?
 }
 
 function cleanup_and_exit ()
