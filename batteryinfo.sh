@@ -173,7 +173,7 @@ function create_infobox_message ()
 function welcomemsg ()
 {
     if [[ "${BATTERY_CONDITION:l}" == "info" ]]; then
-        messagebody="$SD_DIALOG_GREETING, here is the current state of your laptop battery:<br><br>"
+        messagebody="$SD_DIALOG_GREETING $SD_FIRST_NAME, here is the current state of your laptop battery:<br><br>"
         messagebody+="Condition: **${BatteryCondition}**<br>"
         messagebody+="Current # of Cycles: **${BatteryCycleCount}**<br>"
         messagebody+="Total Capacity Remain: **${BatteryCapacity}**<br>"
@@ -184,7 +184,7 @@ function welcomemsg ()
         fi
         OVERLAY_ICON=""
     else
-        messagebody="$SD_DIALOG_GREETING!  This is an automated message from JAMF "
+        messagebody="$SD_DIALOG_GREETING $SD_FIRST_NAME!  This is an automated message from JAMF "
         messagebody+="to let you know that the battery in your laptop is below acceptable"
         messagebody+=" limits declared by Apple.  The runtime while on battery and "
         messagebody+="performance may be severly affected.  Please raise a ticket with the"
@@ -194,8 +194,8 @@ function welcomemsg ()
     fi
 
 	MainDialogBody=(
-		--message "${messagebody}"
-		--icon "${IMAGE_ICON}"
+        --message "${messagebody}"
+        --icon "${IMAGE_ICON}"
         --overlayicon "${OVERLAY_ICON}"
 		--height 420
 		--ontop
@@ -231,7 +231,6 @@ autoload 'is-at-least'
 create_log_directory
 check_swift_dialog_install
 check_support_files
-create_infobox_message
 create_infobox_message
 welcomemsg
 cleanup_and_exit
