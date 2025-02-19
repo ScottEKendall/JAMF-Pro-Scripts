@@ -8,6 +8,9 @@
 # Last updated:
 #
 # Script Purpose: Escrow a users bootstrap token to the server if it isn't already.
+# Based off of script by: Robert Schroeder
+# URL: https://github.com/robjschroeder/Bootstrap-Token-Escrow/tree/main
+#
 #
 # 1.0 - Initial
 
