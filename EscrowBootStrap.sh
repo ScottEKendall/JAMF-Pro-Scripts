@@ -13,6 +13,7 @@
 #
 #
 # 1.0 - Initial
+# 1,1 - Add a display message (with failure message) if the boostrap was not successful
 
 ######################################################################################################
 #
@@ -234,6 +235,7 @@ function check_bootstrap_status ()
     BootStrapSupportedNo="supported on server: NO"
     BootStrapEscrowedYes="escrowed to server: YES"
     BootStrapEscrowedNo="escrowed to server: NO"
+    BootStrapNotSupported="Bootstrap Token functionality is not supported on the server."
 
     ## Check to see if the bootstrap token is already escrowed
     BootstrapToken=$(profiles status -type bootstraptoken 2>/dev/null)
@@ -242,6 +244,9 @@ function check_bootstrap_status ()
         logMe "The bootstrap token is already escrowed."
         display_msg "Your Bootstrap token has been successfully stored on the JAMF server!" "message" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy" "No"
         cleanup_and_exit 0
+    elif [[ "$BootstrapToken" == "$BootStrapNotSupported" ]]; then
+        display_msg "Problems getting the token escrowed to the server.<br><br>Error message: $BootstrapToken" "message" "Done" "warning" "No"
+        cleanup_and_exit 1
     fi
 }
 
