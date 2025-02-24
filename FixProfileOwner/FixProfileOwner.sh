@@ -11,6 +11,7 @@
 #
 # 1.0 - Initial rewrite using Swift Dialog prompts
 # 1.1 - Code cleanup to be more consistant with all apps
+# 1.2 - Changed logic in get_total_app_count function to use find | wc (much faster)
 
 ######################################################################################################
 #
@@ -310,12 +311,8 @@ function get_total_app_count ()
     # Return: None
     # Expectations: total_app_count needs to be a global var
     #
-    update_display_list "progress" "" "" "" "Performing Directory Scan"
-    for file in ${USER_SCAN_START_DIR}/**/*(.); do
-        update_display_list "progress" "" "" "" "Files found so far: $total_app_count" 0
-        total_app_count+=1
-    done
-    update_display_list "progress" "" "" "" "" 100
+    update_display_list "progress" "" "" "" "Determining Total # of files"
+    total_app_count=$(find ${USER_SCAN_START_DIR} -type f | wc -l)
 }
 
 function change_permissions ()
@@ -356,19 +353,15 @@ function cleanup_and_exit ()
 	exit 0
 }
 
-####################################################################################################
-#
-# Auto Load Functions
-#
-####################################################################################################
-
-autoload 'is-at-least'
-
 #############################
+#
 # Start of Main Script
+#
 #############################
 
 typeset -i total_app_count && total_app_count=0
+
+autoload 'is-at-least'
 
 check_swift_dialog_install
 check_support_files
