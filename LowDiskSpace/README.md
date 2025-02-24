@@ -18,10 +18,8 @@ DU=$(df -h /Users | awk 'END{ print $(NF-4) }' | tr -d '%' )
 
 # print the reuslts padding with leading 0
 
-echo "<result>$(printf "%02d\n" $DU)</result>" ```
-
-
-
+echo "<result>$(printf "%02d\n" $DU)</result>" 
+```
 
 ##### _v1.0 - Initial Commit_
 ##### _v1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps_
