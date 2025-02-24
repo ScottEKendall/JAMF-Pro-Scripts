@@ -1,8 +1,8 @@
 ## Grant Secure Token
 
-Secure Tokens on macOS are used to allow users to:
-
 This script will determine the status of the user's SecureToken.  If there is a user on the system that can grant a secure token, then the logged in user will be able to use that information to assign themselves a secure token.
+
+Secure Tokens on macOS are used to allow users to:
 
 * Perform Software Updates
 * Approve Kernel Extensions
