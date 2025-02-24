@@ -29,5 +29,10 @@ Problems updatng the token (with error message)
 
 ![](/EscrowBootStrap/EscrowBootStrap_Failure.png)
 
+
+
+[JAMF Documentation on BootStrap Tokens](https://learn.jamf.com/en-US/bundle/technical-articles/page/Manually_Leveraging_Apples_Bootstrap_Token_Functionality.html)
+
+
 ##### _v1.0 - Initial Commit_
 ##### _v1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps_
