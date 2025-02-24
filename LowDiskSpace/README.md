@@ -1,6 +1,6 @@
 ## Low Disk Space
 
-Nice GUI alerting the user that there available disk space is below a certiain threshold
+Nice GUI alerting the user that their available disk space is below a certain threshold
 
 ![](/LowDiskSpace/LowDiskSpace.png)
 
