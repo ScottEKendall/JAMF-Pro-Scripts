@@ -10,6 +10,8 @@
 # Script Purpose: 
 #
 # 1.0 - Initial
+# 1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps
+# 1.2 - Fix issued with Grand Perpective option not showning correctly
 
 ######################################################################################################
 #
@@ -191,15 +193,13 @@ function display_welcome_message ()
         --checkbox "Directories only"
         --infobox "${SD_INFO_BOX_MSG}"
         --width 900
-        --height 450
+        --height 480
         --button1text "Ok"
         --button2text "Cancel"
-        --buttonstyle center
         --ontop
         )
 
-        [[ -x "${GRAND_PERSPECTIVE_APP}" ]] && MainDialogBody+=("--infobuttontext 'Use Grand Persepective'")
-
+        [[ -x "${GRAND_PERSPECTIVE_APP}" ]] && MainDialogBody+=(--infobuttontext "Grand Perspective")
         temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
         returnCode=$?
 

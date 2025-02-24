@@ -6,4 +6,5 @@ Quick script to display the largest files & folders in the User's home folder.  
 
 ##### _v1.0 - Initial Commit_
 ##### _v1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps_
+##### _v1.2 - Fix issued with Grand Perpective option not showning correctly_
 
