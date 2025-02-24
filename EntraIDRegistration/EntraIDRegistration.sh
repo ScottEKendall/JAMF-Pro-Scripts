@@ -12,6 +12,7 @@
 # 1.0 - Initial
 # 1.1 - Code cleanup to be more consistant with all apps
 # 1.2 - Fixed issue of Register button not running the JAMF policy
+# 1.3 - Removed debug code and fix incorrect message on success dialog
 #
 ######################################################################################################
 #
@@ -217,8 +218,6 @@ function construct_welcomemsg ()
   messageimage=""
   showRegisterButton=''
 
-  inTuneStatus="WPJ Key Present. AAD ID not acquired"
-
   case "${inTuneStatus}" in
 
     "Registered with Platform SSO" | "Registered" )
@@ -231,7 +230,6 @@ function construct_welcomemsg ()
     
     "Platform SSO registered but AAD ID not acquired" | "WPJ Key Present. AAD ID not acquired" )
 
-      messagebody="**AAD ID not acquired**<br><br>"
       messagebody+="There is a problem.  You have the WPJ certificate in your keychain,"
       messagebody+=" but JAMF has not successfully obtained your EntraID.  Your system"
       messagebody+=" will try again within the next two hours, or you can manually do it"
@@ -240,7 +238,6 @@ function construct_welcomemsg ()
       ;;
     
     "WPJ Key present, JamfAAD PLIST missing" )
-      messagebody="**WPJ Key present, JamfAAD PLIST missing**<br><br>"
       messagebody+="There is a problem.  You have a WPJ certificate in your keychain, and the Company Portal application was probably run, but \"Register with EntraID\" "
       messagebody+="has not. Please click on the \"Register\" below."
       showRegisterButton='Register'
