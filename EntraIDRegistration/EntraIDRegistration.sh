@@ -5,12 +5,13 @@
 # by: Scott Kendall
 #
 # Written: 02/03/2025
-# Last updated: 02/17/2025
+# Last updated: 02/22/2025
 #
 # Script Purpose: Backup the keychain file and delete the current keychain file(s)
 #
 # 1.0 - Initial
 # 1.1 - Code cleanup to be more consistant with all apps
+# 1.2 - Fixed issue of Register button not running the JAMF policy
 #
 ######################################################################################################
 #
@@ -215,7 +216,8 @@ function construct_welcomemsg ()
   messagebody="**${inTuneStatus}**<br><br>"
   messageimage=""
   showRegisterButton=''
-  noInTuneLaunch="No"
+
+  inTuneStatus="WPJ Key Present. AAD ID not acquired"
 
   case "${inTuneStatus}" in
 
@@ -225,11 +227,11 @@ function construct_welcomemsg ()
       messagebody+="obtained your Entra ID."
       messageimage="${SD_WPJ_IMAGE}"
       messageimagecpation="Remember, if you get a prompt similar to this, type in your password and click on \"Always Allow\""
-      NoInTuneLaunch="Yes"
       ;;
     
     "Platform SSO registered but AAD ID not acquired" | "WPJ Key Present. AAD ID not acquired" )
 
+      messagebody="**AAD ID not acquired**<br><br>"
       messagebody+="There is a problem.  You have the WPJ certificate in your keychain,"
       messagebody+=" but JAMF has not successfully obtained your EntraID.  Your system"
       messagebody+=" will try again within the next two hours, or you can manually do it"
@@ -238,6 +240,7 @@ function construct_welcomemsg ()
       ;;
     
     "WPJ Key present, JamfAAD PLIST missing" )
+      messagebody="**WPJ Key present, JamfAAD PLIST missing**<br><br>"
       messagebody+="There is a problem.  You have a WPJ certificate in your keychain, and the Company Portal application was probably run, but \"Register with EntraID\" "
       messagebody+="has not. Please click on the \"Register\" below."
       showRegisterButton='Register'
@@ -277,7 +280,7 @@ function welcomemsg ()
 
 		"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
     button=$?
-    [[ $button == 2 && "${NoInTuneLaunch}" == "No" ]] && /usr/local/bin/jamf policy -id $REGISTRATION_POLICY
+    [[ $button == 2 && "${showRegisterButton}" == "Register" ]] && /usr/local/bin/jamf policy -id $REGISTRATION_POLICY
 }
 
 ####################################################################################################
