@@ -24,4 +24,4 @@ User not registered at all
 ##### _v1.0 - Initial Commit_
 ##### _v1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps_
 ##### _v1.2 - Fix problem of Register button not running Policy ID_
-##### _v1.3 - Removed debug code and fix incorrect message on success dialog_
+##### _v1.3 - Removed debug code and fix incorrect message on failure dialog_

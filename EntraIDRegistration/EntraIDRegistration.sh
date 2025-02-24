@@ -12,7 +12,7 @@
 # 1.0 - Initial
 # 1.1 - Code cleanup to be more consistant with all apps
 # 1.2 - Fixed issue of Register button not running the JAMF policy
-# 1.3 - Removed debug code and fix incorrect message on success dialog
+# 1.3 - Removed debug code and fix incorrect message on failure dialog
 #
 ######################################################################################################
 #
