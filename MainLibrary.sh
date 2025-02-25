@@ -1,15 +1,16 @@
 #!/bin/zsh
 #
-# <appname>
+# Main Library
 #
 # by: Scott Kendall
 #
-# Written: 
-# Last updated:
+# Written: 01/03/2023
+# Last updated: 02/25/2025
 #
-# Script Purpose: 
+# Script Purpose: Main Library containing all of my commonly used fuctions.
 #
 # 1.0 - Initial
+# 1.1 - Code optimization
 
 ######################################################################################################
 #
@@ -33,7 +34,7 @@ FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 LOG_DIR="${SUPPORT_DIR}/logs"
 
@@ -47,7 +48,7 @@ MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
+#JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
 
 ###################################################
 #
@@ -60,7 +61,7 @@ SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}View FileVault Key"
 SD_INFO_BOX_MSG=""
 LOG_FILE="${LOG_DIR}/ViewFVKey.log"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
-OVERLAY_ICON="${ICON_FILES}FileVaultIcon.icns"
+OVERLAY_ICON="/Applications/Self Service.app"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
@@ -173,16 +174,15 @@ function cleanup_and_exit ()
 function welcomemsg ()
 {
     message=""
-    icon="https://d8p1x3h4xd5gq.cloudfront.net/59822132ca753d719145cc4c/public/601ee87d92b87d67659ff2f2.png"
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
 		--ontop
-		--icon "${icon}"
-		--overlayicon "/Applications/Self Service.app"
+		--icon "${SD_ICON_FILE}"
+		--overlayicon "${OVERLAY_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
-        --helpmessage "Device Compliance is necessary to ensure that your device meets specific security standards and protocols, helping protect and maintain the integrity of your data."
+        --helpmessage ""
 		--width 920
         --ignorednd
 		--quitkey 0
@@ -193,7 +193,7 @@ function welcomemsg ()
     # Example of appending items to the display array
     #    [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 520 --image "${SD_IMAGE_TO_DISPLAY}")
 
-	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     returnCode=$?
 }
 
@@ -363,21 +363,6 @@ function update_display_list ()
     esac
 }
 
-function erase_support_files ()
-{
-    # Erase the support files and generally clean up after ourselves
-    #
-    # RETURNS: None
-    /bin/rm -f "${LOCKFILE_PATH}"
-    /bin/rm -f "${CURRENT_DEFERAL_EXPIRATION_TIMESTAMP_FILE}"
-    /bin/rm -f "${DIALOG_COMMAND_FILE}"
-    /bin/rm -f "${OVERLAY_ICON}"
-    /bin/rm -f "${HARDWARE_ICON}"
-    /bin/rm -f "${JSON_OPTIONS_FILE_PAT}"
-    /bin/rm -f "${ANYCONNECT_PACKAGE_PATH}"
-
-}
-
 function unload_and_delete_daemon ()
 {
     # Unloads the launch daemon from launchctl
@@ -437,9 +422,7 @@ function read_lockfile_pid ()
     # RETURNS: A string representation of a PID or nothing if 
     #          the file is empty or doesnt exist
 
-    if [[ ! -e ${LOCKFILE_PATH} ]]; then
-        return
-    fi
+    [[ ! -e ${LOCKFILE_PATH} ]] && return
 
     pid=$(cat "${LOCKFILE_PATH}")
     echo $pid
