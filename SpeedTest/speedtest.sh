@@ -363,10 +363,11 @@ function perform_speedtest ()
     # PARMS Passed: None
     # Variables Expected: SpeedTest_Uplink, SpeedTest_DownLink, SpeedTest_Latency
 
-    results=$(networkQuality -v)
-    SpeedTest_Uplink=$(echo $results | grep "Uplink capacity" | awk -F ":" '{print $2}' | sed -n '1p')
-    SpeedTest_DownLink=$(echo $results | grep "Downlink capacity" | awk -F ":" '{print $2}' | sed -n '2p')
-    SpeedTest_Latency=$(echo $results | grep "Idle Latency" | sed -n '2p' | awk -F " " '{print $3}')
+    results=$(networkQuality -c)
+    SpeedTest_Uplink=$(( $(echo $results | plutil -extract 'ul_throughput' 'raw' -o - -) /1024 / 1024))
+    SpeedTest_DownLink=$(( $(echo $results | plutil -extract 'dl_throughput' 'raw' -o - -) /1024 / 1024))
+    SpeedTest_Latency=$(( $(echo $results | plutil -extract 'base_rtt' 'raw' -o - -) ))
+
 }
 
 function display_results ()
@@ -374,7 +375,7 @@ function display_results ()
     update_display_list "buttonenable"
     update_display_list "done"
     update_display_list "progress" "" "" "" "" 100
-    update_display_list "clear" "The speed test is complete.  Here are the results:<br><br>**Upload:** ${SpeedTest_Uplink}<br>**Download:** ${SpeedTest_DownLink}<br>**Latency:** ${SpeedTest_Latency}ms"
+    update_display_list "clear" "The speed test is complete.  Here are the results:<br><br>**Upload:** ${SpeedTest_Uplink} Mbps<br>**Download:** ${SpeedTest_DownLink} Mbps<br>**Latency:** $(printf "%.2f\n" ${SpeedTest_Latency} ) ms"
 }
 
 ##############################
