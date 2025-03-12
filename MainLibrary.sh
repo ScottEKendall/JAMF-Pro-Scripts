@@ -204,7 +204,9 @@ function welcomemsg ()
 ####################################################################################################
 autoload 'is-at-least'
 
+create_log_directory
 check_swift_dialog_install
+check_support_files
 create_infobox_message
 welcomemsg
 exit 0
