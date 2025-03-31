@@ -306,7 +306,7 @@ dialogarray=(
     --bannertitle "${SD_WINDOW_TITLE}"
     --icon "${SD_ICON}"
     --overlayicon ${OVERLAY_ICON}
-    --message "Sending the command to repair the JAMF binary will  enforce the enrollment process to run on system $computer_id.  Are you sure you want to continue?"
+    --message "Sending the command to repair the JAMF binary might enforce the enrollment process to run on system $computer_id.  Are you sure you want to continue?"
     --messagefont "name=Arial,size=17"
     --ontop
     --moveable
@@ -328,7 +328,7 @@ dialogarray=(
     --bannertitle "${SD_WINDOW_TITLE}"
     --icon "${SD_ICON}"
     --overlayicon "SF=checkmark.circle.fill,color=auto,weight=light,bgcolor=none"
-    --message "The command to repair the JAMF binary for $computer_id has been sent.  This process will also enforce the enrollment process to run."
+    --message "The command to repair the JAMF binary for $computer_id has been sent.  This process might also enforce the enrollment process to run."
     --messagefont "name=Arial,size=17"
     --ontop
     --moveable
