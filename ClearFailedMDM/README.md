@@ -19,3 +19,4 @@ Kudos to Karthikeyan Marappan for coming up with the concept.  I just put a nice
 Original source: https://gist.github.com/karthikeyan-mac/4c46121ddd95b43465bd1b5e53ce571c
 
 ##### _v1.0 - Initial Commit_
+##### _v1.1 - Changed wording of results screen to include device ID

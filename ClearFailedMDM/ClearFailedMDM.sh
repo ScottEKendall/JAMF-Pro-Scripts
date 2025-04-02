@@ -15,6 +15,7 @@
 # Adapted from the script by Karthikey-Mac.  Original Source here: https://gist.github.com/karthikeyan-mac/4c46121ddd95b43465bd1b5e53ce571c
 # 
 # 1.0 - Initial code
+# 1.1 - Changed wording of results screen to include device ID
 #
 ######################################################################################################
 #
@@ -227,11 +228,11 @@ function display_status_message ()
     )
 
     if [[ $1 == 'Fail' ]]; then
-        MainDialogBody+=(--message "There are failed MDM commands found on ths device.<br><br>Do you want to clear the errors at this time?")
+        MainDialogBody+=(--message "There are failed MDM commands found on device ${computer_id}.<br><br>Do you want to clear the errors at this time?")
         MainDialogBody+=(--button2text "Clear")
         MainDialogBody+=(--overlayicon warning)
     else
-        MainDialogBody+=(--message "No failed MDM commands were found for this device.")
+        MainDialogBody+=(--message "No failed MDM commands were found for device ${computer_id}.")
         MainDialogBody+=(--overlayicon SF="checkmark.circle.fill, color=green,weight=heavy")
     fi
 	

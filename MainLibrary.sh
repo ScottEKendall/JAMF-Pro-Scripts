@@ -195,6 +195,11 @@ function welcomemsg ()
 
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     returnCode=$?
+
+    # Examples of how to extra data from returned string
+    search_type=$(echo $temp | plutil -extract "SelectedOption" 'raw' -)
+    computer_id=$(echo $temp | plutil -extract "Device" 'raw' -)
+    reason=$(echo $temp | plutil -extract "Reason" 'raw' -)
 }
 
 ####################################################################################################
