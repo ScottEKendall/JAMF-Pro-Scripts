@@ -16,6 +16,7 @@
 # 
 # 1.0 - Initial code
 # 1.1 - Changed wording of results screen to include device ID
+# 1.2 - Added support for jq to pase results.  Also put in logic to install JQ from JAMF if missing
 #
 ######################################################################################################
 #
@@ -52,6 +53,7 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+JQ_FILE_INSTALL_POLICY="install_jq"
 
 #JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
 
@@ -152,6 +154,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -187,14 +190,14 @@ function display_welcome_message ()
         --iconsize 128
         --message "Please enter the serial or hostname of the device you want to check and/or clear the failed MDM commands on."
         --messagefont name=Arial,size=17
-        --textfield "Device,required"
-        --button1text "Continue"
-        --button2text "Quit"
-        --infobox "${SD_INFO_BOX_MSG}"
         --vieworder "dropdown,textfield"
         --selecttitle "Serial,required"
         --selectvalues "Serial Number, Hostname"
         --selectdefault "Hostname"
+        --textfield "Device,required"
+        --button1text "Continue"
+        --button2text "Quit"
+        --infobox "${SD_INFO_BOX_MSG}"
         --ontop
         --height 420
         --json
@@ -206,8 +209,8 @@ function display_welcome_message ()
      buttonpress=$?
     [[ $buttonpress = 2 ]] && exit 0
 
-    search_type=$(echo $message | plutil -extract "SelectedOption" 'raw' -)
-    computer_id=$(echo $message | plutil -extract "Device" 'raw' -)
+    search_type=$(echo $message | jq -r ".SelectedOption" )
+    computer_id=$(echo $message | jq -r ".Device" )
 }
 
 function display_status_message ()
