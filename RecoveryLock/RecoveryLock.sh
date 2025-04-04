@@ -208,7 +208,7 @@ function display_welcome_message ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --icon "${SD_ICON}"
         --iconsize 128
-        --message "${SD_DIALOG_GREETING}. Please enter the serial or hostname of the device you want to set or clear the recovery lock on.  Please Note: This only works on Apple Silicon Macs."
+        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial or hostname of the device you want to set or clear the recovery lock on.  Please Note: This only works on Apple Silicon Macs."
         --messagefont name=Arial,size=17
         --textfield "Device,required"
         --button1text "Continue"
