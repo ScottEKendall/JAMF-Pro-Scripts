@@ -162,6 +162,14 @@ function create_infobox_message()
 	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
 }
 
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit 0
+}
+
 function display_welcome_message ()
 {
      MainDialogBody=(
@@ -204,14 +212,15 @@ function invalid_device_message ()
           --icon "${SD_ICON}" 
           --overlayicon warning
           --infobox "${SD_INFO_BOX_MSG}"
-          --message "Device inventory not found for ${computer_id}. \nPlease make sure the device name or serial is correct."
+          --message "Device inventory not found for $computer_id. \nPlease make sure the device name or serial is correct."
           --messagefont "name=Arial,size=17"
           --ontop
+          --height 420
           --moveable
      )
           
      $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
-     exit 1
+     cleanup_and_exit
 }
 
 function get_JAMF_Server () 
@@ -230,7 +239,7 @@ function get_JAMF_DeviceID ()
     ID=$(/usr/bin/curl -sf --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" -H "Accept: application/json" | /usr/bin/plutil -extract results.0.id raw -)
 
     # if ID is not found, display a message or something...
-    [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* ]] && invalid_device_message
+    [[ "$ID" == *"Could not extract value"* || "$ID" == *"empty data"* ]] && invalid_device_message
     logMe "Device ID #$ID"
 }
 
@@ -307,6 +316,7 @@ function display_status_message ()
      --message "The Recovery Key for $computer_id is: <br>**$filevault_recovery_key_retrieved**<br><br>This key has also been put onto the clipboard"
      --messagefont "name=Arial,size=17"
      --width 900
+     --height 420
      --ontop
      --moveable
     )
