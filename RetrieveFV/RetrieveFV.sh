@@ -11,6 +11,7 @@
 #
 # 1.0 - Initial
 # 1.1 - Code cleanup to be more consistant with all apps
+# 1.2 - Use new JAMF API calls / Add more info in dialog screens
 
 ######################################################################################################
 #
@@ -301,6 +302,7 @@ function display_status_message ()
      --bannerimage "${SD_BANNER_IMAGE}"
      --bannertitle "${SD_WINDOW_TITLE}"
      --icon "${SD_ICON}" 
+     --infobox "${SD_INFO_BOX_MSG}"
      --overlayicon SF="checkmark.circle.fill, color=green,weight=heavy"
      --message "The Recovery Key for $computer_id is: <br>**$filevault_recovery_key_retrieved**<br><br>This key has also been put onto the clipboard"
      --messagefont "name=Arial,size=17"
