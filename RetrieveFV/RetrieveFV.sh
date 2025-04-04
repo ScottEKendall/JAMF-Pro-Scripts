@@ -12,6 +12,7 @@
 # 1.0 - Initial
 # 1.1 - Code cleanup to be more consistant with all apps
 # 1.2 - Use new JAMF API calls / Add more info in dialog screens
+# 1.3 - Change welcome dialog to have a more friendly greeting
 
 ######################################################################################################
 #
@@ -178,7 +179,7 @@ function display_welcome_message ()
           --icon "${SD_ICON}"
           --infobox "${SD_INFO_BOX_MSG}"
           --iconsize 100
-          --message "Please enter the serial of the device you wish to see the FV Recovey Key for. \n\n You must also provide a reason for retreiving the Recovery Key."
+          --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial of the device you wish to see the FV Recovey Key for. \n\n You must also provide a reason for retreiving the Recovery Key."
           --messagefont name=Arial,size=17
           --vieworder "dropdown,textfield"
           --textfield "Device,required"
