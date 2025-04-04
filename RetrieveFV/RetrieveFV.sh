@@ -34,7 +34,7 @@ FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 LOG_DIR="${SUPPORT_DIR}/logs"
 
@@ -48,7 +48,7 @@ MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
+#JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
 
 ###################################################
 #
@@ -59,7 +59,8 @@ JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_INFO_BOX_MSG=""
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}View FileVault Key"
-
+LOG_FILE="${LOG_DIR}/ViewFileVaultKey.log"
+SD_ICON="${ICON_FILES}FileVaultIcon.icns"
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 ##################################################
 #
@@ -69,8 +70,8 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 
 JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
-jamfpro_user=${4}                               # user name for JAMF Pro
-jamfpro_password=${5}                             
+CLIENT_ID=${4}                               # user name for JAMF Pro
+CLIENT_SECRET=${5}                             
 
 ####################################################################################################
 #
@@ -141,7 +142,23 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+}
+
+function create_infobox_message()
+{
+	################################
+	#
+	# Swift Dialog InfoBox message construct
+	#
+	################################
+
+	SD_INFO_BOX_MSG="## System Info ##\n"
+	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
+	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
+	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
 }
 
 function display_welcome_message ()
@@ -149,18 +166,19 @@ function display_welcome_message ()
      MainDialogBody=(
           --bannerimage "${SD_BANNER_IMAGE}"
           --bannertitle "${SD_WINDOW_TITLE}"
-          --icon "${OVERLAY_ICON}"
+          --icon "${SD_ICON}"
+          --infobox "${SD_INFO_BOX_MSG}"
           --iconsize 100
           --message "Please enter the serial of the device you wish to see the FV Recovey Key for. \n\n You must also provide a reason for retreiving the Recovery Key."
           --messagefont name=Arial,size=17
+          --vieworder "dropdown,textfield"
           --textfield "Device,required"
           --textfield "Reason,required"
-          --button1text "Continue"
-          --button2text "Quit"
-          --vieworder "dropdown,textfield"
           --selecttitle "Serial,required"
           --selectvalues "Serial Number, Hostname"
           --selectdefault "Hostname"
+          --button1text "Continue"
+          --button2text "Quit"
           --ontop
           --height 400
           --json
@@ -172,24 +190,57 @@ function display_welcome_message ()
      buttonpress=$?
     [[ $buttonpress = 2 ]] && exit 0
 
-     serial_num=$(echo $message | grep "Device" | awk -F '"Device" : "' '{print $2}' | awk -F '"' '{print $1}')
-     reason=$(echo $message | grep "Reason" | awk -F '"Reason" : "' '{print $2}' | awk -F '"' '{print $1}') # Thanks to ons-mart https://github.com/ons-mart
+     search_type=$(echo $message | plutil -extract 'SelectedOption' 'raw' -)
+     computer_id=$(echo $message | plutil -extract 'Device' 'raw' -)
+     reason=$(echo $message | plutil -extract 'Reason' 'raw' -)
 }
 
-function Get_JAMF_DeviceID ()
+function invalid_device_message ()
 {
-     ID=$(curl -s -H "Accept: text/xml" -H "Authorization: Bearer ${api_token}" ${jamfpro_url}/JSSResource/computers/serialnumber/"$serial_num" | xmllint --xpath '/computer/general/id/text()' -)
+     dialogarray=(
+          --bannerimage "${SD_BANNER_IMAGE}"
+          --bannertitle "${SD_WINDOW_TITLE}"
+          --icon "${SD_ICON}" 
+          --overlayicon warning
+          --infobox "${SD_INFO_BOX_MSG}"
+          --message "Device inventory not found for ${computer_id}. \nPlease make sure the device name or serial is correct."
+          --messagefont "name=Arial,size=17"
+          --ontop
+          --moveable
+     )
+          
+     $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
+     exit 1
 }
 
-function Get_JamfPro_API_Token ()
+function get_JAMF_Server () 
 {
+    jamfpro_url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
+    logMe "JAMF Pro server is: $jamfpro_url"
+}
 
-     # This function uses Basic Authentication to get a new bearer token for API authentication.
+function get_JAMF_DeviceID ()
+{
+    # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
+    # RETURN: the device ID for the device in question.
+    # PARMS: $1 - search identifier to use (serial or Hostname)
 
-     # Use user account's username and password credentials with Basic Authorization to request a bearer token.
+    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
+    ID=$(/usr/bin/curl -sf --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" -H "Accept: application/json" | /usr/bin/plutil -extract results.0.id raw -)
 
-     api_token=$(/usr/bin/curl -X POST --silent -u "${jamfpro_user}:${jamfpro_password}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
+    # if ID is not found, display a message or something...
+    [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* ]] && invalid_device_message
+    logMe "Device ID #$ID"
+}
 
+function get_JamfPro_Classic_API_Token ()
+{
+    # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
+    # PARMS: None
+    # RETURN: api_token
+    # EXPECTED: jamfpro_user, jamfpro_pasword, jamfpro_url
+
+     api_token=$(/usr/bin/curl -X POST --silent -u "${CLIENT_ID}:${CLIENT_SECRET}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
 }
 
 function API_Token_Valid_Check () 
@@ -244,67 +295,52 @@ function FileVault_Recovery_Key_Retrieval ()
      filevault_recovery_key_retrieved=$(/usr/bin/curl -sf --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" -H "Accept: application/json" | plutil -extract personalRecoveryKey raw -)   
 }
 
+function display_status_message ()
+{
+    MainDialogBody=(
+     --bannerimage "${SD_BANNER_IMAGE}"
+     --bannertitle "${SD_WINDOW_TITLE}"
+     --icon "${SD_ICON}" 
+     --overlayicon SF="checkmark.circle.fill, color=green,weight=heavy"
+     --message "The Recovery Key for $computer_id is: <br>**$filevault_recovery_key_retrieved**<br><br>This key has also been put onto the clipboard"
+     --messagefont "name=Arial,size=17"
+     --width 900
+     --ontop
+     --moveable
+    )
+
+    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    cleanup_and_exit
+}
 ########################
 #
 # Start of Main Program
 #
 ########################
 
+declare jamfpro_url
 declare api_token
 declare api_authentication_check
 declare ID
 declare reason
-declare serial_num
+declare computer_id
 
 autoload 'is-at-least'
-# Get Jamf Pro API bearer token
-
-jamfpro_url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
-jamfpro_url=${jamfpro_url%%/}
 
 create_log_directory
 check_support_files
 check_swift_dialog_install
+create_infobox_message
 display_welcome_message
 
-Get_JamfPro_API_Token
-Get_JAMF_DeviceID
+# Perform JAMF API calls to locate device and retreive the FV key
+get_JAMF_Server 
+get_JamfPro_Classic_API_Token
+get_JAMF_DeviceID ${search_type}
 
-if [[ "${ID}" == "" ]]; then
-     dialogarray=(
-          --bannerimage "${SD_BANNER_IMAGE}"
-          --bannertitle "${SD_WINDOW_TITLE}"
-          --icon "${OVERLAY_ICON}" 
-          --iconsize 100
-          --message "Device inventory not found. \nPlease make sure the device name or serial is correct."
-          --messagefont "name=Arial,size=17"
-          --ontop
-          --moveable
-     )
-          
-     $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
-     exit 1
-fi
-
+[[ -z $ID ]] && invalid_device_message
 
 Check_And_Renew_API_Token
 FileVault_Recovery_Key_Valid_Check
 FileVault_Recovery_Key_Retrieval
-
-# Show the result
-
-dialogarray=(
-     --bannerimage "${SD_BANNER_IMAGE}"
-     --bannertitle "${SD_WINDOW_TITLE}"
-     --icon "${OVERLAY_ICON}" 
-     --iconsize 100
-     --message "The Recovery Key for $serial_num is: <br>**$filevault_recovery_key_retrieved**<br><br>This key has also been put onto the clipboard"
-     --messagefont "name=Arial,size=17"
-     --width 900
-     --ontop
-     --moveable
-)
-echo $filevault_recovery_key_retrieved | xargs | pbcopy
-
-$SW_DIALOG "${dialogarray[@]}" 2>/dev/null
-exit 0
+display_status_message
