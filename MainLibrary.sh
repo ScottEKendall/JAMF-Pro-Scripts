@@ -483,23 +483,40 @@ function get_nic_info
     fi
 }
 
-function GetJAMFServer () 
+function check_JSS_Connection()
 {
+    # PURPOSE: Function to check connectivity to the Jamf Pro server
+    # RETURN: None
+    # EXPECTED: None
+
+    if ! /usr/local/bin/jamf -checkjssconnection -retry 5; then
+        logMe "Error: JSS connection not active."
+        exit 1
+    fi
+    logMe "JSS connection active!"
+}
+
+function get_JAMF_Server ()
+{
+    # PURPOSE: Retreive your JAMF server URL from the preferences file
+    # RETURN: None
+    # EXPECTED: None
+
     jamfpro_url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
+    logMe "JAMF Pro server is: $jamfpro_url"
 }
 
-function GetJamfProAPIToken ()
+function get_JAMF_Classic_API_Token ()
 {
+    # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
+    # PARMS: None
+    # RETURN: api_token
+    # EXPECTED: jamfpro_user, jamfpro_pasword, jamfpro_url
 
-    # This function uses Basic Authentication to get a new bearer token for API authentication.
-    # Use user account's username and password credentials with Basic Authorization to request a bearer token.
-    # 
-    # Parms expected: jampro_user, jamfpro_password,
-     api_token=$(/usr/bin/curl -X POST --silent -u "${jamfpro_user}:${jamfpro_password}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
+     api_token=$(/usr/bin/curl -X POST --silent -u "${CLIENT_ID}:${CLIENT_SECRET}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
 
 }
-
-function APITokenValidCheck () 
+function validate_JAMF_token () 
 {
      # Verify that API authentication is using a valid token by running an API command
      # which displays the authorization details associated with the current API user. 
@@ -508,13 +525,39 @@ function APITokenValidCheck ()
      api_authentication_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/auth" --request GET --header "Authorization: Bearer ${api_token}")
 }
 
-function CheckAndRenewAPIToken ()
+function get_JAMF_Access_Token()
+{
+    # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
+    # RETURN: connection stringe (either error code or valid data)
+    # PARMS: None
+    # EXPECTED: client_ID, client_secret, jamfpro_url
+
+    returnval=$(curl --silent --location --request POST "${jamfpro_url}/api/oauth/token" \
+        --header "Content-Type: application/x-www-form-urlencoded" \
+        --data-urlencode "client_id=${CLIENT_ID}" \
+        --data-urlencode "grant_type=client_credentials" \
+        --data-urlencode "client_secret=${CLIENT_SECRET}")
+    
+    if [[ -z "$returnval" ]]; then
+        logMe "Check Jamf URL"
+        exit 1
+    elif [[ "$returnval" == '{"error":"invalid_client"}' ]]; then
+        logMe "Check the API Client credentials and permissions"
+        exit 1
+    fi
+    
+    api_token=$(echo "$returnval" | plutil -extract access_token raw -)
+    token_expires_in=$(echo "$returnval" | plutil -extract expires_in raw -)
+    token_expiration_epoch=$((CURRENT_EPOCH + token_expires_in - 1))
+}
+
+function JAMF_Check_And_Renew_API_Token ()
 {
      # Verify that API authentication is using a valid token by running an API command
      # which displays the authorization details associated with the current API user. 
      # The API call will only return the HTTP status code.
 
-     APITokenValidCheck
+     validate_JAMF_token
 
      # If the api_authentication_check has a value of 200, that means that the current
      # bearer token is valid and can be used to authenticate an API call.
@@ -533,6 +576,62 @@ function CheckAndRenewAPIToken ()
 
           GetJamfProAPIToken
      fi
+}
+
+function get_JAMF_DeviceID ()
+{
+    # PURPOSE: uses the serial number or hostname to get the device ID (UDID) from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
+    # RETURN: the device ID (UDID) for the device in question.
+    # PARMS: $1 - search identifier to use (Serial or Hostname)
+
+    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
+
+    ID=$(/usr/bin/curl -sf --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" -H "Accept: application/json" | jq -r '.results[0].general.managementId')
+
+    # if ID is not found, display a message or something...
+    [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* ]] && display_failure_message
+    logMe "Device ID #$ID"
+}
+
+function invalidate_JAMF_Token()
+{
+    # PURPOSE: invalidate the JAMF Token to the server
+    # RETURN: None
+    # Expected jamfpro_url, ap_token
+
+    returnval=$(curl -w "%{http_code}" -H "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth/invalidate-token" -X POST -s -o /dev/null)
+
+    if [[ $returnval == 204 ]]; then
+        logMe "Token successfully invalidated"
+    elif [[ $returnval == 401 ]]; then
+        logMe "Token already invalid"
+    else
+        logMe "Unexpected response code: $returnval"
+        exit 1  # Or handle it in a different way (e.g., retry or log the error)
+    fi    
+}
+
+function sendRecoveryLockCommand()
+{
+    # PURPOSE: send the command to clear or remove the Recovery Lock 
+    # RETURN: None
+    # PARMS: $1 = Lock code to set (pass blank to clear)
+    # Expected jamfpro_url, ap_token, ID
+	local newPassword="$1"
+	
+	returnval=$(curl -w "%{http_code}" "$jamfpro_url/api/v2/mdm/commands" \
+		-H "accept: application/json" \
+		-H "Authorization: Bearer ${api_token}"  \
+		-H "Content-Type: application/json" \
+		-X POST -s -o /dev/null \
+		-d @- <<EOF
+		{
+			"clientData": [{ "managementId": "$ID", "clientType": "COMPUTER" }],
+			"commandData": { "commandType": "SET_RECOVERY_LOCK", "newPassword": "$newPassword" }
+		}
+EOF
+	)
+	logMe "Recovery Lock ${lockMode} for ${computer_id}"
 }
 
 function FileVaultRecoveryKeyValidCheck () 
