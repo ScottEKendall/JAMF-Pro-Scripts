@@ -67,7 +67,6 @@ BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Clear Failed MDM Commands"
 SD_INFO_BOX_MSG=""
 LOG_FILE="${LOG_DIR}/ClearFailedMDMCommands.log"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 SD_ICON="/Applications/Self Service.app"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
