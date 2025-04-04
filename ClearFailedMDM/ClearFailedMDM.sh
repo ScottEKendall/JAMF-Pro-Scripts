@@ -188,7 +188,7 @@ function display_welcome_message ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --icon "${SD_ICON}"
         --iconsize 128
-        --message "Please enter the serial or hostname of the device you want to check and/or clear the failed MDM commands on."
+        --message "${SD_DIALOG_GREETING}. Please enter the serial or hostname of the device you want to check and/or clear the failed MDM commands on."
         --messagefont name=Arial,size=17
         --vieworder "dropdown,textfield"
         --selecttitle "Serial,required"
