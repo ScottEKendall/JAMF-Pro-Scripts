@@ -204,6 +204,26 @@ function display_welcome_message ()
      reason=$(echo $message | plutil -extract 'Reason' 'raw' -)
 }
 
+function display_status_message ()
+{
+    MainDialogBody=(
+     --bannerimage "${SD_BANNER_IMAGE}"
+     --bannertitle "${SD_WINDOW_TITLE}"
+     --icon "${SD_ICON}" 
+     --infobox "${SD_INFO_BOX_MSG}"
+     --overlayicon SF="checkmark.circle.fill, color=green,weight=heavy"
+     --message "The Recovery Key for $computer_id is: <br>**$filevault_recovery_key_retrieved**<br><br>This key has also been put onto the clipboard"
+     --messagefont "name=Arial,size=17"
+     --width 900
+     --height 420
+     --ontop
+     --moveable
+    )
+
+    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    cleanup_and_exit
+}
+
 function invalid_device_message ()
 {
      dialogarray=(
@@ -324,12 +344,11 @@ function display_status_message ()
     $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
     cleanup_and_exit
 }
-########################
+####################################################################################################
 #
-# Start of Main Program
+# Main Script
 #
-########################
-
+####################################################################################################
 declare jamfpro_url
 declare api_token
 declare api_authentication_check
