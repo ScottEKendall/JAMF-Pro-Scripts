@@ -1,6 +1,6 @@
-## Set / Claer Recovery Lock
+## Set / Clear Recovery Lock
 
-Nice GUI method of setting or clearing the recovery lock.  This only works for Apple Silicon Macs.  It prevents the users from going into the recovery mode and changing options or reinstalling the OS
+Nice GUI method of setting or clearing the recovery lock.  *This only works for Apple Silicon Macs*.  It prevents the users from going into the recovery mode and changing options or reinstalling the OS
 
 Initial Welcome screen
 
