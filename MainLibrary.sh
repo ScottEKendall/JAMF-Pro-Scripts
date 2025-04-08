@@ -506,16 +506,17 @@ function get_JAMF_Server ()
     logMe "JAMF Pro server is: $jamfpro_url"
 }
 
-function get_JAMF_Classic_API_Token ()
+function get_JamfPro_Classic_API_Token ()
 {
     # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
     # PARMS: None
     # RETURN: api_token
-    # EXPECTED: jamfpro_user, jamfpro_pasword, jamfpro_url
+    # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
 
      api_token=$(/usr/bin/curl -X POST --silent -u "${CLIENT_ID}:${CLIENT_SECRET}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
 
 }
+
 function validate_JAMF_token () 
 {
      # Verify that API authentication is using a valid token by running an API command
@@ -530,7 +531,7 @@ function get_JAMF_Access_Token()
     # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
     # RETURN: connection stringe (either error code or valid data)
     # PARMS: None
-    # EXPECTED: client_ID, client_secret, jamfpro_url
+    # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
 
     returnval=$(curl --silent --location --request POST "${jamfpro_url}/api/oauth/token" \
         --header "Content-Type: application/x-www-form-urlencoded" \
@@ -547,8 +548,6 @@ function get_JAMF_Access_Token()
     fi
     
     api_token=$(echo "$returnval" | plutil -extract access_token raw -)
-    token_expires_in=$(echo "$returnval" | plutil -extract expires_in raw -)
-    token_expiration_epoch=$((CURRENT_EPOCH + token_expires_in - 1))
 }
 
 function JAMF_Check_And_Renew_API_Token ()
@@ -567,7 +566,7 @@ function JAMF_Check_And_Renew_API_Token ()
      # If the current bearer token is valid, it is used to connect to the keep-alive endpoint. This will
      # trigger the issuing of a new bearer token and the invalidation of the previous one.
 
-          api_token=$(/usr/bin/curl "${jamfpro_url}/api/v1/auth/keep-alive" --silent --request POST --header "Authorization: Bearer ${api_token}" | plutil -extract token raw -)
+          api_token=$(/usr/bin/curl "${jamfpro_url}/api/v1/auth/keep-alive" --silent --request POST -H "Authorization: Bearer ${api_token}" | plutil -extract token raw -)
 
      else
 
@@ -586,11 +585,11 @@ function get_JAMF_DeviceID ()
 
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
 
-    ID=$(/usr/bin/curl -sf --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" -H "Accept: application/json" | jq -r '.results[0].general.managementId')
+    ID=$(/usr/bin/curl -silent -fail --H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" | /usr/bin/plutil -extract results.0.id raw -)
 
     # if ID is not found, display a message or something...
     [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* ]] && display_failure_message
-    logMe "Device ID #$ID"
+    echo $ID
 }
 
 function invalidate_JAMF_Token()
@@ -599,7 +598,7 @@ function invalidate_JAMF_Token()
     # RETURN: None
     # Expected jamfpro_url, ap_token
 
-    returnval=$(curl -w "%{http_code}" -H "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth/invalidate-token" -X POST -s -o /dev/null)
+    returnval=$(/user/bin/curl -w "%{http_code}" -H "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth/invalidate-token" -X POST -s -o /dev/null)
 
     if [[ $returnval == 204 ]]; then
         logMe "Token successfully invalidated"
@@ -641,11 +640,23 @@ function FileVaultRecoveryKeyValidCheck ()
      #
      # The API call will only return the HTTP status code.
 
-     filevault_recovery_key_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" --request GET --header "Authorization: Bearer ${api_token}")
+     filevault_recovery_key_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" --request GET -H "Authorization: Bearer ${api_token}")
 }
 
 function FileVaultRecoveryKeyRetrieval () 
 {
      # Retrieves a FileVault recovery key from the computer inventory record.
-     filevault_recovery_key_retrieved=$(/usr/bin/curl -sf --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" -H "Accept: application/json" | plutil -extract personalRecoveryKey raw -)   
+     filevault_recovery_key_retrieved=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" | plutil -extract personalRecoveryKey raw -)   
+}
+
+function get_JAMF_InventoryRecord ()
+{
+    # PURPOSE: Uses the JAMF 
+    # RETURN: the device ID (UDID) for the device in question.
+    # PARMS: $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
+    #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
+    #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
+    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$ID?section=$1" 2>/dev/null)
+    echo $retval
+
 }
