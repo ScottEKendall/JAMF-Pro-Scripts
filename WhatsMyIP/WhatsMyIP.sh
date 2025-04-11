@@ -11,6 +11,7 @@
 #
 # 1.0 - Initial rewrite using Swift Dialog prompts
 # 1.1 - Code cleanup to be more consistant with all apps
+# 1.2 - Reworked logic for all physical adapters to accomodate for older macs
 
 ######################################################################################################
 #
