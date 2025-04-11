@@ -137,24 +137,28 @@ function cleanup_and_exit ()
 
 function get_nic_info
 {
-    typeset -a nic_interfaces && nic_interfaces=( ${(f)"$( networksetup -listnetworkserviceorder | grep "Device:" | awk '{print $3, $NF}' )"} )
-
     # Get ISP Info
     isp=$(curl -s https://ipecho.net/plain)
     adapter+="ISP"
     mylocation=_$( get_geolocation $isp )_
-
     ip_address+="**$isp** $mylocation"
 
-    for i ($nic_interfaces); do
-        if [[ ${i} != *"bridge"* ]]; then
-            adapter+=$( echo $i | awk '{print $1}' | tr -d ',' )
-            interface=$( echo $i | awk '{print $2}')
-            ip=**$(ifconfig ${interface::-1} | grep "inet " | awk '{print $2}')**
-            [[ ${i} == *"Wi-Fi"* ]] && ip="$ip _($(/usr/bin/wdutil info | grep "SSID                 :" | tr -s ' ' | cut -d ' ' -f4 -f4-))_"
-            ip_address+=$ip
+    # Get all active intefaces
+
+    while read -r line; do
+        sname=$(echo "$line" | awk -F  "(, )|(: )|[)]" '{print $2}' | awk '{print $1}')
+        sdev=$(echo "$line" | awk -F  "(, )|(: )|[)]" '{print $4}')
+        if [[ -z "$sdev" ]]; then
+            continue
         fi
-    done
+        ifout="$(ifconfig "$sdev" 2>/dev/null)"
+        echo "$ifout" | grep 'status: active' > /dev/null 2>&1
+        if [[ "$?" -eq 0 ]]; then
+            currentip=$(echo "$ifout" | awk '/inet /{print $2}')
+            adapter+="$sname:" 
+            ip_address+="**$currentip**"
+        fi
+    done <<< "$(networksetup -listnetworkserviceorder | grep 'Hardware Port')"
 
     # Section for VPN IP Collection
 
