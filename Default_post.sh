@@ -1,8 +1,8 @@
 #!/bin/zsh
 
 ## last updated by: Scott Kendall
-## last updated on: Dec 5, 2024
-## Script version: 5.9.0
+## last updated on: April 10, 2025
+## Script version: 5.10.0
 
 ###############
 # App variables
@@ -30,6 +30,7 @@
 # jmf - Execute JAMF policy (by EventID)
 # dmg - Copy the contents of a DMG into the /Applications folder
 # chm - Insall chrome extensions into the user's chrome library
+# dsk - Install file onto users Desktop
 #
 #
 # Set the PATH to ensure a known good environment
@@ -38,8 +39,8 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LoggedInUser=$(echo "show State:/Users/ConsoleUser" | scutil | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 UserDir=$(dscl . -read /Users/${LoggedInUser} NFSHomeDirectory | awk '{ print $2 }' )
 
-appType="dmg"
-appName="IntelliJ IDEA CE.app"
+appType="dsk"
+appName="Join Raspberry Network.pdf"
 
 FolderPath=""
 CertPath="/Library/Frameworks/Python.framework/Versions/3.10/etc/openssl"
@@ -175,6 +176,10 @@ function set_file_paths()
 		"dae" )
 			DestPath="/Library/LaunchDaemons"
 			;;
+
+		"dsk" )
+			DestPath="${UserDir}\Desktop"
+			;;	
 
 		"app" | "pkg" | "sup" | "jmf" | "dmg" )
 			DestPath="/Applications"
