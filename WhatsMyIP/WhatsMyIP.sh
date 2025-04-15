@@ -5,13 +5,14 @@
 # by: Scott Kendall
 #
 # Written: 9/20/2023
-# Last updated: 02/13/2025
+# Last updated: 04/15/2025
 #
 # Script Purpose: Display the IP address on all adapters as well as Cisco VPN if they are connected
 #
 # 1.0 - Initial rewrite using Swift Dialog prompts
 # 1.1 - Code cleanup to be more consistant with all apps
 # 1.2 - Reworked logic for all physical adapters to accomodate for older macs
+# 1.3 - Included logic to display Wifi name if found
 
 ######################################################################################################
 #
@@ -138,6 +139,11 @@ function cleanup_and_exit ()
 
 function get_nic_info
 {
+
+    declare sname
+    declare sdev
+    declare sip
+
     # Get ISP Info
     isp=$(curl -s https://ipecho.net/plain)
     adapter+="ISP"
@@ -149,16 +155,12 @@ function get_nic_info
     while read -r line; do
         sname=$(echo "$line" | awk -F  "(, )|(: )|[)]" '{print $2}' | awk '{print $1}')
         sdev=$(echo "$line" | awk -F  "(, )|(: )|[)]" '{print $4}')
-        if [[ -z "$sdev" ]]; then
-            continue
-        fi
-        ifout="$(ifconfig "$sdev" 2>/dev/null)"
-        echo "$ifout" | grep 'status: active' > /dev/null 2>&1
-        if [[ "$?" -eq 0 ]]; then
-            currentip=$(echo "$ifout" | awk '/inet /{print $2}')
-            adapter+="$sname:" 
-            ip_address+="**$currentip**"
-        fi
+        currentip=$(ipconfig getifaddr $sdev)
+
+        [[ -z $currentip ]] && continue
+        adapter+="$sname"
+        [[ $sname == *"Wi-Fi"* ]] && wifiName="_($(sudo wdutil info | grep "SSID" | head -1 | awk -F ":" '{print $2}' | xargs))_" || wifiName=""        
+        ip_address+="**$currentip** $wifiName"
     done <<< "$(networksetup -listnetworkserviceorder | grep 'Hardware Port')"
 
     # Section for VPN IP Collection
@@ -194,7 +196,7 @@ function construct_dialog_header_settings()
 		"titlefont" : "shadow=1",
 		"button1text" : "OK",
 		"height" : "375",
-		"width" : "720",
+		"width" : "800",
 		"moveable" : "true",
 		"messageposition" : "top",'		
 }
@@ -210,7 +212,7 @@ function display_welcome_message()
 	WelcomeMsg="Listed below are the detected IP addresses on your Mac:<br><br>"
 
     for i in {1..$#adapter}; do
-        WelcomeMsg+=" * $adapter[$i] address: $ip_address[$i]<br>"
+        WelcomeMsg+=" * $adapter[$i]: $ip_address[$i]<br>"
     done
     
 	construct_dialog_header_settings "${WelcomeMsg}" > "${JSON_OPTIONS}"
