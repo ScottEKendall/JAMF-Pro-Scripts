@@ -426,6 +426,11 @@ function create_message_body ()
 
 function duration_in_days ()
 {
+    # PURPOSE: Calculate the difference between two dates
+    # RETURN: days elapsed
+    # EXPECTED: 
+    # PARMS: $1 - oldest date 
+    #        $2 - newest date
     local start end
     calendar_scandate $1        
     start=$REPLY        
@@ -469,28 +474,30 @@ get_JAMF_Server
 get_JamfPro_Classic_API_Token
 jamfID=$(get_JAMF_DeviceID ${search_type})
 
-FVSTATUS=$(get_filevault_status)
-mdmprofile=$(mdm_check)
-
 recordGeneral=$(get_JAMF_InventoryRecord "GENERAL")
 recordExtensions=$(get_JAMF_InventoryRecord "EXTENSION_ATTRIBUTES")
 
-userPassword=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Password Change Date") | .values[]' )
+# Construct the info necessary for the display
+filevaultStatus=$(get_filevault_status)
+mdmprofile=$(mdm_check)
 
+# These variables are specific to JAMF EA fields
+userPassword=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Password Change Date") | .values[]' )
+userPassword=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" $userPassword +"%Y-%m-%d")
+
+days=$(duration_in_days $userPassword $(date))
 
 create_message_body "Device Name" "${ICON_FILES}HomeFolderIcon.icns" "$MAC_LOCALNAME" "first"
 create_message_body "Serial Number" "https://www.iconshock.com/image/RealVista/Accounting/serial_number" "$MAC_SERIAL_NUMBER"
 create_message_body "User Logged In" "${ICON_FILES}UserIcon.icns" "$LOGGED_IN_USER"
-create_message_body "Password Last Changed" "https://www.iconarchive.com/download/i42977/oxygen-icons.org/oxygen/Apps-preferences-desktop-user-password.ico" $userPassword
+create_message_body "Password Last Changed" "https://www.iconarchive.com/download/i42977/oxygen-icons.org/oxygen/Apps-preferences-desktop-user-password.ico" "$userPassword ($days days old)"
 create_message_body "Current Network" "${ICON_FILES}GenericNetworkIcon.icns" "$wifiName"
 create_message_body "Active Connections" "${ICON_FILES}AirDrop.icns" "$adapter"
 create_message_body "Current IP" "https://www.iconarchive.com/download/i91394/icons8/windows-8/Network-Ip-Address.ico" "$currentIPAddress"
-create_message_body "FV Status" "${ICON_FILES}FileVaultIcon.icns" "$FVSTATUS"
+create_message_body "FV Status" "${ICON_FILES}FileVaultIcon.icns" "$filevaultStatus"
 create_message_body "Free Disk Space"  "https://ics.services.jamfcloud.com/icon/hash_522d1d726357cda2b122810601899663e468a065db3d66046778ceecb6e81c2b" "${FREE_DISK_SPACE}Gb $DiskFreeSpace% Free" 
 create_message_body "MDM Profile Status" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$mdmprofile" "last"
 
 display_welcome_message
+exit 0
 
-create_message_body $recordExtensions "extension.Attributes.definitionId" "JAMF ID"
-#create_message_body $recordGeneral "general.name" "Computer Name"
-#create_message_body $recordGeneral "general.lastReportedIp" "IP Address"
