@@ -11,6 +11,7 @@
 #
 # 1.0 - Initial
 # 1.1 - Code cleanup to be more consistant with all apps
+# 1.2 - fix the SD_ICON reference in the display prompt
 
 ######################################################################################################
 #
@@ -59,7 +60,7 @@ BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Battery Condition"
 SD_INFO_BOX_MSG=""
 LOG_FILE="${LOG_DIR}/BatteryCondition.log"
-SD_ICON_FILE="SF=minus.plus.batteryblock, color=green, weight=normal"
+SD_ICON="SF=minus.plus.batteryblock, color=green, weight=normal"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
@@ -195,7 +196,7 @@ function welcomemsg ()
 
 	MainDialogBody=(
         --message "${messagebody}"
-        --icon "${IMAGE_ICON}"
+        --icon "${SD_ICON}"
         --overlayicon "${OVERLAY_ICON}"
 		--height 420
 		--ontop
