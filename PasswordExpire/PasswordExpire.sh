@@ -69,7 +69,7 @@ OVERLAY_ICON="/Applications/Self Service.app"
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 JSS_FILE="/Library/Managed Preferences/com.gianteagle.jss.plist"
 SD_IMAGE_TO_DISPLAY="/Library/Application Support/GiantEagle/SupportFiles/PasswordChange.png"
-SD_IMAGE_POLCIY="install_passwordSS"
+SD_IMAGE_POLICY="install_passwordSS"
 SD_ICON_PRIMARY="AlertNoteIcon.icns"
 SD_TIMER="240"
 SD_ICON_PRIMARY="${ICON_FILES}${SD_ICON_PRIMARY}"
@@ -156,9 +156,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    if [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]]; then
-        [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -trigger ${SD_IMAGE_POLCIY}     
-    fi   
+    [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -trigger ${SD_IMAGE_POLICY}  
     # Make sure it is readable by everyone
     chmod +r "${SD_IMAGE_TO_DISPLAY}"
 }
@@ -254,6 +252,7 @@ function get_password_info()
         #found the key, so determine the days based off of that
         passwordAge=$(duration_in_days $passwordExpireDate $(date))
     fi
+    passwordAge=(($PASSWORD_EXPIRE_IN_DAYS - $passwordAge))
     echo ${passwordAge}
 }
 
@@ -271,12 +270,16 @@ create_infobox_message
 
 # Retrieve the users password ago and display he appropriate dialog box
 passwordAge=$(get_password_info)
+logMe "INFO: Users passsword age is: "$passwordAge
 
 if [[ ${passwordAge} -ge 8 ]]; then
     SD_WELCOME_MSG="Your are receiving this notice because your password is about to expire within the next ${passwordAge} days.  You can click on the 'Change Password...' option in **JAMF Connect** to change your password.  You will receive further notices when your password is about to expire within the next 7 days."
-    display_msg
+	logMe "INFO: Display prompt for user that password will expire in ${passwordAge} days"
+	display_msg
 else
     SD_WELCOME_MSG="Your password will expire in ${passwordAge} days."
+    logMe "INFO: Display notification for user that password will expire in ${passwordAge} days"
+
     display_notification
 fi
 exit 0
