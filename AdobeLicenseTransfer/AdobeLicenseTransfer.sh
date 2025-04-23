@@ -192,8 +192,8 @@ function display_welcome_message ()
         --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, Please fill out this form to have your Adobe license transferred from one store to another."
         --messagefont name=Arial,size=17
         --vieworder "dropdown,textfield"
-        --textfield "Old Store # to transfer from",required,prompt="4 Digit Store Code",name="OldStoreID",regex="\d{4}",regexerror="Old Store Code must be a four digit number"
-        --textfield "Old Store Artist Name",required,prompt="First.Last name",name="OldStoreUser"
+        --textfield "Previous Store # to transfer from",required,prompt="4 Digit Store Code",name="OldStoreID",regex="\d{4}",regexerror="Old Store Code must be a four digit number"
+        --textfield "Previous Store Artist Name",required,prompt="First.Last name",name="OldStoreUser"
         --textfield "New Store # to transfer to",required,prompt="4 Digit Store Code",name="NewStoreID",regex="\d{4}",regexerror="New Store Code must be a four digit number"
         --textfield "New Store Artist Name",required,prompt="First.Last Name",name="NewStoreUser",value=$LOGGED_IN_USER
         --button1text "Continue"
