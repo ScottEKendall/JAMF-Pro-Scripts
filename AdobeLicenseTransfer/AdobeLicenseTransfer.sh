@@ -8,6 +8,7 @@
 # Script for store users to request an Adobe license transfer 
 #
 # 1.0 - Initial code
+# 1.1 - more concise model name ("2023 Macbook Pro") vs ("MacBook Pro (14-inch, Nov 2023)")
 #
 ######################################################################################################
 #
@@ -25,7 +26,11 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-#MAC_MODEL=$(ioreg -l | awk '/product-name/ { split($0, line, "\""); printf("%s\n", line[4]); }')
+MAC_MODEL=$(ioreg -l | grep "product-name" | awk -F ' = ' '{print $2}' | tr -d '<>"')
+MAC_MODEL_YEAR=${MAC_MODEL: -5:4}
+MAC_MODEL=$(echo $MAC_MODEL | awk -F '(' '{print $1}' | xargs)
+MAC_MODEL_NAME=$MAC_MODEL_YEAR' '$MAC_MODEL
+
 MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
@@ -165,7 +170,7 @@ function create_infobox_message()
 	################################
 
 	SD_INFO_BOX_MSG="## System Info ##<br>"
-    #SD_INFO_BOX_MSG+="**${MAC_MODEL}**<br>"
+    SD_INFO_BOX_MSG+="**${MAC_MODEL_NAME}**<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
 	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
@@ -200,7 +205,7 @@ function display_welcome_message ()
         --button2text "Quit"
         --infobox "${SD_INFO_BOX_MSG}"
         --ontop
-        --height 440
+        --height 460
         --json
         --moveable
      )
@@ -226,7 +231,7 @@ function TSD_Ticket_message ()
         --button1action $TSD_URL
         --infobox "${SD_INFO_BOX_MSG}"
         --ontop
-        --height 440
+        --height 460
         --json
         --moveable
      )
