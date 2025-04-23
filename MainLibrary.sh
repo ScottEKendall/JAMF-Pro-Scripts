@@ -62,6 +62,7 @@ SD_INFO_BOX_MSG=""
 LOG_FILE="${LOG_DIR}/ViewFVKey.log"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 OVERLAY_ICON="/Applications/Self Service.app"
+JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
@@ -182,6 +183,7 @@ function welcomemsg ()
 		--overlayicon "${OVERLAY_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
         --helpmessage ""
 		--width 920
         --ignorednd
@@ -449,38 +451,29 @@ function set_lock_file_with_pid ()
     printf $$ > "${LOCKFILE_PATH}"
 }
 
-typeset -a adapter
-typeset -a ip_address
-
-function get_nic_info
+function get_nic_info ()
 {
-    # Creates two arrays showing the Adapter name & IP address of all found IP address running on a system.
-    # Detects for the presence of VPN adapter as well
-    #
-    # RETURNS: Two arrays (must be declared global outside of function)
-    typeset -a nic_interfaces && nic_interfaces=( ${(f)"$( networksetup -listnetworkserviceorder | grep "Device:" | awk '{print $3, $NF}' )"} )
 
-    # Get ISP Info
-    isp=$(curl -s https://ipecho.net/plain)
-    adapter+="ISP"
-    ip_address+=$isp
+    declare sname
+    declare sdev
+    declare sip
 
-    # Go thru all of the adapters and get the name & IP address of each on
-    for i ($nic_interfaces); do
-        if [[ ${i} != *"bridge"* ]]; then
-            adapter+=$( echo $i | awk '{print $1}' | tr -d ',' )
-            interface=$( echo $i | awk '{print $2}')
-            ip=$(ifconfig ${interface::-1} | grep "inet " | awk '{print $2}')
-            ip_address+=$ip
-        fi
-    done
-    
-    # If VPN is activate, get that info as well
+    # Get all active intefaces, its name & ip address
 
-    if [[ "$( echo 'state' | /opt/cisco/anyconnect/bin/vpn -s | grep -m 1 ">> state:" )" == *'Connected' ]]; then
-        ip_address+=$(/opt/cisco/anyconnect/bin/vpn -s stats | grep 'Client Address (IPv4)' | awk -F ': ' '{ print $2 }' | xargs)
-        adapter+="VPN"
-    fi
+    while read -r line; do
+        sname=$(echo "$line" | awk -F  "(, )|(: )|[)]" '{print $2}' | awk '{print $1}')
+        sdev=$(echo "$line" | awk -F  "(, )|(: )|[)]" '{print $4}')
+        sip=$(ipconfig getifaddr $sdev)
+
+        [[ -z $sip ]] && continue
+        currentIPAddress+="$(ipconfig getifaddr $sdev) | "
+        adapter+="$sname | " 
+    done <<< "$(networksetup -listnetworkserviceorder | grep 'Hardware Port')"
+
+    adapter=${adapter::-3}
+    currentIPAddress=${currentIPAddress::-3}
+    wifiName=$(sudo wdutil info | grep "SSID" | head -1 | awk -F ":" '{print $2}' | xargs)
+
 }
 
 function check_JSS_Connection()
@@ -585,7 +578,7 @@ function get_JAMF_DeviceID ()
 
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
 
-    ID=$(/usr/bin/curl -silent -fail --H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" | /usr/bin/plutil -extract results.0.id raw -)
+    ID=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" | /usr/bin/plutil -extract results.0.id raw -)
 
     # if ID is not found, display a message or something...
     [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* ]] && display_failure_message
