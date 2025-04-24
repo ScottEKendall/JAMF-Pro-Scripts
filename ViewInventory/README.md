@@ -4,19 +4,19 @@ I don't really want the Help Desk team to go into the JAMF server if it all poss
 
 **View Local Inventory**
 
-![View Inventory for local record](/JAMF-Pro-Scripts/ViewInventory/ViewInventory_Local.png)
+![View Inventory for local record](/ViewInventory/ViewInventory_Local.png)
 
 **View Remote Inventory** (will be prompted for JAMF device/hostname)
 
-![View Inventory for remote record](/JAMF-Pro-Scripts/ViewInventory/ViewInventory_Entry.png)
+![View Inventory for remote record](/ViewInventory/ViewInventory_Entry.png)
 
 Results of JAMF record
 
-![View Inventory for remote record](/JAMF-Pro-Scripts/ViewInventory/ViewInventory_Remote.png)
+![View Inventory for remote record](/ViewInventory/ViewInventory_Remote.png)
 
 **Parameters for System Script**
 
-![Parameters](/JAMF-Pro-Scripts/ViewInventory/ViewInventory_Parms.png)
+![Parameters](/ViewInventory/ViewInventory_Parms.png)
 
 
 ##### _v1.0 - Initial Commit_
