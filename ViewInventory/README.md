@@ -10,7 +10,7 @@ I don't really want the Help Desk team to go into the JAMF server if it all poss
 
 ![View Inventory for remote record](/ViewInventory/ViewInventory_Entry.png)
 
-Results of JAMF record
+Results of local JAMF record
 
 ![View Inventory for remote record](/ViewInventory/ViewInventory_Remote.png)
 
