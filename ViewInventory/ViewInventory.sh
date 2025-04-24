@@ -500,12 +500,18 @@ recordGeneral=$(get_JAMF_InventoryRecord "GENERAL")
 recordExtensions=$(get_JAMF_InventoryRecord "EXTENSION_ATTRIBUTES")
 recordHardware=$(get_JAMF_InventoryRecord "HARDWARE")
 recordStorage=$(get_JAMF_InventoryRecord "STORAGE")
+recordOperatingSystem=$(get_JAMF_InventoryRecord "OPERATING_SYSTEM")
 
 if [[ ${INVENTORY_MODE} == "local" ]]; then
 
     # Information to show if we are viewing local machine info
     SD_WINDOW_TITLE+=" (Local)"
     get_nic_info
+
+    SYSTEM_PROFILER_BATTERY_BLOB=$( /usr/sbin/system_profiler 'SPPowerDataType')
+    BatteryCondition=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Condition" | awk '{print $2}')
+    BatteryCycleCount=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Cycle Count" | awk '{print $3}')
+    BatteryCondition+=" ($BatteryCycleCount Cycles)"
 
     filevaultStatus=$(get_filevault_status)
     mdmprofile=$(mdm_check)
@@ -517,6 +523,16 @@ if [[ ${INVENTORY_MODE} == "local" ]]; then
     deviceStorage=$FREE_DISK_SPACE
     deviceTotalStorage=$TOTAL_DISK_SPACE
     deviceCPU=$MAC_CPU
+    macOSVersion=$MACOS_VERSION
+
+    JAMFLastCheckinTime=$(grep "Checking for policies triggered by \"recurring check-in\"" "/private/var/log/jamf.log" | tail -n 1 | awk '{ print $2,$3,$4 }')
+    JAMFLastCheckinTime=$(date -j -f "%b %d %H:%M:%S" $JAMFLastCheckinTime +"%Y-%m-%d %H:%M:%S")
+
+
+    # Last Reboot
+    boottime=$(sysctl kern.boottime | awk '{print $5}' | tr -d ,) # produces EPOCH time
+    formattedTime=$(date -jf %s "$boottime" +%F) #formats to a readable time
+    lastRebootFormatted=$(date -j -f "%Y-%m-%d" "$formattedTime" +"%Y-%d-%m")
 else
     # Users is viewing remote info, so create the information based on their JAMF record    
     # Some of the JAMF EA field are specific to our environment: "Password Plist Entry" & "Wi-Fi SSID"
@@ -525,11 +541,13 @@ else
     adapter="Wi-Fi"
     create_infobox_message
 
+    macOSVersion=$(echo $recordOperatingSystem | jq -r '.operatingSystem.version')
     deviceCPU=$(echo $recordHardware | jq -r '.hardware.processorType')
 
     deviceName=$(echo $recordGeneral | jq -r '.general.name')
 
     deviceModel=$(echo $recordHardware | jq -r '.hardware.model')
+    echo $deviceModel
 
     # do some work to format the device model correctly
 
@@ -540,6 +558,18 @@ else
     
     deviceSerialNumber=$(echo $recordHardware | jq -r '.hardware.serialNumber')
     deviceLastLoggedInUser=$(echo $recordGeneral | jq -r '.general.lastLoggedInUsernameBinary')
+
+    # JAMF Connection info
+    JAMFLastCheckinTime=$(echo $recordGeneral | jq -r '.general.lastContactTime')
+    JAMFLastCheckinTime=${JAMFLastCheckinTime:: -5}
+    JAMFLastCheckinTime=$(date -j -f "%Y-%m-%dT%H:%M:%S" $JAMFLastCheckinTime +"%Y-%m-%d %H:%M:%S")
+    
+    lastRebootFormatted=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Last Restart") | .values[]' )
+    lastRebootFormatted=$(date -j -f "%b %d" "$lastRebootFormatted" +"%Y-%m-%d")
+
+    days=$(duration_in_days $lastRebootFormatted $(date))
+    lastRebootFormatted+=" ($days day ago)"
+    BatteryCondition=$(echo $recordHardware | jq -r '.hardware.extensionAttributes[] | select(.name == "Battery Condition") | .values[]' )
 
     # Get Wi-Fi and IP address info
     wifiName=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Wi-Fi SSID") | .values[]' )
@@ -567,17 +597,21 @@ userPassword=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" $userPassword +"%Y-%m-%d")
 days=$(duration_in_days $userPassword $(date))
 
 create_message_body "Device Name" "${ICON_FILES}HomeFolderIcon.icns" "$deviceName" "first"
+create_message_body "maCOS Version" "${ICON_FILES}FinderIcon.icns" "macOS "$macOSVersion
 create_message_body "Model" "SF=apple.logo color=black" "$deviceModel"
 create_message_body "CPU Type" "SF=cpu.fill color=black" "$deviceCPU"
+create_message_body "Battery Condition" "SF=batteryblock.fill color=green" "${BatteryCondition}"
+create_message_body "Last Reboot" "https://use2.ics.services.jamfcloud.com/icon/hash_5d46c28310a0730f80d84afbfc5889bc4af8a590704bb9c41b87fc09679d3ebd" $lastRebootFormatted
 create_message_body "Serial Number" "https://www.iconshock.com/image/RealVista/Accounting/serial_number" "$deviceSerialNumber"
 create_message_body "User Logged In" "${ICON_FILES}UserIcon.icns" "$deviceLastLoggedInUser"
-create_message_body "Password Last Changed" "https://www.iconarchive.com/download/i42977/oxygen-icons.org/oxygen/Apps-preferences-desktop-user-password.ico" "$userPassword ($days days old)"
+create_message_body "Password Last Changed" "https://www.iconarchive.com/download/i42977/oxygen-icons.org/oxygen/Apps-preferences-desktop-user-password.ico" "$userPassword ($days days ago)"
 create_message_body "Current Network" "${ICON_FILES}GenericNetworkIcon.icns" "$wifiName"
 create_message_body "Active Connections" "${ICON_FILES}AirDrop.icns" "$adapter"
 create_message_body "Current IP" "https://www.iconarchive.com/download/i91394/icons8/windows-8/Network-Ip-Address.ico" "$currentIPAddress"
 create_message_body "FileVault Status" "${ICON_FILES}FileVaultIcon.icns" "$filevaultStatus"
 create_message_body "Free Disk Space"  "https://ics.services.jamfcloud.com/icon/hash_522d1d726357cda2b122810601899663e468a065db3d66046778ceecb6e81c2b" "${deviceStorage}Gb ($DiskFreeSpace% Free)"
 create_message_body "JAMF ID #" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" $jamfID
+create_message_body "Last Jamf Checkin:" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$JAMFLastCheckinTime"
 create_message_body "MDM Profile Status" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$mdmprofile" "last"
 
 display_device_info
