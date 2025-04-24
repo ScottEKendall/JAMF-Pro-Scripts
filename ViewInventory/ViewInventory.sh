@@ -8,6 +8,7 @@
 # Script to view inventory detail of a JAMF record and show pertitent info in SwiftDialog
 # 
 # 1.0 - Initial code
+# 1.1 - Added addition logic for Mac mini...it isn't formatted the same as regular model names
 #
 ######################################################################################################
 #
@@ -543,16 +544,21 @@ else
 
     macOSVersion=$(echo $recordOperatingSystem | jq -r '.operatingSystem.version')
     deviceCPU=$(echo $recordHardware | jq -r '.hardware.processorType')
-
     deviceName=$(echo $recordGeneral | jq -r '.general.name')
-
     deviceModel=$(echo $recordHardware | jq -r '.hardware.model')
-    echo $deviceModel
 
     # do some work to format the device model correctly
 
     MAC_MODEL=$(echo $deviceModel | sed 's/\[[^][]*\]//g' | xargs)
-    MAC_MODEL_YEAR=${MAC_MODEL: -5:4}
+
+    # Use parameter expansion to extract the numbers within parentheses
+    if [[ ${MAC_MODEL} == *"mini"* ]]; then
+        year="${MAC_MODEL##*\(}"
+        MAC_MODEL_YEAR="${year%%\)*}"
+    else
+        MAC_MODEL_YEAR=${MAC_MODEL: -5:4}
+    fi
+   
     MAC_MODEL=$(echo $MAC_MODEL | awk -F '(' '{print $1}' | xargs)
     deviceModel=$MAC_MODEL" ($MAC_MODEL_YEAR)"
     
@@ -563,7 +569,7 @@ else
     JAMFLastCheckinTime=$(echo $recordGeneral | jq -r '.general.lastContactTime')
     JAMFLastCheckinTime=${JAMFLastCheckinTime:: -5}
     JAMFLastCheckinTime=$(date -j -f "%Y-%m-%dT%H:%M:%S" $JAMFLastCheckinTime +"%Y-%m-%d %H:%M:%S")
-    
+
     lastRebootFormatted=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Last Restart") | .values[]' )
     lastRebootFormatted=$(date -j -f "%b %d" "$lastRebootFormatted" +"%Y-%m-%d")
 
