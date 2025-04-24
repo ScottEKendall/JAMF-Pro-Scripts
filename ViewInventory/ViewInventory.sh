@@ -25,16 +25,14 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_MODEL=$(ioreg -l | awk '/product-name/ { split($0, line, "\""); printf("%s\n", line[4]); }')
+MAC_MODEL=$(ioreg -l | grep "product-name" | awk -F ' = ' '{print $2}' | tr -d '<>"')
 MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 TOTAL_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Total Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
 MAC_LOCALNAME=$(scutil --get LocalHostName)
-MAC_SHARENAME=$(scutil --get HostName)
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
@@ -80,7 +78,7 @@ JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automaticall
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID="$4"
 CLIENT_SECRET="$5"
-LOCK_CODE="$6"
+INVENTORY_MODE=${6:-"local"}
 ####################################################################################################
 #
 # Functions
@@ -181,7 +179,39 @@ function cleanup_and_exit ()
 	exit 0
 }
 
-function display_welcome_message ()
+function display_device_entry_message ()
+{
+     MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${SD_ICON}"
+        --iconsize 128
+        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial or hostname of the device you want to view the inventory of"
+        --messagefont name=Arial,size=17
+        --vieworder "dropdown,textfield"
+        --selecttitle "Serial,required"
+        --selectvalues "Serial Number, Hostname"
+        --selectdefault "Hostname"
+        --textfield "Device,required"
+        --button1text "Continue"
+        --button2text "Quit"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --ontop
+        --height 420
+        --json
+        --moveable
+     )
+	
+     message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+
+     buttonpress=$?
+    [[ $buttonpress = 2 ]] && exit 0
+
+    search_type=$(echo $message | jq -r ".SelectedOption" )
+    computer_id=$(echo $message | jq -r ".Device" )
+}
+
+function display_device_info ()
 {
     local message
      MainDialogBody=(
@@ -193,7 +223,8 @@ function display_welcome_message ()
         --infobox "${SD_INFO_BOX_MSG}"
         --ontop
         --jsonfile "${JSON_OPTIONS}"
-        --height 700
+        --height 790
+        --width 920
         --json
         --moveable
         --button1text "OK"
@@ -214,13 +245,13 @@ function display_status_message ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --icon "${SD_ICON}"
         --message "${msg}"
-        --overlayicon SF="checkmark.circle.fill, color=green,weight=heavy"
+        --overlayicon "SF=checkmark.circle.fill,color=green,weight=heavy"
         --infobox "${SD_INFO_BOX_MSG}"
         --iconsize 128
         --messagefont name=Arial,size=17
         --button1text "Quit"
         --ontop
-        --height 420
+        --height 460
         --json
         --moveable
     )
@@ -397,17 +428,6 @@ function get_filevault_status ()
     fi
 }
 
-function create_mdm_message_body ()
-{
-    # PURPOSE: Construct the message body of the dialog box
-    # RETURN: None
-    # EXPECTED: message
-    # PARMS: $1 - JSON array to pull data from 
-    #        $2 - Field to extract
-    #        $3 - Display message
-    message+="$3: **$(echo $1 | plutil -extract $2 'raw' -)**<br>"
-}
-
 function create_message_body ()
 {
     declare line && line=""
@@ -445,6 +465,8 @@ function duration_in_days ()
 ####################################################################################################
 declare jamfpro_url
 declare api_token
+declare search_type
+declare computer_id
 declare jamfID
 declare search_type
 declare recordGeneral
@@ -453,19 +475,19 @@ declare message && message=""
 declare wifiName
 declare currentIPAddress
 
-search_type="serial"
-computer_id=$MAC_SERIAL_NUMBER
-
 autoload 'is-at-least'
 autoload 'calendar_scandate'
-
-DiskFreeSpace=$((100*$FREE_DISK_SPACE / $TOTAL_DISK_SPACE))
 
 create_log_directory
 check_swift_dialog_install
 check_support_files
-create_infobox_message
-get_nic_info
+
+if [[ ${INVENTORY_MODE} == "local" ]]; then
+    search_type="serial"
+    computer_id=$MAC_SERIAL_NUMBER
+else
+    display_device_entry_message
+fi
 
 # Perform JAMF API calls to locate device retrieve device info
 
@@ -476,28 +498,87 @@ jamfID=$(get_JAMF_DeviceID ${search_type})
 
 recordGeneral=$(get_JAMF_InventoryRecord "GENERAL")
 recordExtensions=$(get_JAMF_InventoryRecord "EXTENSION_ATTRIBUTES")
+recordHardware=$(get_JAMF_InventoryRecord "HARDWARE")
+recordStorage=$(get_JAMF_InventoryRecord "STORAGE")
 
-# Construct the info necessary for the display
-filevaultStatus=$(get_filevault_status)
-mdmprofile=$(mdm_check)
+if [[ ${INVENTORY_MODE} == "local" ]]; then
 
-# These variables are specific to JAMF EA fields
-userPassword=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Password Change Date") | .values[]' )
+    # Information to show if we are viewing local machine info
+    SD_WINDOW_TITLE+=" (Local)"
+    get_nic_info
+
+    filevaultStatus=$(get_filevault_status)
+    mdmprofile=$(mdm_check)
+
+    deviceName=$MAC_LOCALNAME
+    deviceModel=$MAC_MODEL
+    deviceSerialNumber=$MAC_SERIAL_NUMBER
+    deviceLastLoggedInUser=$LOGGED_IN_USER
+    deviceStorage=$FREE_DISK_SPACE
+    deviceTotalStorage=$TOTAL_DISK_SPACE
+    deviceCPU=$MAC_CPU
+else
+    # Users is viewing remote info, so create the information based on their JAMF record    
+    # Some of the JAMF EA field are specific to our environment: "Password Plist Entry" & "Wi-Fi SSID"
+
+    SD_WINDOW_TITLE+=" (Remote)"
+    adapter="Wi-Fi"
+    create_infobox_message
+
+    deviceCPU=$(echo $recordHardware | jq -r '.hardware.processorType')
+
+    deviceName=$(echo $recordGeneral | jq -r '.general.name')
+
+    deviceModel=$(echo $recordHardware | jq -r '.hardware.model')
+
+    # do some work to format the device model correctly
+
+    MAC_MODEL=$(echo $deviceModel | sed 's/\[[^][]*\]//g' | xargs)
+    MAC_MODEL_YEAR=${MAC_MODEL: -5:4}
+    MAC_MODEL=$(echo $MAC_MODEL | awk -F '(' '{print $1}' | xargs)
+    deviceModel=$MAC_MODEL" ($MAC_MODEL_YEAR)"
+    
+    deviceSerialNumber=$(echo $recordHardware | jq -r '.hardware.serialNumber')
+    deviceLastLoggedInUser=$(echo $recordGeneral | jq -r '.general.lastLoggedInUsernameBinary')
+
+    # Get Wi-Fi and IP address info
+    wifiName=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Wi-Fi SSID") | .values[]' )
+    currentIPAddress=$(echo $recordGeneral | jq -r '.general.lastReportedIp')
+
+    # FileVault status & Storage space
+    
+    deviceStorage=$(echo $recordStorage | jq -r '.storage.disks[].partitions[] | select(.name == "Data")' )
+    filevaultStatus=$(echo $deviceStorage | grep "fileVault2State" | awk -F ":" '{print $2}' | xargs | tr -d ",")
+    [[ $filevaultStatus == "ENCRYPTED" ]] && filevaultStatus="FV Enabled" || filevaultStatus="FV Not eanbled"
+
+    deviceTotalStorage=$(($(echo $deviceStorage | grep "sizeMegabytes" | awk -F ":" '{print $2}' | xargs | tr -d ",") / 1024 ))
+    deviceStorage=$(($(echo $deviceStorage | grep "availableMegabytes" | awk -F ":" '{print $2}' | xargs | tr -d ",") / 1024 ))
+
+fi
+
+# Disk Space calculation
+DiskFreeSpace=$((100 * $deviceStorage / $deviceTotalStorage ))
+
+# Password age calculation
+# These variables are specific to our JAMF EA field "Password Plist Entry"
+
+userPassword=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Password Plist Entry") | .values[]' )
 userPassword=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" $userPassword +"%Y-%m-%d")
-
 days=$(duration_in_days $userPassword $(date))
 
-create_message_body "Device Name" "${ICON_FILES}HomeFolderIcon.icns" "$MAC_LOCALNAME" "first"
-create_message_body "Serial Number" "https://www.iconshock.com/image/RealVista/Accounting/serial_number" "$MAC_SERIAL_NUMBER"
-create_message_body "User Logged In" "${ICON_FILES}UserIcon.icns" "$LOGGED_IN_USER"
+create_message_body "Device Name" "${ICON_FILES}HomeFolderIcon.icns" "$deviceName" "first"
+create_message_body "Model" "SF=apple.logo color=black" "$deviceModel"
+create_message_body "CPU Type" "SF=cpu.fill color=black" "$deviceCPU"
+create_message_body "Serial Number" "https://www.iconshock.com/image/RealVista/Accounting/serial_number" "$deviceSerialNumber"
+create_message_body "User Logged In" "${ICON_FILES}UserIcon.icns" "$deviceLastLoggedInUser"
 create_message_body "Password Last Changed" "https://www.iconarchive.com/download/i42977/oxygen-icons.org/oxygen/Apps-preferences-desktop-user-password.ico" "$userPassword ($days days old)"
 create_message_body "Current Network" "${ICON_FILES}GenericNetworkIcon.icns" "$wifiName"
 create_message_body "Active Connections" "${ICON_FILES}AirDrop.icns" "$adapter"
 create_message_body "Current IP" "https://www.iconarchive.com/download/i91394/icons8/windows-8/Network-Ip-Address.ico" "$currentIPAddress"
-create_message_body "FV Status" "${ICON_FILES}FileVaultIcon.icns" "$filevaultStatus"
-create_message_body "Free Disk Space"  "https://ics.services.jamfcloud.com/icon/hash_522d1d726357cda2b122810601899663e468a065db3d66046778ceecb6e81c2b" "${FREE_DISK_SPACE}Gb $DiskFreeSpace% Free" 
+create_message_body "FileVault Status" "${ICON_FILES}FileVaultIcon.icns" "$filevaultStatus"
+create_message_body "Free Disk Space"  "https://ics.services.jamfcloud.com/icon/hash_522d1d726357cda2b122810601899663e468a065db3d66046778ceecb6e81c2b" "${deviceStorage}Gb ($DiskFreeSpace% Free)"
+create_message_body "JAMF ID #" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" $jamfID
 create_message_body "MDM Profile Status" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$mdmprofile" "last"
 
-display_welcome_message
+display_device_info
 exit 0
-
