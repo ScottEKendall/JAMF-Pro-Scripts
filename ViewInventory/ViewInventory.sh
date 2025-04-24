@@ -554,10 +554,10 @@ else
     # Use parameter expansion to extract the numbers within parentheses
     if [[ ${MAC_MODEL} == *"mini"* ]]; then
         year="${MAC_MODEL##*\(}"
-        MAC_MODEL_YEAR="${year%%\)*}"
     else
-        MAC_MODEL_YEAR=${MAC_MODEL: -5:4}
+        year="${MAC_MODEL##*, }"
     fi
+    MAC_MODEL_YEAR="${year%%\)*}"
    
     MAC_MODEL=$(echo $MAC_MODEL | awk -F '(' '{print $1}' | xargs)
     deviceModel=$MAC_MODEL" ($MAC_MODEL_YEAR)"
