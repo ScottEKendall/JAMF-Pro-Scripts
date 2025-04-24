@@ -4,7 +4,7 @@ This was born out of necessity.  In our environment, we have to transfer license
 
 Inital Welcome screen
 
-![](AdobeLicenseTransfer/AdobeLicenseTransfer_Welcome.png)
+![](/AdobeLicenseTransfer/AdobeLicenseTransfer_Welcome.png)
 
 Results message after form
 
