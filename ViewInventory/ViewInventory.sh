@@ -411,6 +411,22 @@ function get_nic_info ()
 
 }
 
+function format_mac_model ()
+{
+    # PURPOSE: format the device model correctly showing just "Model (year)"...use parameter expansion to extract the numbers within parentheses
+    # RETURN: properly formatted model name
+    # PARAMS: $1 = Model name to convert
+
+    declare year
+    declare name
+    name=$(echo $1 | sed 's/\[[^][]*\]//g' | xargs)
+    name="${(C)name}"
+    [[ ${name} == *"Mini"* ]] && year="${name##*\(}" || year="${name##*, }"
+    year="${year%%\)*}"
+    name=$(echo $name | awk -F '(' '{print $1}' | xargs)
+    echo "$name ($year)"
+}
+
 function mdm_check ()
 {
     [[ ! -x /usr/local/jamf/bin/jamf ]] && { echo "JAMF Not installed"; exit 0;}
@@ -503,6 +519,8 @@ recordHardware=$(get_JAMF_InventoryRecord "HARDWARE")
 recordStorage=$(get_JAMF_InventoryRecord "STORAGE")
 recordOperatingSystem=$(get_JAMF_InventoryRecord "OPERATING_SYSTEM")
 
+invalidate_JAMF_Token
+
 if [[ ${INVENTORY_MODE} == "local" ]]; then
 
     # Information to show if we are viewing local machine info
@@ -518,7 +536,7 @@ if [[ ${INVENTORY_MODE} == "local" ]]; then
     mdmprofile=$(mdm_check)
 
     deviceName=$MAC_LOCALNAME
-    deviceModel=$MAC_MODEL
+    deviceModel=$(format_mac_model $MAC_MODEL)
     deviceSerialNumber=$MAC_SERIAL_NUMBER
     deviceLastLoggedInUser=$LOGGED_IN_USER
     deviceStorage=$FREE_DISK_SPACE
@@ -534,6 +552,10 @@ if [[ ${INVENTORY_MODE} == "local" ]]; then
     boottime=$(sysctl kern.boottime | awk '{print $5}' | tr -d ,) # produces EPOCH time
     formattedTime=$(date -jf %s "$boottime" +%F) #formats to a readable time
     lastRebootFormatted=$(date -j -f "%Y-%m-%d" "$formattedTime" +"%Y-%d-%m")
+
+    ####### Crowdstrike Falcon Connection Status
+    falcon_connect_status=$(sudo /Applications/Falcon.app/Contents/Resources/falconctl stats | grep "State:" | awk '{print $2}')
+
 else
     # Users is viewing remote info, so create the information based on their JAMF record    
     # Some of the JAMF EA field are specific to our environment: "Password Plist Entry" & "Wi-Fi SSID"
@@ -546,21 +568,10 @@ else
     deviceCPU=$(echo $recordHardware | jq -r '.hardware.processorType')
     deviceName=$(echo $recordGeneral | jq -r '.general.name')
     deviceModel=$(echo $recordHardware | jq -r '.hardware.model')
+    falcon_connect_status=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Crowdstrike Status") | .values[]' )
+    echo $falcon_connect_status
 
-    # do some work to format the device model correctly
-
-    MAC_MODEL=$(echo $deviceModel | sed 's/\[[^][]*\]//g' | xargs)
-
-    # Use parameter expansion to extract the numbers within parentheses
-    if [[ ${MAC_MODEL} == *"mini"* ]]; then
-        year="${MAC_MODEL##*\(}"
-    else
-        year="${MAC_MODEL##*, }"
-    fi
-    MAC_MODEL_YEAR="${year%%\)*}"
-   
-    MAC_MODEL=$(echo $MAC_MODEL | awk -F '(' '{print $1}' | xargs)
-    deviceModel=$MAC_MODEL" ($MAC_MODEL_YEAR)"
+    deviceModel=$(format_mac_model $deviceModel)
     
     deviceSerialNumber=$(echo $recordHardware | jq -r '.hardware.serialNumber')
     deviceLastLoggedInUser=$(echo $recordGeneral | jq -r '.general.lastLoggedInUsernameBinary')
@@ -602,15 +613,25 @@ userPassword=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.
 userPassword=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" $userPassword +"%Y-%m-%d")
 days=$(duration_in_days $userPassword $(date))
 
+# determine falcon status
+    if [[ $falcon_connect_status == "connected" ]]; then
+        falcon_connect_icon="success"
+        falcon_connect_status="Connected"
+    else
+        falcon_connect_icon="error"
+        falcon_connect_status="Not Connected"
+    fi
+
 create_message_body "Device Name" "${ICON_FILES}HomeFolderIcon.icns" "$deviceName" "first"
 create_message_body "maCOS Version" "${ICON_FILES}FinderIcon.icns" "macOS "$macOSVersion
+create_message_body "User Logged In" "${ICON_FILES}UserIcon.icns" "$deviceLastLoggedInUser"
+create_message_body "Password Last Changed" "https://www.iconarchive.com/download/i42977/oxygen-icons.org/oxygen/Apps-preferences-desktop-user-password.ico" "$userPassword ($days days ago)"
 create_message_body "Model" "SF=apple.logo color=black" "$deviceModel"
 create_message_body "CPU Type" "SF=cpu.fill color=black" "$deviceCPU"
+create_message_body "Crowdstrike Falcon" "/Applications/Falcon.app/Contents/Resources/AppIcon.icns" "$falcon_connect_status"
 create_message_body "Battery Condition" "SF=batteryblock.fill color=green" "${BatteryCondition}"
 create_message_body "Last Reboot" "https://use2.ics.services.jamfcloud.com/icon/hash_5d46c28310a0730f80d84afbfc5889bc4af8a590704bb9c41b87fc09679d3ebd" $lastRebootFormatted
 create_message_body "Serial Number" "https://www.iconshock.com/image/RealVista/Accounting/serial_number" "$deviceSerialNumber"
-create_message_body "User Logged In" "${ICON_FILES}UserIcon.icns" "$deviceLastLoggedInUser"
-create_message_body "Password Last Changed" "https://www.iconarchive.com/download/i42977/oxygen-icons.org/oxygen/Apps-preferences-desktop-user-password.ico" "$userPassword ($days days ago)"
 create_message_body "Current Network" "${ICON_FILES}GenericNetworkIcon.icns" "$wifiName"
 create_message_body "Active Connections" "${ICON_FILES}AirDrop.icns" "$adapter"
 create_message_body "Current IP" "https://www.iconarchive.com/download/i91394/icons8/windows-8/Network-Ip-Address.ico" "$currentIPAddress"
