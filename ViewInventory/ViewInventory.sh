@@ -229,6 +229,11 @@ function display_device_info ()
         --json
         --moveable
         --button1text "OK"
+        --infobutton 
+        --infobuttontext "Get Help" 
+        --infobuttonaction "https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d" 
+        --helpmessage "Free Disk Space must be above 50GB available.\n\n SMART Status must return 'Verified'.\n\n Last Jamf Checkin must be within 7 days.\n\n Last Reboot must be within 14 days.\n\n Battery Condition must return 'Normal'.\n\n Battery Cycle Count must be below 1000. \n\n Encryption status must return 'Filevault is on'.\n\n Crowdstrike Falcon must be connected.\n\n macOS must be on version $macOSversion2 or $macOSversion1" 
+
      )
 	
      message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
@@ -569,8 +574,8 @@ else
     deviceName=$(echo $recordGeneral | jq -r '.general.name')
     deviceModel=$(echo $recordHardware | jq -r '.hardware.model')
     falcon_connect_status=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Crowdstrike Status") | .values[]' )
-    echo $falcon_connect_status
-
+    zScaler_status=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "ZScaler Info") | .values[]' )
+    
     deviceModel=$(format_mac_model $deviceModel)
     
     deviceSerialNumber=$(echo $recordHardware | jq -r '.hardware.serialNumber')
@@ -614,13 +619,21 @@ userPassword=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" $userPassword +"%Y-%m-%d")
 days=$(duration_in_days $userPassword $(date))
 
 # determine falcon status
-    if [[ $falcon_connect_status == "connected" ]]; then
-        falcon_connect_icon="success"
-        falcon_connect_status="Connected"
-    else
-        falcon_connect_icon="error"
-        falcon_connect_status="Not Connected"
-    fi
+if [[ $falcon_connect_status == "connected" ]]; then
+    falcon_connect_icon="success"
+    falcon_connect_status="Connected"
+else
+    falcon_connect_icon="error"
+    falcon_connect_status="Not Connected"
+fi
+# determine zScaler status
+if [[ $zScaler_status == *"Logged In"* ]]; then
+    zScaler_status="Logged In"
+elif [[ $zScaler_status == *"Tunnel Bypassed"* ]]; then
+    zScaler_status="Bypassed"
+else
+    zScaler_status="Unknown"
+fi 
 
 create_message_body "Device Name" "${ICON_FILES}HomeFolderIcon.icns" "$deviceName" "first"
 create_message_body "maCOS Version" "${ICON_FILES}FinderIcon.icns" "macOS "$macOSVersion
@@ -629,6 +642,7 @@ create_message_body "Password Last Changed" "https://www.iconarchive.com/downloa
 create_message_body "Model" "SF=apple.logo color=black" "$deviceModel"
 create_message_body "CPU Type" "SF=cpu.fill color=black" "$deviceCPU"
 create_message_body "Crowdstrike Falcon" "/Applications/Falcon.app/Contents/Resources/AppIcon.icns" "$falcon_connect_status"
+create_message_body "zScaler" "/Applications/ZScaler/Zscaler.app/Contents/Resources/AppIcon.icns" "$zScaler_status"
 create_message_body "Battery Condition" "SF=batteryblock.fill color=green" "${BatteryCondition}"
 create_message_body "Last Reboot" "https://use2.ics.services.jamfcloud.com/icon/hash_5d46c28310a0730f80d84afbfc5889bc4af8a590704bb9c41b87fc09679d3ebd" $lastRebootFormatted
 create_message_body "Serial Number" "https://www.iconshock.com/image/RealVista/Accounting/serial_number" "$deviceSerialNumber"
