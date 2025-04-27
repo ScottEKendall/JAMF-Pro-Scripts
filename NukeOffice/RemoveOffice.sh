@@ -196,6 +196,7 @@ function display_welcome_msg ()
         --infobox "${SD_INFO_BOX_MSG}"
         --ignorednd
 		--quitkey 0
+        --height 500
 		--button1text "OK"
         --button2text "Cancel"
         --infobutton
@@ -249,5 +250,8 @@ function delete_files ()
 autoload 'is-at-least'
 
 create_log_directory
+check_swift_dialog_install
+check_support_files
+create_infobox_message
 display_welcome_msg
 cleanup_and_exit
