@@ -1,16 +1,16 @@
 #!/bin/zsh
 #
-# NukeAdbobeCC
+# Main Library
 #
 # by: Scott Kendall
 #
-# Written:  09/06/2024
-# Last updated: 02/25/2025
+# Written: 04/27/2025
+# Last updated: 04/27/2025
 #
-# Script Purpose: Completely remove Adobe Creative Cloud Suite from a users mac
+# Script Purpose:  Purpose: Completely remove MS Office Products from users mac
 #
 # 1.0 - Initial
-# 1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps
+# 1.1 - Code optimization
 
 ######################################################################################################
 #
@@ -48,8 +48,7 @@ MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-CONTAINERS_PATH="${USER_DIR}/Library/Containers/"
-GROUP_CONTAINERS_PATH="${USER_DIR}/Library/Group Containers/"
+#JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
 
 ###################################################
 #
@@ -61,7 +60,11 @@ BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Remove Microsoft Office"
 SD_INFO_BOX_MSG=""
 LOG_FILE="${LOG_DIR}/RemoveOffice.log"
-SD_ICON_FILE="/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"
+SD_ICON_FILE="/Applications/Microsoft Word.app"
+TSD_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
+OVERLAY_ICON="SF=trash.fill,color=black,weight=light"
+ContainersPath="${USER_DIR}/Library/Containers/"
+GroupContainersPath="${USER_DIR}/Library/Group Containers/"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
@@ -73,6 +76,7 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 
 JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
+LOG_TO_VIEW=${4:-"/var/log/system.log"} 
 
 ####################################################################################################
 #
@@ -155,7 +159,7 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##\n"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
 	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
@@ -171,36 +175,11 @@ function cleanup_and_exit ()
 	exit 0
 }
 
-function delete_files ()
+function display_welcome_msg ()
 {
-	for CleanUp_Path (
-        "/Applications/Microsoft Word.app"
-        "/Applications/Microsoft Powerpoint.app"
-        "/Applications/Microsoft Excel.app"
-        "/Applications/Microsoft Outlook.app"
-        "${CONTAINERS_PATH}com.microsoft.excel"
-        "${CONTAINERS_PATH}com.microsoft.Outlook"
-        "${CONTAINERS_PATH}com.microsoft.Outlook.CalendarWidget"
-        "${CONTAINERS_PATH}com.microsoft.Powerpoint"
-        "${CONTAINERS_PATH}com.microsoft.Word"
-        "${CONTAINERS_PATH}Microsoft Error Reporting"
-		"${CONTAINERS_PATH}Microsoft Excel"
-		"${CONTAINERS_PATH}Microsoft Outlook"
-		"${CONTAINERS_PATH}Microsoft Powerpoint"
-        "${CONTAINERS_PATH}Microsoft Word"
-		"${CONTAINERS_PATH}com.microsoft.netlib.shipassertprocess"
-		"${CONTAINERS_PATH}com.microsoft.Office365ServiceV2"
-		"${CONTAINERS_PATH}com.microsoft.RMS-XPCService"
-		"${GROUP_CONTAINERS_PATH}UBF8T346G9.ms"
-		"${GROUP_CONTAINERS_PATH}UBF8T346G9.Office"
-		"${GROUP_CONTAINERS_PATH}UBF8T346G9.OfficeOsfWebHost"
-	) { [[ -e "${CleanUp_Path}" ]] && { logMe "Cleaning up: ${CleanUp_Path}" ; /bin/rm -rf "${CleanUp_Path}" ; }}
-
-}
-
-function welcomemsg ()
-{
-    messagebody="This script is designed to completely remove the below listed applications in case you are having issues launching any of the office products.\n\n"
+    messagebody="This script is designed to completely remove the below listed applications in\n"
+    messagebody+="case you are having issues launching any\n"
+    messagebody+="of the office products.\n"
     messagebody+="* Microsoft Word\n"
     messagebody+="* Microsoft Excel\n"
     messagebody+="* Microsoft Outlook\n"
@@ -208,27 +187,56 @@ function welcomemsg ()
     messagebody+="The entire suite can be reinstalled from Self Service."
 
 	MainDialogBody=(
-        --message "${messagebody}"
-		--icon "/Applications/Microsoft Word.app"
-        --overlayicon "SF=trash.fill,color=black,weight=light"
-		--height 500
+        --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $messagebody"
 		--ontop
+		--icon "${SD_ICON_FILE}"
+		--overlayicon "${OVERLAY_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
-		--button1text "Delete"
-		--button2text "Cancel"
-		--buttonstyle center
+        --ignorednd
+		--quitkey 0
+		--button1text "OK"
+        --button2text "Cancel"
+        --infobutton
+        --moveable
+        --infobuttontext "Get Help" 
+        --infobuttonaction "$TSD_TICKET" 
     )
 
-	# Show the dialog screen and allow the user to choose
+    # Example of appending items to the display array
+    #    [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 520 --image "${SD_IMAGE_TO_DISPLAY}")
 
 	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-    returnCode=$?
+    buttonpress=$?
 
-	# User wants to continue, so delete the files
+    [[ ${buttonpress} -eq 0 ]] && delete_files
+}
 
-	[[ ${returnCode} -eq 0 ]] && delete_files
+function delete_files ()
+{
+	for CleanUp_Path (
+        "/Applications/Microsoft Word.app"
+        "/Applications/Microsoft Powerpoint.app"
+        "/Applications/Microsoft Excel.app"
+        "/Applications/Microsoft Outlook.app"
+        "${ContainersPath}com.microsoft.excel"
+        "${ContainersPath}com.microsoft.Outlook"
+        "${ContainersPath}com.microsoft.Outlook.CalendarWidget"
+        "${ContainersPath}com.microsoft.Powerpoint"
+        "${ContainersPath}com.microsoft.Word"
+        "${ContainersPath}Microsoft Error Reporting"
+		"${ContainersPath}Microsoft Excel"
+		"${ContainersPath}Microsoft Outlook"
+		"${ContainersPath}Microsoft Powerpoint"
+        "${ContainersPath}Microsoft Word"
+		"${ContainersPath}com.microsoft.netlib.shipassertprocess"
+		"${ContainersPath}com.microsoft.Office365ServiceV2"
+		"${ContainersPath}com.microsoft.RMS-XPCService"
+		"${GroupContainersPath}UBF8T346G9.ms"
+		"${GroupContainersPath}UBF8T346G9.Office"
+		"${GroupContainersPath}UBF8T346G9.OfficeOsfWebHost"
+	) { [[ -e "${CleanUp_Path}" ]] && { logMe "Cleaning up: ${CleanUp_Path}" ; /bin/rm -rf "${CleanUp_Path}" ; }}
 
 }
 
@@ -239,9 +247,7 @@ function welcomemsg ()
 #############################
 
 autoload 'is-at-least'
-check_swift_dialog_install
-check_support_files
-create_infobox_message
+
 create_log_directory
-welcomemsg
+display_welcome_msg
 cleanup_and_exit
