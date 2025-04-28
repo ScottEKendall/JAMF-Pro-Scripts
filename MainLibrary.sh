@@ -157,7 +157,7 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##\n"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
 	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
@@ -179,17 +179,18 @@ function welcomemsg ()
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-		--ontop
-		--icon "${SD_ICON_FILE}"
-		--overlayicon "${OVERLAY_ICON}"
-		--bannerimage "${SD_BANNER_IMAGE}"
-		--bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
+        --ontop
+        --icon "${SD_ICON_FILE}"
+        --overlayicon "${OVERLAY_ICON}"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --helpmessage ""
-		--width 920
+        --width 920
         --ignorednd
-		--quitkey 0
-		--button1text "OK"
+        --quitkey 0
+        --button1text "OK"
         --button2text "Create Ticket"
     )
 
