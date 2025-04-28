@@ -19,9 +19,7 @@
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
@@ -37,7 +35,6 @@ MAC_LOCALNAME=$(scutil --get LocalHostName)
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-#SD_BANNER_IMAGE="/Library/Application Support/GiantEagle/Enrollment/RedBackground.jpg"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 LOG_DIR="${SUPPORT_DIR}/logs"
 
@@ -51,6 +48,7 @@ MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 JQ_FILE_INSTALL_POLICY="install_jq"
+JSS_FILE="/Library/Managed Preferences/com.gianteagle.jss.plist"
 
 ###################################################
 #
@@ -80,6 +78,11 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 CLIENT_ID="$4"
 CLIENT_SECRET="$5"
 INVENTORY_MODE=${6:-"local"}
+MIN_OS_VERSION="${7:-"14.4"}" # Minimum version for macOS N
+MIN_HD_SPACE="${8:-"50"}" # Minimum amount of stroage available in gigabytes
+JAMF_CHECKIN_DELTA="${9:-"7"}" #Threshold days since last jamf checkin
+LAST_REBOOT_DELTA="${10:-"14"}" # Threshold days since last reboot
+
 ####################################################################################################
 #
 # Functions
@@ -450,7 +453,7 @@ function get_filevault_status ()
     if [[ ! -z $FV ]]; then
         echo "FV Enabled"
     else
-        [[ $(fdesetup status | grep On) ]] && echo "FV Enabled but not for current user" || echo "FV Not eanbled"
+        [[ $(fdesetup status | grep On) ]] && echo "FV Enabled but not for current user" || echo "FV Not enabled"
     fi
 }
 
@@ -458,15 +461,23 @@ function create_message_body ()
 {
     declare line && line=""
     # PURPOSE: Construct the message body of the dialog box
+    #"listitem" : [
+	#			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+
     # RETURN: None
     # EXPECTED: message
     # PARMS: $1 - title 
     #        $2 - icon
     #        $3 - listitem
-    #        $4 - first or last - construct appropriate listitem heders / footers
-    [[ "$4:l" == "first" ]] && line+='{"listitem" : ['
-    line+='{"title" : "'$1':", "icon" : "'$2'", "statustext" : "'$3'"},'
-    [[ "$4:l" == "last" ]] && line+=']}'
+    #        $4 - status
+    #        $5 - first or last - construct appropriate listitem heders / footers
+    [[ "$5:l" == "first" ]] && line+='{"listitem" : ['
+    if [[ -z $4 ]]; then
+        line+='{"title" : "'$1':", "icon" : "'$2'", "statustext" : "'$3'"},'
+    else
+        line+='{"title" : "'$1':", "icon" : "'$2'", "status" : "'$4'", "statustext" : "'$3'"},'
+    fi
+    [[ "$5:l" == "last" ]] && line+=']}'
     echo $line >> ${JSON_OPTIONS}
 }
 
@@ -483,6 +494,26 @@ function duration_in_days ()
     calendar_scandate $2        
     end=$REPLY        
     echo $(( ( end - start ) / ( 24 * 60 * 60 ) ))
+}
+
+function get_zscaler_info() 
+{
+    # Check to see if the zScaler tunnel is running
+
+    tunnel=$( pgrep -i ZscalerTunnel )
+
+    keychainKey=$(su - $LOGGED_IN_USER -c "security find-generic-password -l 'com.zscaler.tray'")
+
+    # If the keychain entry is not found, they haven't logged in
+    [[ ! -z $keychainKey ]] && zStatus="Logged In" || zStatus="Not Logged In"
+    [[ -z $tunnel ]] && zStatus="Tunnel Bypassed"
+
+    # if the http test doesn't resolve to zscaler, then the tunnel has been bypassed
+    orgsite=$(curl -fs https://ipinfo.io/json | grep org | awk -F ":" '{print $2}' | tr -d ",")
+    [[ $orgsite == *"ZSCALER"* && ! -z $keychainKey ]] && RESULT="Protected" || RESULT="No Active Tunnel"
+    
+    #report results
+    echo $zStatus
 }
 
 ####################################################################################################
@@ -510,81 +541,93 @@ check_swift_dialog_install
 check_support_files
 
 if [[ ${INVENTORY_MODE} == "local" ]]; then
-    search_type="serial"
-    computer_id=$MAC_SERIAL_NUMBER
-else
-    display_device_entry_message
-fi
 
-# Perform JAMF API calls to locate device retrieve device info
+    # Users is viewing local info, so pull all the data from current system  
 
-check_JSS_Connection
-get_JAMF_Server
-get_JamfPro_Classic_API_Token
-jamfID=$(get_JAMF_DeviceID ${search_type})
-
-recordGeneral=$(get_JAMF_InventoryRecord "GENERAL")
-recordExtensions=$(get_JAMF_InventoryRecord "EXTENSION_ATTRIBUTES")
-recordHardware=$(get_JAMF_InventoryRecord "HARDWARE")
-recordStorage=$(get_JAMF_InventoryRecord "STORAGE")
-recordOperatingSystem=$(get_JAMF_InventoryRecord "OPERATING_SYSTEM")
-
-invalidate_JAMF_Token
-
-if [[ ${INVENTORY_MODE} == "local" ]]; then
-
-    # Information to show if we are viewing local machine info
     SD_WINDOW_TITLE+=" (Local)"
     get_nic_info
-
-    SYSTEM_PROFILER_BATTERY_BLOB=$( /usr/sbin/system_profiler 'SPPowerDataType')
-    BatteryCondition=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Condition" | awk '{print $2}')
-    BatteryCycleCount=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Cycle Count" | awk '{print $3}')
-    BatteryCondition+=" ($BatteryCycleCount Cycles)"
-
-    filevaultStatus=$(get_filevault_status)
-    mdmprofile=$(mdm_check)
+    zScaler_status=$(get_zscaler_info)
 
     deviceName=$MAC_LOCALNAME
     deviceModel=$(format_mac_model $MAC_MODEL)
     deviceSerialNumber=$MAC_SERIAL_NUMBER
     deviceLastLoggedInUser=$LOGGED_IN_USER
-    deviceStorage=$FREE_DISK_SPACE
+    deviceAvailStorage=$FREE_DISK_SPACE
     deviceTotalStorage=$TOTAL_DISK_SPACE
     deviceCPU=$MAC_CPU
     macOSVersion=$MACOS_VERSION
 
+    # Battery Info
+    SYSTEM_PROFILER_BATTERY_BLOB=$( /usr/sbin/system_profiler 'SPPowerDataType')
+    BatteryCondition=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Condition" | awk '{print $2}')
+    BatteryCycleCount=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Cycle Count" | awk '{print $3}')
+    BatteryCondition+=" ($BatteryCycleCount Cycles)"
+
+    # FileVault status
+    filevaultStatus=$(get_filevault_status)
+    mdmprofile=$(mdm_check)
+
+    # JAMF Info
     JAMFLastCheckinTime=$(grep "Checking for policies triggered by \"recurring check-in\"" "/private/var/log/jamf.log" | tail -n 1 | awk '{ print $2,$3,$4 }')
     JAMFLastCheckinTime=$(date -j -f "%b %d %H:%M:%S" $JAMFLastCheckinTime +"%Y-%m-%d %H:%M:%S")
-
 
     # Last Reboot
     boottime=$(sysctl kern.boottime | awk '{print $5}' | tr -d ,) # produces EPOCH time
     formattedTime=$(date -jf %s "$boottime" +%F) #formats to a readable time
-    lastRebootFormatted=$(date -j -f "%Y-%m-%d" "$formattedTime" +"%Y-%d-%m")
+    lastRebootFormatted=$(date -j -f "%Y-%m-%d" "$formattedTime" +"%Y-%m-%d %H:%M:%S")
 
-    ####### Crowdstrike Falcon Connection Status
-    falcon_connect_status=$(sudo /Applications/Falcon.app/Contents/Resources/falconctl stats | grep "State:" | awk '{print $2}')
+    # Crowdstrike Falcon Connection Status
+    falcon_connect_status=$(sudo /Applications/Falcon.app/Contents/Resources/falconctl stats | grep "State:" | awk '{print $2}' | head -n 1)
+
+    # Last Password Update
+    userPassword=$(/usr/libexec/plistbuddy -c "print PasswordLastChanged" $JSS_FILE 2>&1)
 
 else
+
     # Users is viewing remote info, so create the information based on their JAMF record    
     # Some of the JAMF EA field are specific to our environment: "Password Plist Entry" & "Wi-Fi SSID"
+    # Perform JAMF API calls to locate device info
+
+    create_infobox_message
+    display_device_entry_message
+    check_JSS_Connection
+    get_JAMF_Server
+    get_JamfPro_Classic_API_Token
+    jamfID=$(get_JAMF_DeviceID ${search_type})
+
+    recordGeneral=$(get_JAMF_InventoryRecord "GENERAL")
+    recordExtensions=$(get_JAMF_InventoryRecord "EXTENSION_ATTRIBUTES")
+    recordHardware=$(get_JAMF_InventoryRecord "HARDWARE")
+    recordStorage=$(get_JAMF_InventoryRecord "STORAGE")
+    recordOperatingSystem=$(get_JAMF_InventoryRecord "OPERATING_SYSTEM")
+    invalidate_JAMF_Token
 
     SD_WINDOW_TITLE+=" (Remote)"
     adapter="Wi-Fi"
-    create_infobox_message
 
-    macOSVersion=$(echo $recordOperatingSystem | jq -r '.operatingSystem.version')
-    deviceCPU=$(echo $recordHardware | jq -r '.hardware.processorType')
     deviceName=$(echo $recordGeneral | jq -r '.general.name')
     deviceModel=$(echo $recordHardware | jq -r '.hardware.model')
-    falcon_connect_status=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Crowdstrike Status") | .values[]' )
-    zScaler_status=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "ZScaler Info") | .values[]' )
-    
     deviceModel=$(format_mac_model $deviceModel)
-    
     deviceSerialNumber=$(echo $recordHardware | jq -r '.hardware.serialNumber')
     deviceLastLoggedInUser=$(echo $recordGeneral | jq -r '.general.lastLoggedInUsernameBinary')
+
+    deviceAvailStorage=$(echo $recordStorage | jq -r '.storage.disks[].partitions[] | select(.name == "Data")' )
+    deviceTotalStorage=$(($(echo $deviceAvailStorage | grep "sizeMegabytes" | awk -F ":" '{print $2}' | tr -d " ,") / 1024 ))
+    deviceAvailStorage=$(($(echo $deviceAvailStorage | grep "availableMegabytes" | awk -F ":" '{print $2}' | tr -d " ,") / 1024 ))
+
+    deviceCPU=$(echo $recordHardware | jq -r '.hardware.processorType')
+    macOSVersion=$(echo $recordOperatingSystem | jq -r '.operatingSystem.version')
+    BatteryCondition=$(echo $recordHardware | jq -r '.hardware.extensionAttributes[] | select(.name == "Battery Condition") | .values[]' )
+
+    # FileVault status & Storage space
+    
+    tempFVStoage=$(echo $recordStorage | jq -r '.storage.disks[].partitions[] | select(.name == "Data")' )
+    filevaultStatus=$(echo $tempFVStoage | grep "fileVault2State" | awk -F ":" '{print $2}' | xargs | tr -d ",")
+
+    [[ $filevaultStatus == "ENCRYPTED" ]] && filevaultStatus="FV Enabled" || filevaultStatus="FV Not eanbled"
+
+    falcon_connect_status=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Crowdstrike Status") | .values[]' )
+    zScaler_status=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "ZScaler Info") | .values[]' )
 
     # JAMF Connection info
     JAMFLastCheckinTime=$(echo $recordGeneral | jq -r '.general.lastContactTime')
@@ -592,73 +635,89 @@ else
     JAMFLastCheckinTime=$(date -j -f "%Y-%m-%dT%H:%M:%S" $JAMFLastCheckinTime +"%Y-%m-%d %H:%M:%S")
 
     lastRebootFormatted=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Last Restart") | .values[]' )
-    lastRebootFormatted=$(date -j -f "%b %d" "$lastRebootFormatted" +"%Y-%m-%d")
+    lastRebootFormatted=$(date -j -f "%b %d" "$lastRebootFormatted" +"%Y-%m-%d %H:%M:%S")
 
-    days=$(duration_in_days $lastRebootFormatted $(date))
-    lastRebootFormatted+=" ($days day ago)"
-    BatteryCondition=$(echo $recordHardware | jq -r '.hardware.extensionAttributes[] | select(.name == "Battery Condition") | .values[]' )
+    userPassword=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Password Plist Entry") | .values[]' )
 
     # Get Wi-Fi and IP address info
     wifiName=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Wi-Fi SSID") | .values[]' )
     currentIPAddress=$(echo $recordGeneral | jq -r '.general.lastReportedIp')
-
-    # FileVault status & Storage space
-    
-    deviceStorage=$(echo $recordStorage | jq -r '.storage.disks[].partitions[] | select(.name == "Data")' )
-    filevaultStatus=$(echo $deviceStorage | grep "fileVault2State" | awk -F ":" '{print $2}' | xargs | tr -d ",")
-    [[ $filevaultStatus == "ENCRYPTED" ]] && filevaultStatus="FV Enabled" || filevaultStatus="FV Not eanbled"
-
-    deviceTotalStorage=$(($(echo $deviceStorage | grep "sizeMegabytes" | awk -F ":" '{print $2}' | xargs | tr -d ",") / 1024 ))
-    deviceStorage=$(($(echo $deviceStorage | grep "availableMegabytes" | awk -F ":" '{print $2}' | xargs | tr -d ",") / 1024 ))
-
 fi
+
+# 
+# "Common" calculations for either local or remote information
+#
 
 # Disk Space calculation
-DiskFreeSpace=$((100 * $deviceStorage / $deviceTotalStorage ))
+DiskFreeSpace=$((100 * $deviceAvailStorage / $deviceTotalStorage ))
 
 # Password age calculation
-# These variables are specific to our JAMF EA field "Password Plist Entry"
 
-userPassword=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Password Plist Entry") | .values[]' )
 userPassword=$(date -j -f "%Y-%m-%dT%H:%M:%SZ" $userPassword +"%Y-%m-%d")
-days=$(duration_in_days $userPassword $(date))
+passswordAge=$(duration_in_days $userPassword $(date))
 
 # determine falcon status
-if [[ $falcon_connect_status == "connected" ]]; then
-    falcon_connect_icon="success"
-    falcon_connect_status="Connected"
-else
-    falcon_connect_icon="error"
-    falcon_connect_status="Not Connected"
-fi
+
+[[ $falcon_connect_status == "connected" ]] && falcon_connect_status="Connected" || falcon_connect_status="Not Connected"
+
 # determine zScaler status
 if [[ $zScaler_status == *"Logged In"* ]]; then
     zScaler_status="Logged In"
+    zScaler_status_icon="success"
 elif [[ $zScaler_status == *"Tunnel Bypassed"* ]]; then
     zScaler_status="Bypassed"
+    zScaler_status_icon="error"
 else
     zScaler_status="Unknown"
+    zScaler_status_icon="Fail"
 fi 
 
-create_message_body "Device Name" "${ICON_FILES}HomeFolderIcon.icns" "$deviceName" "first"
-create_message_body "maCOS Version" "${ICON_FILES}FinderIcon.icns" "macOS "$macOSVersion
-create_message_body "User Logged In" "${ICON_FILES}UserIcon.icns" "$deviceLastLoggedInUser"
-create_message_body "Password Last Changed" "https://www.iconarchive.com/download/i42977/oxygen-icons.org/oxygen/Apps-preferences-desktop-user-password.ico" "$userPassword ($days days ago)"
-create_message_body "Model" "SF=apple.logo color=black" "$deviceModel"
-create_message_body "CPU Type" "SF=cpu.fill color=black" "$deviceCPU"
-create_message_body "Crowdstrike Falcon" "/Applications/Falcon.app/Contents/Resources/AppIcon.icns" "$falcon_connect_status"
-create_message_body "zScaler" "/Applications/ZScaler/Zscaler.app/Contents/Resources/AppIcon.icns" "$zScaler_status"
-create_message_body "Battery Condition" "SF=batteryblock.fill color=green" "${BatteryCondition}"
-create_message_body "Last Reboot" "https://use2.ics.services.jamfcloud.com/icon/hash_5d46c28310a0730f80d84afbfc5889bc4af8a590704bb9c41b87fc09679d3ebd" $lastRebootFormatted
-create_message_body "Serial Number" "https://www.iconshock.com/image/RealVista/Accounting/serial_number" "$deviceSerialNumber"
-create_message_body "Current Network" "${ICON_FILES}GenericNetworkIcon.icns" "$wifiName"
-create_message_body "Active Connections" "${ICON_FILES}AirDrop.icns" "$adapter"
-create_message_body "Current IP" "https://www.iconarchive.com/download/i91394/icons8/windows-8/Network-Ip-Address.ico" "$currentIPAddress"
-create_message_body "FileVault Status" "${ICON_FILES}FileVaultIcon.icns" "$filevaultStatus"
-create_message_body "Free Disk Space"  "https://ics.services.jamfcloud.com/icon/hash_522d1d726357cda2b122810601899663e468a065db3d66046778ceecb6e81c2b" "${deviceStorage}Gb ($DiskFreeSpace% Free)"
-create_message_body "JAMF ID #" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" $jamfID
-create_message_body "Last Jamf Checkin:" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$JAMFLastCheckinTime"
-create_message_body "MDM Profile Status" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$mdmprofile" "last"
+# Calculate the pass/fail for requred items
+# OS versions
+
+is-at-least "${MIN_OS_VERSION}" "${macOSVersion}" && os_status_icon="success" || os_status_icon="fail"
+
+# Make sure there is enough free space
+if is-at-least "$MIN_HD_SPACE" "$deviceAvailStorage" ]]; then
+    hd_status_icon="success"
+else
+    hd_status_icon="fail"
+fi
+
+# check FV Status
+[[ $filevaultStatus == "FV Enabled" ]] && filevaultStatus_icon="success" || filevaultStatus_icon="fail"
+[[ $falcon_connect_status == "Connected" ]] && falcon_connect_icon="success" || falcon_connect_icon="fail"
+
+#Determine JAMF last check-in
+days=$(duration_in_days $JAMFLastCheckinTime $(date))
+[[ ${days} -le ${JAMF_CHECKIN_DELTA} ]] && JAMF_checkin_icon="success" || JAMF_checkin_icon="fail"
+
+#Determine last reboot
+
+days=$(duration_in_days $lastRebootFormatted $(date))
+[[ ${days} -le ${LAST_REBOOT_DELTA} ]] && reboot_icon="success" || reboot_icon="fail"
+
+# Construct the list of items and display it to the user
+
+create_message_body "Device Name" "${ICON_FILES}HomeFolderIcon.icns" "$deviceName" "" "first"
+create_message_body "macOS Version" "${ICON_FILES}FinderIcon.icns" "macOS "$macOSVersion "$os_status_icon" 
+create_message_body "User Logged In" "${ICON_FILES}UserIcon.icns" "$deviceLastLoggedInUser" ""
+create_message_body "Password Last Changed" "https://www.iconarchive.com/download/i42977/oxygen-icons.org/oxygen/Apps-preferences-desktop-user-password.ico" "$userPassword ($passswordAge days ago)" ""
+create_message_body "Model" "SF=apple.logo color=black" "$deviceModel" "" 
+create_message_body "CPU Type" "SF=cpu.fill color=black" "$deviceCPU" ""
+create_message_body "Crowdstrike Falcon" "/Applications/Falcon.app/Contents/Resources/AppIcon.icns" "$falcon_connect_status" "$falcon_connect_icon"
+create_message_body "zScaler" "/Applications/ZScaler/Zscaler.app/Contents/Resources/AppIcon.icns" "$zScaler_status" "$zScaler_status_icon"
+create_message_body "Battery Condition" "SF=batteryblock.fill color=green" "${BatteryCondition}" ""
+create_message_body "Last Reboot" "https://use2.ics.services.jamfcloud.com/icon/hash_5d46c28310a0730f80d84afbfc5889bc4af8a590704bb9c41b87fc09679d3ebd" $lastRebootFormatted "$reboot_icon"
+create_message_body "Serial Number" "https://www.iconshock.com/image/RealVista/Accounting/serial_number" "$deviceSerialNumber" ""
+create_message_body "Current Network" "${ICON_FILES}GenericNetworkIcon.icns" "$wifiName" ""
+create_message_body "Active Connections" "${ICON_FILES}AirDrop.icns" "$adapter" ""
+create_message_body "Current IP" "https://www.iconarchive.com/download/i91394/icons8/windows-8/Network-Ip-Address.ico" "$currentIPAddress" ""
+create_message_body "FileVault Status" "${ICON_FILES}FileVaultIcon.icns" "$filevaultStatus" "$filevaultStatus_icon"
+create_message_body "Free Disk Space"  "https://ics.services.jamfcloud.com/icon/hash_522d1d726357cda2b122810601899663e468a065db3d66046778ceecb6e81c2b" "${deviceAvailStorage}Gb ($DiskFreeSpace% Free)" "$hd_status_icon"
+create_message_body "JAMF ID #" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" $jamfID ""
+create_message_body "Last Jamf Checkin:" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$JAMFLastCheckinTime" "$JAMF_checkin_icon"
+create_message_body "MDM Profile Status" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$mdmprofile" "" "last"
 
 display_device_info
 exit 0
