@@ -14,6 +14,10 @@ Results of local JAMF record
 
 ![View Inventory for remote record](/ViewInventory/ViewInventory_Remote.png)
 
+Results of a compliance failure screen with details
+
+![Compliance Failure](/ViewInventory/ViewInventory_Failures.png)
+
 **Parameters for System Script**
 
 ![Parameters](/ViewInventory/ViewInventory_Parms.png)
