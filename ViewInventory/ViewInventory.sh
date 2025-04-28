@@ -224,7 +224,7 @@ function display_device_info ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --titlefont shadow=1
         --icon "${SD_ICON}"
-        --message none
+        --message "Compliance information symbols are displayed next to the required item(s).  To see the reson for any failures, please click the 'Compliance' button for details."
         --iconsize 128
         --infobox "${SD_INFO_BOX_MSG}"
         --ontop
@@ -234,17 +234,18 @@ function display_device_info ()
         --json
         --moveable
         --button1text "OK"
+        --button2text "Compliance"
         --infobutton 
         --infobuttontext "Get Help" 
         --infobuttonaction "https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d" 
-        --helpmessage "Free Disk Space must be above 50GB available.\n\n SMART Status must return 'Verified'.\n\n Last Jamf Checkin must be within 7 days.\n\n Last Reboot must be within 14 days.\n\n Battery Condition must return 'Normal'.\n\n Battery Cycle Count must be below 1000. \n\n Encryption status must return 'Filevault is on'.\n\n Crowdstrike Falcon must be connected.\n\n macOS must be on version $macOSversion2 or $macOSversion1" 
+        #--helpmessage "Free Disk Space must be above 50GB available.\n\n SMART Status must return 'Verified'.\n\n Last Jamf Checkin must be within 7 days.\n\n Last Reboot must be within 14 days.\n\n Battery Condition must return 'Normal'.\n\n Battery Cycle Count must be below 1000. \n\n Encryption status must return 'Filevault is on'.\n\n Crowdstrike Falcon must be connected.\n\n macOS must be on version $macOSversion2 or $macOSversion1" 
 
      )
 	
      message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
 
      buttonpress=$?
-    [[ $buttonpress = 2 ]] && cleanup_and_exit
+    [[ $buttonpress = 2 ]] && display_compliance_info
 
 }
 
@@ -459,7 +460,6 @@ function get_filevault_status ()
 
 function create_message_body ()
 {
-    declare line && line=""
     # PURPOSE: Construct the message body of the dialog box
     #"listitem" : [
 	#			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
@@ -471,6 +471,8 @@ function create_message_body ()
     #        $3 - listitem
     #        $4 - status
     #        $5 - first or last - construct appropriate listitem heders / footers
+    declare line && line=""
+
     [[ "$5:l" == "first" ]] && line+='{"listitem" : ['
     if [[ -z $4 ]]; then
         line+='{"title" : "'$1':", "icon" : "'$2'", "statustext" : "'$3'"},'
@@ -496,10 +498,48 @@ function duration_in_days ()
     echo $(( ( end - start ) / ( 24 * 60 * 60 ) ))
 }
 
+function display_compliance_info()
+{
+    # PURPOSE: go thru each compliance item and show the reason(s) for any failures
+    # RETURN: None
+    # EXPECTED: None
+    # 
+    declare message
+    message="The following issues have been found on your system:<br><br>"
+
+    [[ $os_status_icon == "fail" ]] && message+="- The minimum OS required is macOS $MIN_OS_VERSION.  You are running macOS $macOSVersion.<br>"
+    [[ $falcon_connect_icon == "fail" ]] && message+="- Crowdstrike Falcon is not running on your computer.<br>"
+    [[ ! $zScaler_status_icon == "success" ]] && message+="- zScaler is not running, or not protecting your computer.<br>"
+    [[ $filevaultStatus_icon == "fail" ]] && message+="- FileVault is not currently encrypting your system.<br>"
+    [[ $hd_status_icon == "fail" ]] && message+="- You need to have at least ${MIN_HD_SPACE}Gb of free space on your hard drive.<br>"
+    [[ $JAMF_checkin_icon == "fail" ]] && message+="- Your system hasn't checked into JAMF for over ${JAMF_CHECKIN_DELTA} days.<br>"
+    [[ $reboot_icon = "fail" ]] && message+="- Your system needs to be restarted at least once every $LAST_REBOOT_DELTA days.<br>"
+
+     MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
+        --icon "${SD_ICON}"
+        --message "${message}"
+        --overlayicon warning
+        --iconsize 128
+        --messagefont name=Arial,size=17
+        --button1text "Quit"
+        --ontop
+        --height 460
+        --json
+        --moveable
+    )
+    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    buttonpress=$?
+}
+
 function get_zscaler_info() 
 {
-    # Check to see if the zScaler tunnel is running
-
+    # PURPOSE: Check to see if the zScaler tunnel is running
+    # RETURN: None
+    # EXPECTED: None
+ 
     tunnel=$( pgrep -i ZscalerTunnel )
 
     keychainKey=$(su - $LOGGED_IN_USER -c "security find-generic-password -l 'com.zscaler.tray'")
@@ -669,20 +709,16 @@ elif [[ $zScaler_status == *"Tunnel Bypassed"* ]]; then
     zScaler_status_icon="error"
 else
     zScaler_status="Unknown"
-    zScaler_status_icon="Fail"
+    zScaler_status_icon="fail"
 fi 
 
 # Calculate the pass/fail for requred items
-# OS versions
 
+# OS versions
 is-at-least "${MIN_OS_VERSION}" "${macOSVersion}" && os_status_icon="success" || os_status_icon="fail"
 
-# Make sure there is enough free space
-if is-at-least "$MIN_HD_SPACE" "$deviceAvailStorage" ]]; then
-    hd_status_icon="success"
-else
-    hd_status_icon="fail"
-fi
+# disk space free
+is-at-least "$MIN_HD_SPACE" "$deviceAvailStorage" && hd_status_icon="success" || hd_status_icon="fail"
 
 # check FV Status
 [[ $filevaultStatus == "FV Enabled" ]] && filevaultStatus_icon="success" || filevaultStatus_icon="fail"
@@ -694,7 +730,7 @@ days=$(duration_in_days $JAMFLastCheckinTime $(date))
 
 #Determine last reboot
 
-days=$(duration_in_days $lastRebootFormatted $(date))
+[[ -z $lastRebootFormatted ]] && days="365" || days=$(duration_in_days $lastRebootFormatted $(date))
 [[ ${days} -le ${LAST_REBOOT_DELTA} ]] && reboot_icon="success" || reboot_icon="fail"
 
 # Construct the list of items and display it to the user
@@ -708,7 +744,7 @@ create_message_body "CPU Type" "SF=cpu.fill color=black" "$deviceCPU" ""
 create_message_body "Crowdstrike Falcon" "/Applications/Falcon.app/Contents/Resources/AppIcon.icns" "$falcon_connect_status" "$falcon_connect_icon"
 create_message_body "zScaler" "/Applications/ZScaler/Zscaler.app/Contents/Resources/AppIcon.icns" "$zScaler_status" "$zScaler_status_icon"
 create_message_body "Battery Condition" "SF=batteryblock.fill color=green" "${BatteryCondition}" ""
-create_message_body "Last Reboot" "https://use2.ics.services.jamfcloud.com/icon/hash_5d46c28310a0730f80d84afbfc5889bc4af8a590704bb9c41b87fc09679d3ebd" $lastRebootFormatted "$reboot_icon"
+create_message_body "Last Reboot" "https://use2.ics.services.jamfcloud.com/icon/hash_5d46c28310a0730f80d84afbfc5889bc4af8a590704bb9c41b87fc09679d3ebd" $lastRebootFormatted "" "$reboot_icon"
 create_message_body "Serial Number" "https://www.iconshock.com/image/RealVista/Accounting/serial_number" "$deviceSerialNumber" ""
 create_message_body "Current Network" "${ICON_FILES}GenericNetworkIcon.icns" "$wifiName" ""
 create_message_body "Active Connections" "${ICON_FILES}AirDrop.icns" "$adapter" ""
