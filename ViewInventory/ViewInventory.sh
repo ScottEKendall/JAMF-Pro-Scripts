@@ -185,6 +185,7 @@ function display_device_entry_message ()
      MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
         --icon "${SD_ICON}"
         --iconsize 128
         --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial or hostname of the device you want to view the inventory of"
@@ -218,6 +219,7 @@ function display_device_info ()
      MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
         --icon "${SD_ICON}"
         --message none
         --iconsize 128
@@ -249,6 +251,7 @@ function display_status_message ()
      MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
         --icon "${SD_ICON}"
         --message "${msg}"
         --overlayicon "SF=checkmark.circle.fill,color=green,weight=heavy"
@@ -270,6 +273,7 @@ function display_failure_message ()
      MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
         --message "Device ID ${computer_id} was not found.  Please try again."
         --icon "${SD_ICON}"
         --overlayicon warning
@@ -480,6 +484,7 @@ function duration_in_days ()
     end=$REPLY        
     echo $(( ( end - start ) / ( 24 * 60 * 60 ) ))
 }
+
 ####################################################################################################
 #
 # Main Script
