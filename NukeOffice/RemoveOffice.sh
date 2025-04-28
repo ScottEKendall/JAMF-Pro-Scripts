@@ -188,6 +188,7 @@ function display_welcome_msg ()
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $messagebody"
+        --titlefont shadow=1
 		--ontop
 		--icon "${SD_ICON_FILE}"
 		--overlayicon "${OVERLAY_ICON}"
