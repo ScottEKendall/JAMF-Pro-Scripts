@@ -9,6 +9,7 @@
 # 
 # 1.0 - Initial code
 # 1.1 - Added addition logic for Mac mini...it isn't formatted the same as regular model names
+# 1.2 - Added feature for compliance reporting, removed unnecessasry functions
 #
 ######################################################################################################
 #
@@ -66,6 +67,7 @@ chmod 666 ${JSON_OPTIONS}
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 CURRENT_EPOCH=$(date +%s)
+HELP_DESK_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 ##################################################
 #
@@ -237,9 +239,7 @@ function display_device_info ()
         --button2text "Compliance"
         --infobutton 
         --infobuttontext "Get Help" 
-        --infobuttonaction "https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d" 
-        #--helpmessage "Free Disk Space must be above 50GB available.\n\n SMART Status must return 'Verified'.\n\n Last Jamf Checkin must be within 7 days.\n\n Last Reboot must be within 14 days.\n\n Battery Condition must return 'Normal'.\n\n Battery Cycle Count must be below 1000. \n\n Encryption status must return 'Filevault is on'.\n\n Crowdstrike Falcon must be connected.\n\n macOS must be on version $macOSversion2 or $macOSversion1" 
-
+        --infobuttonaction "${HELP_DESK_TICKET}" 
      )
 	
      message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
@@ -247,29 +247,6 @@ function display_device_info ()
      buttonpress=$?
     [[ $buttonpress = 2 ]] && display_compliance_info
 
-}
-
-function display_status_message ()
-{
-    local msg=$1
-     MainDialogBody=(
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
-        --icon "${SD_ICON}"
-        --message "${msg}"
-        --overlayicon "SF=checkmark.circle.fill,color=green,weight=heavy"
-        --infobox "${SD_INFO_BOX_MSG}"
-        --iconsize 128
-        --messagefont name=Arial,size=17
-        --button1text "Quit"
-        --ontop
-        --height 460
-        --json
-        --moveable
-    )
-    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
-    buttonpress=$?
 }
 
 function display_failure_message ()
@@ -498,7 +475,7 @@ function duration_in_days ()
     echo $(( ( end - start ) / ( 24 * 60 * 60 ) ))
 }
 
-function display_compliance_info()
+function display_compliance_info ()
 {
     # PURPOSE: go thru each compliance item and show the reason(s) for any failures
     # RETURN: None
@@ -531,10 +508,10 @@ function display_compliance_info()
         --moveable
     )
     $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
-    buttonpress=$?
+    cleanup_and_exit
 }
 
-function get_zscaler_info() 
+function get_zscaler_info () 
 {
     # PURPOSE: Check to see if the zScaler tunnel is running
     # RETURN: None
