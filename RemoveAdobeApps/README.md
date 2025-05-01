@@ -3,6 +3,8 @@ This process will display a dialog that will allow the users to choose which Ado
 
 **Selection Screen**
 
+(An optional JAMF variable can be passed in to show the current CC year.)  If the user does not have that version already installed, it will display the notice that a newer version is available).  I used the 2026 as a reference to show the availability prompt
+
 ![Selection Screen](/RemoveAdobeApps/RemoveAdobe_selection.png)
 
 **Confirmation Screen**
