@@ -1,0 +1,223 @@
+
+## Adobe CC 2025 (n)
+
+# After Effects	                         AEFT	25.0	
+# Animate and Mobile Device Packaging	 FLPR	24.0
+# Audition                               AUDT   25.0    
+# Bridge                                 KBRG   15.0.0  
+# Character Animator                     CHAR   25.0    
+# Dimension                              ESHR   3.0     
+# Dreamweaver                            DRWV   21.0    
+# Illustrator	                         ILST	29.0	
+# InCopy	                             AICY	20.0	
+# InDesign	                             IDSN	20.0	
+# Lightroom	                             LRCC	1.0	    
+# Lightroom Classic	                     LTRM	8.3	    
+# Media Encoder	                         AME    25.0	
+# Photoshop	                             PHSP	26.0	
+# Prelude	                             PRLD	22.0	
+# Premiere Pro	                         PPRO	25.0	
+# Premiere Rush	                         RUSH	2.0	    
+# Substance Designer	                 SBSTD	11.2.0	
+# Substance Painter	                     SBSTP	7.2.0	
+# Substance Sampler	                     SBSTA	3.0.0	
+# Substance Stager	                     STGR	1.0.0	
+# XD	                                 SPRK	18.0.12	
+
+## Adobe CC 2024 (n-1)
+
+# After Effects	                        AEFT	24.0	
+# Animate and Mobile Device Packaging   FLPR	24.0	
+# Audition	                            AUDT	24.0	
+# Bridge	                            KBRG	14.0.0	
+# Character Animator	                CHAR	24.0	
+# Dimension	                            ESHR	3.0	    
+# Dreamweaver	                        DRWV	21.0	
+# Illustrator	                        ILST	28.0	
+# InCopy	                            AICY	19.0	
+# InDesign	                            IDSN	19.0	
+# Lightroom	                            LRCC	1.0	    
+# Lightroom Classic	                    LTRM	8.3	    
+# Media Encoder	                        AME	    24.0	
+# Photoshop	                            PHSP	25.0	
+# Prelude	                            PRLD	22.0	
+# Premiere Pro	                        PPRO	24.0	
+# Premiere Rush	                        RUSH	2.0	    
+# Substance Designer	                SBSTD	11.2.0	
+# Substance Painter	                    SBSTP	7.2.0	
+# Substance Sampler	                    SBSTA	3.0.0	
+# Substance Stager	                    STGR	1.0.0	
+# XD	                                SPRK	18.0.12	
+
+## Adobe CC 2023 (n-2)
+#
+# Acrobat Pro                                   APRO    23.0    
+# After Effects                                 AEFT    23.0      
+# Animate and Mobile Device Packaging           FLPR    23.0    
+# Audition                                      AUDT    23.0    
+# Bridge                                        KBRG    13.0    
+# Captivate                                     CPTV    12.0.0
+# Character Animator                            CHAR    23.0    
+# Dimension                                     ESHR    3.0     
+# Dreamweaver                                   DRWV    21.0    
+# Illustrator                                   ILST    27.0    
+# InCopy                                        AICY    18.0    
+# InDesign                                      IDSN    18.0    
+# Lightroom                                     LRCC    1.0     
+# Lightroom Classic                             LTRM    8.3     
+# Media Encoder                                 AME     23.0    
+# Photoshop                                     PHSP    24.0    
+# Prelude                                       PRLD    22.0    
+# Premiere Pro                                  PPRO    23.0    
+# Premiere Rush                                 RUSH    2.0     
+# Substance Designer                            SBSTD   11.2.0  
+# Substance Painter                             SBSTP   7.2.0   
+# Substance Sampler                             SBSTA   3.0.0   
+# Substance Stager                              STGR    1.0.0   
+# XD                                            SPRK    18.0.12 
+
+## Adobe CC 2022 (N-3)
+
+# After Effects                                  AEFT    22.0    
+# Animate and Mobile Device Packaging            FLPR    22.0    
+# Audition                                       AUDT    22.0    
+# Bridge                                         KBRG    12.0    
+# Captivate                                      CPTV    12.0.0
+# Character Animator                             CHAR    4.0     
+# Dimension                                      ESHR    3.0     
+# Dreamweaver                                    DRWV    21.0    
+# Illustrator                                    ILST    26.0    
+# InCopy                                         AICY    17.0    
+# InDesign                                       IDSN    17.0    
+# Lightroom                                      LRCC    1.0              
+# Lightroom Classic                              LTRM    8.3     
+# Media Encoder                                  AME     22.0    
+# Photoshop                                      PHSP    23.0    
+# Prelude                                        PRLD    22.0    
+# Premiere Pro                                   PPRO    22.0    
+# Premiere Rush                                  RUSH    2.0     
+# XD                                             SPRK    18.0.12 
+
+## Adobe CC 2021 (N-4)
+    
+# After Effects                                  AEFT    18.0    
+# Animate and Mobile Device Packaging            FLPR    21.0    
+# Audition                                       AUDT    14.0    
+# Bridge                                         KBRG    11.0.0  
+# Character Animator                             CHAR    4.0     
+# Dimension                                      ESHR    3.0     
+# Dreamweaver                                    DRWV    20.2.1  
+# Illustrator                                    ILST    25.0    
+# InCopy                                         AICY    16.0    
+# InDesign                                       IDSN    16.0    
+# Lightroom                                      LRCC    1.0              
+# Lightroom Classic                              LTRM    8.3     
+# Media Encoder                                  AME     15.0    
+# Photoshop                                      PHSP    22.0    
+# Prelude                                        PRLD    9.0     
+# Premiere Pro                                   PPRO    15.0    
+# Premiere Rush                                  RUSH    12      
+# XD                                             SPRK    18.0.12 
+
+## Adobe CC 2020 (N-5)
+    
+# After Effects                                  AEFT    17.0    
+# Animate and Mobile Device Packaging            FLPR    21.0    
+# Audition                                       AUDT    13.0    
+# Bridge                                         KBRG    11.0.0  
+# Character Animator                             CHAR    3.0     
+# Dimension                                      ESHR    3.0     
+# Dreamweaver                                    DRWV    20.0    
+# Illustrator                                    ILST    25.0    
+# InCopy                                         AICY    16.0    
+# InDesign                                       IDSN    16.0    
+# Lightroom                                      LRCC    1.0              
+# Lightroom Classic                              LTRM    8.3     
+# Media Encoder                                  AME     14.0    
+# Photoshop                                      PHSP    22.0    
+# Prelude                                        PRLD    9.0     
+# Premiere Pro                                   PPRO    14.0    
+# Premiere Rush                                  RUSH    1.0     
+# XD                                             SPRK    18.0.12 
+
+## Adobe CC 2019 (N-6)
+    
+# After Effects                                  AEFT    17.0    
+# Animate and Mobile Device Packaging            FLPR    20.0    
+# Audition                                       AUDT    13.0    
+# Bridge                                         KBRG    10.0.0  
+# Character Animator                             CHAR    3.0     
+# Dimension                                      ESHR    3.0     
+# Dreamweaver                                    DRWV    20.0    
+# Illustrator                                    ILST    24.0    
+# InCopy                                         AICY    15.0    
+# InDesign                                       IDSN    15.0    
+# Lightroom                                      LRCC    1.0              
+# Lightroom Classic                              LTRM    8.3     
+# Media Encoder                                  AME     14.0    
+# Photoshop                                      PHSP    21.0    
+# Prelude                                        PRLD    8.0     
+# Premiere Pro                                   PPRO    14.0    
+# Premiere Rush                                  RUSH    1.2.12  
+# XD                                             SPRK    18.0.12 
+
+## Adobe CC 2018 (N-7)
+    
+# After Effects                                  AEFT    16.0    
+# Animate and Mobile Device Packaging            FLPR    19.0    
+# Audition                                       AUDT    12.0    
+# Bridge                                         KBRG    9.0.0   
+# Character Animator                             CHAR    2.0     
+# Dimension                                      ESHR    2.0     
+# Dreamweaver                                    DRWV    19.0    
+# Illustrator                                    ILST    23.0    
+# InCopy                                         AICY    14.0    
+# InDesign                                       IDSN    14.0    
+# Lightroom Classic                              LTRM    2.0     
+# Media Encoder                                  AME     13.0    
+# Photoshop                                      PHSP    20.0    
+# Prelude                                        PRLD    8.0     
+# Premiere Pro                                   PPRO    13.0    
+# XD                                             SPRK    1.0.12  
+
+## Adobe CC 2017 (N-8)
+    
+# After Effects                                  AEFT    15.0    
+# Animate and Mobile Device Packaging            FLPR    18.0    
+# Audition                                       AUDT    11.0.0  
+# Bridge                                         KBRG    8.0.0   
+# Character Animator                             CHAR    1.1.0   
+# Dimension                                      ESHR    1.0     
+# Dreamweaver                                    DRWV    18.0    
+# Illustrator                                    ILST    22.0.0  
+# InCopy                                         AICY    13.0    
+# InDesign                                       IDSN    13.0    
+# Lightroom Classic                              LTRM    7.0     
+# Media Encoder                                  AME     12.0.0  
+# Photoshop                                      PHSP    19.0    
+# Prelude                                        PRLD    7.0     
+# Premiere Pro                                   PPRO    12.0.0  
+# XD                                             SPRK    1.0.12  
+
+## Adobe CC 2017 (N-9)
+    
+# After Effects                                  AEFT    14.0    
+# Animate and Mobile Device Packaging            FLPR    16.0    
+# Audition                                       AUDT    10.0.0  
+# Bridge                                         KBRG    7.0.0   
+# Dreamweaver                                    DRWV    17.0    
+# Illustrator                                    ILST    21.0.0  
+# InCopy                                         AICY    12.0    
+# InDesign                                       IDSN    12.0    
+# Media Encoder                                  AME     12.0.0  
+# Photoshop                                      PHSP    18.0    
+# Premiere Pro                                   PPRO    11.0.0  
+
+# Adobe CC 2015 (N-9)
+    
+# After Effects                                  AEFT    13.8    
+# Animate and Mobile Device Packaging            FLPR    15.2    
+# Audition                                       AUDT    9.2.0   
+# Illustrator                                    ILST    20.0.0  
+# Photoshop                                      PHSP    17.0    
+# Premiere Pro                                   PPRO    10.3.0  
