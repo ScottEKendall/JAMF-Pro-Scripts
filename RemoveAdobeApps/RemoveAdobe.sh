@@ -436,9 +436,9 @@ function create_file_list ()
     # RETURN: formatted JSON_OPTIONS file
     # EXPECTED: None
 
-    # Step 1: Store the macOS directory list in a temp file (Exclude Acrobat, AEM and ADE)
+    # Step 1: Store the macOS directory list in a temp file (ignore any files that do not end in a 4 digit year)
 
-    find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -v "^Adobe Creative Cloud$" | grep -v "Adobe Acrobat*" | grep -v "^Adobe Experience Manager*" |  grep -v "^Adobe Digital Editions*" | sort > $TMP_FILE_STORAGE
+    find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -E '[0-9]{4}$' | sort > $TMP_FILE_STORAGE
 
     # Step 2: Find the latest "year" of the installed apps
 
