@@ -10,6 +10,8 @@
 # Script Purpose: Selectively remove Adobe apps from a users system
 #
 # 1.0 - Initial
+# 1.1 - Changed buttons to "Next" and "Remove" on the appropriate screens
+# 1.2 - Change find command to exclude Adobe Experience Manager and Adobe Acrobat DC
 #
 
 ######################################################################################################
@@ -436,7 +438,7 @@ function create_file_list ()
 
     # Step 1: Store the macOS directory list in a temp file
 
-    find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -v "^Adobe Creative Cloud$" | sort > $TMP_FILE_STORAGE
+    find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -v "^Adobe Creative Cloud$" | grep -v "Adobe Acrobat DC" | grep " grep -v "^Adobe Experience Manager*" | sort > $TMP_FILE_STORAGE
 
     # Step 2: Find the latest "year" of the installed apps
 

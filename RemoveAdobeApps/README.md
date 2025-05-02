@@ -38,4 +38,6 @@ NOTE! The terminal binaries "AdobeUninstaller" and the files inside the folder A
 I packaged up both of these apps and the script will request the JAMF install if they are missing.
 
 ##### _v1.0 - Initial Commit_
+##### _1.1 - Changed buttons to "Next" and "Remove" on the appropriate screens_
+##### _1.2 - Change find command to exclude Adobe Experience Manager and Adobe Acrobat DC_
 
