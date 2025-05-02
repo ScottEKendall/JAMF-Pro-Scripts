@@ -361,7 +361,7 @@ function confirm_removal ()
         --moveable
         --json
         --quitkey 0
-        --button1text "OK"
+        --button1text "Remove"
         --button2text "Cancel"
     )
 
@@ -392,7 +392,7 @@ function display_welcome_message ()
         --json
         --jsonfile "${JSON_OPTIONS}"
         --quitkey 0
-        --button1text "OK"
+        --button1text "Next"
         --button2text "Cancel"
         --infobutton 
         --infobuttontext "Get Help" 
