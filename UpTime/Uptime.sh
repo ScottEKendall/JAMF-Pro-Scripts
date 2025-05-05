@@ -55,6 +55,9 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 
 JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}" 
+UPTIME_DAYS="${4:-"30"}"
+RESTART_TIMER="${5:-"10"}"
+
 
 ###################################################
 #
@@ -67,9 +70,6 @@ SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}System Uptime Reminder"
 SD_INFO_BOX_MSG=""
 OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/Uptime.png"
 LOG_FILE="${LOG_DIR}/SystemUptime.log"
-
-UPTIME_DAYS=30
-RESTART_TIMER=18000
 JAMF_LOGGED_IN_USER=$3
 
 ####################################################################################################
@@ -178,8 +178,8 @@ function welcomemsg ()
     messagebody+="you know that it has been over ${uptimeDays:-0} days since your system was<br>"
     messagebody+="last restarted.  It is highly recommended that you restart your<br>"
     messagebody+="Mac at least once every ${UPTIME_DAYS} days to keep your system running as smoothly as possible.<br><br>"
-    messagebody+="You can choose Restart Now, and it will start a $((RESTART_TIMER/3600 )) minute count down "
-    messagebody+="timer before the system restarts.  If you do not restart very soon, "
+    messagebody+="You can choose Restart Now, and it will start a $RESTART_TIMER minute count down "
+    messagebody+="timer before the system restarts.<br><br>If you do not restart very soon, "
     messagebody+="you will get a friendly reminder next week."
  
 	MainDialogBody=(
@@ -211,28 +211,25 @@ function welcomemsg ()
 
 function display_restart_timer ()
 {
-    messagebody="You Mac will restart after the timer has finished its count down, or if you"
-    messagebody+=" choose to restart now.  Please take this time to save your work."
+    messagebody="You Mac will restart after the timer has finished its count down, or you "
+    messagebody+="can choose to restart immediately.  Please take this time to save your work."
     
     MainDialogBody=(
     --message "${messagebody}"
     --icon "${OVERLAY_ICON}"
-    --height 480
+    --height 300
     --ontop
     --bannerimage "${SD_BANNER_IMAGE}"
     --bannertitle "${SD_WINDOW_TITLE}"
-    --infobox "${SD_INFO_BOX_MSG}"
     --titlefont shadow=1
     --moveable
-    --timer 18000
-    --buttonstyle center
+    --timer $((RESTART_TIMER*60))
     --button1text "Restart Now"
     )
 
 	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
 
-    sudo shutdown -r now
-	exit 0
+    osascript -e 'tell app "System Events" to restart'
 }
 
 ####################################################################################################
@@ -243,6 +240,8 @@ function display_restart_timer ()
 
 autoload 'is-at-least'
 
-check_sym_files_presence
+check_swift_dialog_install
+check_support_files
 create_infobox_message
 welcomemsg
+exit 0
