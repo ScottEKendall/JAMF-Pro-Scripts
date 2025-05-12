@@ -104,7 +104,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -172,7 +171,7 @@ function cleanup_and_exit ()
 function welcomemsg ()
 {
     uptimeOutput=$(uptime)
-    [[ "${uptimeOutput/day/}" != "${uptimeOutput}" ]] && uptimeDays=$(awk -F "up | day" '{print $2}' <<< "${uptimeOutput}")
+    [[ "${uptimeOutput/day/}" != "${uptimeOutput}" ]] && uptimeDays=$(echo $uptimeOutput | awk -F "up | day" '{print $2}')
     
     messagebody="${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  This is an automated message from JAMF to let "
     messagebody+="you know that it has been over ${uptimeDays:-0} days since your system was<br>"
@@ -206,7 +205,7 @@ function welcomemsg ()
 	# User wants to continue, so retart the computer
 
 	[[ ${buttonpress} -eq 0 ]] && display_restart_timer
-    exit 0
+    logMe "INFO: User chose to defer at this time."
 }
 
 function display_restart_timer ()
@@ -226,7 +225,8 @@ function display_restart_timer ()
     --timer $((RESTART_TIMER*60))
     --button1text "Restart Now"
     )
-
+	logMe "INFO: User chose to restart now...starting timer"
+    
 	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
 
     osascript -e 'tell app "System Events" to restart'
