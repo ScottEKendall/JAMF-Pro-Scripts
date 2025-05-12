@@ -1,5 +1,15 @@
-## Remove Adobe Apps (User Interaction)
-This process will display a dialog that will allow the users to choose which Adobe apps that they want to remove.  It will NOT let them remove the highest "level" product version installed. (see the selection screenshots).  This process wil also remove any CS apps as well as Safari Flash plugin, outdated Reader and Acrobat apps as well.
+## Remove Adobe Apps
+
+This process can be run one of two ways:  
+
+## Prompt Method
+The prompt method will display a dialog that will allow the users to choose which Adobe apps that they want to remove. 
+
+## Silent Method
+This method will remove all of the Adobe CC and/or 3D apps that it finds without any user interaction.
+
+### Note: ###
+Both methods will NOT let the highest "level" product version installed. (see the selection screenshots).  This process wil also remove any CS apps as well as Safari Flash plugin, outdated Reader and Acrobat apps as well.
 
 **Selection Screen**
 
@@ -30,6 +40,15 @@ The two critial functions for this process are noted here:
 ```adobeJSONarray```:  This handles the Application name and its SAPCode.
 
 Feel free to change those two areas to accomodate anything that I might have missed during testing!
+
+## Script Parameters ##
+
+The optional JAMF script parameter values can be set to show
+* The latest available version of CC
+* Silent/Prompt mode
+* Alow the removal of both CC & 3D apps or just the CC apps
+
+![](/RemoveAdobeApps/RemoveAdobe_parameters.png)
 
 ## Adobe Uninstallers ##
 

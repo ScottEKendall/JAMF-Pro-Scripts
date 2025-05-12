@@ -5,13 +5,14 @@
 # by: Scott Kendall
 #
 # Written: 04/29/2025
-# Last updated: 04/29/2025
+# Last updated: 05/12/2025
 #
 # Script Purpose: Selectively remove Adobe apps from a users system
 #
 # 1.0 - Initial
 # 1.1 - Changed buttons to "Next" and "Remove" on the appropriate screens
 # 1.2 - Change find command to exclude Adobe Experience Manager and Adobe Acrobat DC
+# 1.3 - Add option for "silent" remove (no prompt) and which apps than can be removed 3D & CC or CC only
 #
 
 ######################################################################################################
@@ -50,6 +51,7 @@ MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 JQ_FILE_INSTALL_POLICY="install_jq"
+ADOBE_UNINSTALLER="/usr/local/bin/AdobeUninstaller"
 
 ###################################################
 #
@@ -83,6 +85,8 @@ ADOBE_SUPPORT_FILE="install_adobeuninstaller"
 JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 ADOBE_CURRENT_YEAR=$4
+SCRIPT_METHOD="${5:-"Prompt"}"                  # 'Silent' or 'Prompt'
+REMOVAL_METHOD="${6:-"All"}"                    # 'All' or 'CConly'
 HELP_DESK_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 ####################################################################################################
@@ -338,40 +342,6 @@ function update_display_list ()
     esac
 }
 
-function confirm_removal ()
-{
-    message="Are you sure you want to delete the following apps? <br><br>"
-    while read -r app; do
-        [[ -z $app ]] && continue
-	    app=$( echo "${app}" | xargs | /usr/bin/awk -F " : " '{print $1}' | tr -d '"')
-        message+=" * $app<br>"
-	done < "${TMP_FILE_STORAGE}"
-
-    MainDialogBody=(
-        --message "$message"
-        --titlefont shadow=1
-        --ontop
-        --icon "${SD_ICON_FILE}"
-        --overlayicon "${OVERLAY_ICON}"
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --infobox "${SD_INFO_BOX_MSG}"
-        --messagefont size=18
-        --width 900
-        --height 700
-        --ignorednd
-        --moveable
-        --json
-        --quitkey 0
-        --button1text "Remove"
-        --button2text "Cancel"
-    )
-
-	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
-    buttonpress=$?
-    [[ $buttonpress = 2 ]] && cleanup_and_exit
-}
-
 function display_welcome_message ()
 {
     message="The below listed Adobe applications are installed on your system.  You can remove any of previously installed products. _NOTE: You cannot remove the most recently installed version._<br>"
@@ -407,27 +377,41 @@ function display_welcome_message ()
 
     # Store the "yes" results into a temp file so we can work on just this list
     echo $temp | grep -v ": false" | tr -d "{},"> "${TMP_FILE_STORAGE}"
+
 }   
 
-function read_in_file_contents ()
+function confirm_removal ()
 {
-	messagebody=""
-	while read -r app; do
+    message="Are you sure you want to delete the following apps? <br><br>"
+    while read -r app; do
         [[ -z $app ]] && continue
 	    app=$( echo "${app}" | xargs | /usr/bin/awk -F " : " '{print $1}' | tr -d '"')
-
-        # Get the properly resolved application name (and icon)
-        appPath=$(resolve_app_path $app)
-        baseCode=$(extract_base_code_from_json $app)
-        version=$(extract_version_code $appPath)
-
-        # If you choose to use the XML method of removal, this is the string that needs to be used
-        # more info here: https://helpx.adobe.com/enterprise/using/uninstall-creative-cloud-products.html#use-uninstall-pkg
-        #
-        #FINAL_REMOVAL_STRING+="$baseCode#$version,"
-
+        message+=" * $app<br>"
 	done < "${TMP_FILE_STORAGE}"
-    #FINAL_REMOVAL_STRING=${FINAL_REMOVAL_STRING: : -1}
+
+    MainDialogBody=(
+        --message "$message"
+        --titlefont shadow=1
+        --ontop
+        --icon "${SD_ICON_FILE}"
+        --overlayicon "${OVERLAY_ICON}"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --messagefont size=18
+        --width 900
+        --height 700
+        --ignorednd
+        --moveable
+        --json
+        --quitkey 0
+        --button1text "Remove"
+        --button2text "Cancel"
+    )
+
+	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
+    buttonpress=$?
+    [[ $buttonpress = 2 ]] && cleanup_and_exit
 }
 
 function create_file_list ()
@@ -436,9 +420,14 @@ function create_file_list ()
     # RETURN: formatted JSON_OPTIONS file
     # EXPECTED: None
 
-    # Step 1: Store the macOS directory list in a temp file (ignore any files that do not end in a 4 digit year)
+    # Step 1: Store the macOS directory list in a temp file
 
-    find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -E '[0-9]{4}$' | sort > $TMP_FILE_STORAGE
+    # If you want to remove all files (3D & CC) then use first find, otherwise find only CC apps
+    if [[ "${REMOVAL_METHOD:l}" == "all" ]]; then
+        find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -v "^Adobe Creative Cloud$" | grep -v "^Adobe Experience Manager*" | grep -v "^Adobe Digital Edition*" | grep -v "^Adobe Acrobat DC*" | sort > $TMP_FILE_STORAGE
+    else
+        find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -E '[0-9]{4}$' | sort > $TMP_FILE_STORAGE
+    fi
 
     # Step 2: Find the latest "year" of the installed apps
 
@@ -455,8 +444,9 @@ function create_file_list ()
 
         # get the baseCode & SAPCode for this app
         baseCode=$(extract_base_code_from_json $app)
-        version=$(extract_version_code $appPath)
+        version=$(extract_version_code $appPath $baseCode)
 
+        # Don't allow the last found year to be removed
         [[ $app == *$adobeLatestYearFound* ]] && {checked="false"; disabled="true"; } || {checked="true"; disabled="false"; }
 
         create_checkbox_message_body "$app" "$appPath" "$checked" "$disabled"
@@ -464,7 +454,10 @@ function create_file_list ()
 
         #create_checkbox_message_body "$app [$version - $baseCode]" "$icon" "$checked" "$disabled"
     done
-    create_checkbox_message_body "" "" "" "" "last"
+    if [[ "${SCRIPT_METHOD}" == "prompt" ]]; then
+        # If we are going to show this list to the user (prompt) then we need to properly complete the JSON array
+        create_checkbox_message_body "" "" "" "" "last"
+    fi
 }
 
 function create_checkbox_message_body ()
@@ -558,13 +551,15 @@ function extract_version_code ()
     # PURPOSE: Extract the SAPversion from the application
     # RETURN: SAPversion
     # PARMS: $1 - Application title
+    #        $2 - Application Base Code
     # EXPECTED: None
     #
+    appName=$1
+    baseCode=$2
 
-    version=$(plutil -extract "CFBundleShortVersionString" raw "$1/Contents/Info.plist" | awk -F '.' '{print $1}').0
-
+    version=$(plutil -extract "CFBundleShortVersionString" raw "$appName/Contents/Info.plist" | awk -F '.' '{print $1}').0
     # Special cases (such as Lightroom/Classic, Premiere Rush, XD & Bridge)
-    case "${1}" in
+    case "${appName}" in
         *"Lightroom.app"* )
             version="1.0"
             ;;
@@ -586,8 +581,33 @@ function extract_version_code ()
         *"Bridge 2025"* )
             version="14.0.0"
             ;;
+        *"3D Sampler"* )
+            version="3.0.0"
+            ;;
+        *"3D Designer"* )
+            version="11.2.0"
+            ;;
+        *"3D Painter"* )
+            version="7.2.0"
+            ;;
+        *"3D Stager"* )
+            version="1.0.0"
+            ;;
     esac
     echo $version
+}
+
+function file_list_no_prompt ()
+{
+    # This function will use the data in the JSON_BLOB variable since it has already been populated correctly
+    # but, we need to reomve the last , from the JSON blob and add the correct closure brackets to the end
+    # and then extract the "selected" files (true) and format the results into the TMP_FILE_STORAGE file
+    rm -r $TMP_FILE_STORAGE
+    sed -i '' '$s/.$//' $JSON_OPTIONS
+    echo "]}" >> $JSON_OPTIONS
+    cat $JSON_OPTIONS | jq -r '.checkbox[] | select(.checked == "true") | .label' | while read label; do
+        echo "\"$label\" : \"true\"" >> $TMP_FILE_STORAGE
+    done
 }
 
 ####################################################################################################
@@ -621,7 +641,6 @@ function remove_cs6 ()
                     "/Applications/Adobe Premiere Pro CS6/" \
                     "/Applications/Adobe SpeedGrade CS6/" \
                     "/Applications/Adobe Muse CC 2018/" \
-                    "/Library/Logs/Adobe/" \
                     "/Library/Application Support/Macromedia/" \
                     "/Library/LaunchAgents/com.AdobeAAM.Updater-1.0.plist" \
                     "/Library/Application Support/Macromedia" \
@@ -644,7 +663,7 @@ function remove_cs6 ()
 
     # Run the uninstaller for the CS6 thru 2019 script (app provided by Adobe)
 
-    /usr/local/bin/AdobeCCUninstaller > /dev/null
+    #/usr/local/bin/AdobeCCUninstaller > /dev/null
 
 }
 
@@ -794,7 +813,7 @@ function remove_acrobat_pro ()
     fi
 }
 
-function remove_apps ()
+function remove_apps_prompt ()
 {
     # Construct the basic Switft Dialog screen info that is used on all messages
     #
@@ -849,7 +868,7 @@ function remove_apps ()
     update_display_list "change" "Remove PDF Viewer" "wait" "Working..." "Remove outdated PDF Viewer..." $((100*3/total_apps))
     remove_pdf_viewer
     update_display_list "change" "Remove PDF Viewer" "success" "Done"
-    logMe "Removing outdate Reader versions"
+    logMe "Removing outdated Reader versions"
     update_display_list "change" "Remove Acrobat Reader" "wait" "Working..." "Remove older version of Acrobat Reader..." $((100*4/total_apps))
     remove_reader
     update_display_list "change" "Remove Acrobat Reader" "success" "Done"
@@ -865,12 +884,13 @@ function remove_apps ()
         # Resvole the app path, baseCode and SAP Code
         appPath=$(resolve_app_path $app)
         baseCode=$(extract_base_code_from_json $app)
-        version=$(extract_version_code $appPath)
+        version=$(extract_version_code $appPath $baseCode)
+        echo $version
         update_display_list "change" "Remove $app" "wait" "Working..." "Removing $app" $((100*app_count/total_apps))
         logMe "Removing $app [$baseCode#$version]"
 
         # Adobe command to perform the actual removal
-        /usr/local/bin/AdobeUninstaller --products=$baseCode#$version 2>&1
+        ${ADOBE_UNINSTALLER} --products=$baseCode#$version 2>&1
 
         update_display_list "change" "Remove $app" "success" "Done"
         ((app_count++))
@@ -881,6 +901,33 @@ function remove_apps ()
 
 }
 
+function remove_apps_no_prompt ()
+{
+    logMe "Removing Adobe CS6 items"
+    remove_cs6
+    logMe "Removing Adobe Flash items"
+    remove_flash
+    logMe "Removing Safari PDF Viewer Plugin"
+    remove_pdf_viewer
+    logMe "Removing outdated Reader versions"
+    remove_reader
+    logMe "Removing outdated Acrobat versions"
+    remove_acrobat_pro
+    cat $TMP_FILE_STORAGE | while read app; do
+        [[ -z $app ]] && continue
+        app=$( echo "${app}" | xargs | /usr/bin/awk -F " : " '{print $1}' | tr -d '"')
+        # Resvole the app path, baseCode and SAP Code
+        appPath=$(resolve_app_path $app)
+        baseCode=$(extract_base_code_from_json $app)
+        version=$(extract_version_code $appPath $baseCode)
+        logMe "Removing $app [$baseCode#$version]"
+
+        # Adobe command to perform the actual removal
+        ${ADOBE_UNINSTALLER} --products=$baseCode#$version 2>&1
+    done
+
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -888,6 +935,7 @@ function remove_apps ()
 ####################################################################################################
 
 typeset adobeLatestYearFound=""
+typeset AdobeUninstallerList=""
 
 autoload 'is-at-least'
 
@@ -911,24 +959,29 @@ adobeJSONarray='{
         {"name": "Premiere Pro", "code": "PPRO" },
         {"name": "Premiere Rush", "code": "RUSH" },
         {"name": "Premiere Rush 2.0", "code": "RUSH" },
-        {"name": "Substance Designer", "code": "SBSTD" },
-        {"name": "Substance Painter", "code": "SBSTP" },
-        {"name": "Substance Sampler", "code": "SBSTA" },
-        {"name": "Substance Stager", "code": "STGR" },
+        {"name": "Substance 3D Designer", "code": "SBSTD" },
+        {"name": "Substance 3D Painter", "code": "SBSTP" },
+        {"name": "Substance 3D Sampler", "code": "SBSTA" },
+        {"name": "Substance 3D Stager", "code": "STGR" },
         {"name": "XD", "code": "SPRK"}
     ]}'
+AdobeUninstallerList=$( ${ADOBE_UNINSTALLER} --list | grep -v -e "\-----" -e "AdobeUninstaller" -e '^$' -e "Version" | awk '{CODE=NF-2 ; VER=NF-1 ; print $CODE "#" $VER}')
 
 create_log_directory
-check_swift_dialog_install
-check_support_files
-create_infobox_message
 create_file_list
-display_welcome_message
-read_in_file_contents
 
-# Removal Process
-
-confirm_removal
-remove_apps
+# Two options - Silent removal (no prompts)
+if [[ ${SCRIPT_METHOD:l} = "silent" ]]; then
+    file_list_no_prompt
+    remove_apps_no_prompt
+else
+    # Or allow the user to choose
+    check_swift_dialog_install
+    check_support_files
+    create_infobox_message
+    display_welcome_message
+    confirm_removal
+    remove_apps_prompt
+fi
 cleanup_and_exit
 exit 0
