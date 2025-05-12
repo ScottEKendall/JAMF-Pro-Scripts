@@ -5,9 +5,10 @@
 #
 # Created by: Scott Kendall
 # Created on: 02/10/25
-# Last Modified: 02/17/2025
+# Last Modified: 05/12/2025
 # 
 # 1.0 - Initial Commit
+# 1.1 - Added more logging details
 # 
 ######################################################################################################
 #
