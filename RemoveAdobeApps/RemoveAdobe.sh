@@ -121,7 +121,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -424,7 +423,7 @@ function create_file_list ()
 
     # If you want to remove all files (3D & CC) then use first find, otherwise find only CC apps
     if [[ "${REMOVAL_METHOD:l}" == "all" ]]; then
-        find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -v "^Adobe Creative Cloud$" | grep -v "^Adobe Experience Manager*" | grep -v "^Adobe Digital Edition*" | grep -v "^Adobe Acrobat DC*" | sort > $TMP_FILE_STORAGE
+        find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -v "^Adobe Creative Cloud$" | grep -v "^Adobe XD$" | grep -v "^Adobe Experience Manager*" | grep -v "^Adobe Digital Edition*" | grep -v "^Adobe Acrobat DC*" | sort > $TMP_FILE_STORAGE
     else
         find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -E '[0-9]{4}$' | sort > $TMP_FILE_STORAGE
     fi
@@ -913,6 +912,8 @@ function remove_apps_no_prompt ()
     remove_reader
     logMe "Removing outdated Acrobat versions"
     remove_acrobat_pro
+    [[ ! -e $TMP_FILE_STORAGE ]] && cleanup_and_exit
+     
     cat $TMP_FILE_STORAGE | while read app; do
         [[ -z $app ]] && continue
         app=$( echo "${app}" | xargs | /usr/bin/awk -F " : " '{print $1}' | tr -d '"')
