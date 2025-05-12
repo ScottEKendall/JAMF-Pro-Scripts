@@ -9,6 +9,7 @@
 # 
 # 1.0 - Initial Commit
 # 1.1 - Added more logging details
+# 1.2 - Added shutdown -r now command in case the applescript method fails
 # 
 ######################################################################################################
 #
@@ -231,6 +232,9 @@ function display_restart_timer ()
 	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
 
     osascript -e 'tell app "System Events" to restart'
+    if [[ $? -ne 0 ]]; then
+        sudo shutdown -r now
+    fi
 }
 
 ####################################################################################################
