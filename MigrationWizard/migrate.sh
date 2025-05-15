@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 # Written: May 3, 2022
-# Last updated: Mar 7, 2024
+# Last updated: May 7, 2025
 # by: Scott Kendall (w491008)
 #
 # Script Purpose: Migrate user data to/from MacOS computers
@@ -9,76 +9,62 @@
 # Version History
 #
 # 1.0 - Initial code
-# 1.1 - Added Projects Folder
-# 1.2 - Rewrote copy commands into a common function and thinned out copy commands
-# 1.3 - Add warning dialog for clearing out trash if they choose to backup hidden files
-# 1.4 - Add option for Freeform
-# 2.0 - Much more detailed reporting of copy progress so that the user can see the status.
-#		Removed need to run as admin user and removed warning about emptying trash
-# 2.1 - Move from CocoaDialog to SwiftDialog 
-# 2.2 - Add a "tech" settings to allow saving / restore from an external (non-network) drive
-# 2.3 - Major code cleanup / function name changes, proper variable syntax
-# 3.0 - Migrate lots of code to functions / rewrite of code to follow happy path / integrated MS OneDrive
-# 3.1 - Renamed log_dir to user_log_dir so to not get confused with LOG_DIR
-# 3.2 - Tons of documentation / Heavy use of Dialog BLOBS for more flexibility / Major rewrite of backup/restore routines
-# 3.3 - More documentation / designed backup - resetore routine to handle a variety of copy methods (rsync, tar, or cp)
-
+# 2.0 - rewrite using JSON blobs for all data content
 ######################################################################################################
 #
-# Global "Common" variables
+# Gobal "Common" variables
 #
 ######################################################################################################
 
-SWDialog="/usr/local/bin/dialog"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-OVERLAY_ICON="/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"
-SD_BANNER_IMAGE="/Library/Application Support/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
-ICON_DIRECTORY="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources"
+
+OS_PLATFORM=$(/usr/bin/uname -p)
+
+[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+
+SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
+MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
+MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
+MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
+MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_VERSION=$( sw_vers -productVersion | xargs)
+
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="/Library/Application Support/GiantEagle/logs"
+LOG_DIR="${SUPPORT_DIR}/logs"
 
-#######################################################################################################
-#
-# Application Specific variables
-# Do NOT changes these variables as they are need specifically for this app
-#
-#######################################################################################################
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
-typeset -a Answers
-typeset BACKUP_RESTORE
-typeset BACKUP_LOCATION
-typeset MIGRATION_DIRECTORY
-typeset HARDWARE_ICON
-typeset JSON_APPS_BLOB
-
-# have to "pad" the text title to accomodate for the hardcoded banner image we currently display, this will make it more centered on the screen (5 spaces)
-BANNER_TEXT_PADDING="     "
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Mac Migration Wizard"
-SD_WINDOW_ICON="SF=externaldrive.fill.badge.timemachine,colour=blue,colour2=purple"
-ONE_DRIVE_PATH="${USER_DIR}/Library/CloudStorage/OneDrive-GiantEagle,Inc"
-one_drive_disk_image="${ONE_DRIVE_PATH}/ODMigration.sparsebundle"
-NOTES_PATH="${USER_DIR}/Library/Group Containers/group.com.apple.notes/"
-GOOGLE_PATH="${USER_DIR}/Library/Application Support/Google/Chrome/"
-FIREFOX_PATH="${USER_DIR}/Library/Application Support/Firefox/"
-SAFARI_PATH="${USER_DIR}/Library/Safari/"
-STICKIES_PATH="${USER_DIR}/Library/Containers/com.apple.Stickies/Data/Library/Stickies/"
-PROJECTS_PATH="${USER_DIR}/Projects/"
-FREEFORM_PATH="${USER_DIR}/Library/Containers/com.apple.freeform/"
-BACKUP_DIR_STRUCTURE=("/Notes" "/Google" "/Firefox" "/Safari" "/Keychains" "/Stickies" "/Desktop" "/Documents" "/Pictures" "/Freeform" "/Projects" "/Hidden")
-USER_LOG_FILE="${USER_DIR}/Documents/Migration Wizard.log"
-DIALOG_CMD_FILE=$(mktemp /var/tmp/BackupWizard.XXXXX)
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/exampleDialog.XXXXX)
-BACKUP_METHOD="tar"
-chmod +rw "${JSON_DIALOG_BLOB}"
 # Swift Dialog version requirements
 
-SD_VERSION=$( ${SWDialog} --version)
-MIN_SD_REQUIRED_VERSION="2.4.2"
+SW_DIALOG="/usr/local/bin/dialog"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-[[ $1 == "Tech" ]] && TechMode="Tech" || TechMode="User"
+###################################################
+#
+# App Specfic variables (Feel free to change these)
+#
+###################################################
+
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Migration Wizard"
+SD_INFO_BOX_MSG=""
+LOG_FILE="${LOG_DIR}/MigrationWizard.log"
+SD_ICON_FILE="SF=externaldrive.fill.badge.timemachine,colour=blue,colour2=purple"
+OVERLAY_ICON="/Applications/Self Service.app"
+USER_LOG_FILE="${USER_DIR}/Documents/Migration Wizard.log"
+DIALOG_CMD_FILE=$(mktemp /var/tmp/MigrationWizard.XXXXX)
+JSON_DIALOG_BLOB=$(mktemp /var/tmp/MigrationWizard.XXXXX)
+/bin/chmod 666 "${JSON_DIALOG_BLOB}"
+/bin/chmod 666 "${DIALOG_CMD_FILE}"
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ######################
 #
@@ -86,35 +72,99 @@ DIALOG_INSTALL_POLICY="install_SwiftDialog"
 #
 #######################
 
-function create_json_app_blob()
+function create_log_directory ()
 {
-	# Construct the core apps blob with all of the important info
-    # The list is dynamic..you can add more backup items in here
+    # Ensure that the log directory and the log files exist. If they
+    # do not then create them and set the permissions.
     #
     # RETURN: None
-	# VARIABLES expected: All the PATH, SIZE & FILES need to set before hand
 
-	# Parm 1 - AppName
-	# Parm 2 - Local Path
-	# Parm 3 - Remote Subdirectory
-	# Parm 4 - Icon Path
-	# Parm 5 - Size of all files
-	# Parm 6 - Number of folders
-	# Parm 7 - files to exclude
-	# Parm 8 - Progress Count
-	
-	JSON_APPS_BLOB='[{"app" : "Chrome",   "path" : "'${GOOGLE_PATH}'",        "MigrationDir" : "/Google",    "icon" : "/Applications/Google Chrome.app",                   "size" : "'${google_size}'",    "files" : "'${google_files}'",    "ignore" : "Services",      "progress" : "8"},
-					{"app" : "Firefox",   "path" : "'${FIREFOX_PATH}'",       "MigrationDir" : "/Firefox",   "icon" : "/Applications/FireFox.app",                         "size" : "'${firefox_size}'",   "files" : "'${firefox_files}'",   "ignore" : "Services*",     "progress" : "16"},
-					{"app" : "Safari",    "path" : "'${SAFARI_PATH}'",        "MigrationDir" : "/Safari",    "icon" : "/Applications/Safari.app",                          "size" : "'${safari_size}'",    "files" : "'${safari_files}'",    "ignore" : "Favicon Cache", "progress" : "24"},
-					{"app" : "Notes",     "path" : "'${NOTES_PATH}'",         "MigrationDir" : "/Notes",     "icon" : "/System/Applications/Notes.app",                    "size" : "'${notes_size}'",     "files" : "'${notes_files}'",     "ignore" : "Cache",         "progress" : "40"},
-					{"app" : "Stickies",  "path" : "'${STICKIES_PATH}'",      "MigrationDir" : "/Stickies",  "icon" : "/System/Applications/Stickies.app",                 "size" : "'${stickies_size}'",  "files" : "'${stickies_files}'",  "ignore" : "cache",         "progress" : "48"},
-					{"app" : "Desktop",   "path" : "'${USER_DIR}/Desktop'",   "MigrationDir" : "/Desktop", 	 "icon" : "'${ICON_FILES}/DesktopFolderIcon.icns'",            "size" : "'${desktop_size}'",   "files" : "'${desktop_files}'",   "ignore" : "",              "progress" : "56"},
-					{"app" : "Documents", "path" : "'${USER_DIR}/Documents'", "MigrationDir" : "/Documents", "icon" : "'${ICON_FILES}/DocumentsFolderIcon.icns'",          "size" : "'${documents_size}'", "files" : "'${documents_files}'", "ignore" : "",              "progress" : "64"},
-					{"app" : "Pictures",  "path" : "'${USER_DIR}/Pictures'",  "MigrationDir" : "/Pictures",	 "icon" : "/System/Applications/Photos.app",                   "size" : "'${picture_size}'",   "files" : "'${picture_files}'",   "ignore" : "cache",         "progress" : "72"},
-					{"app" : "Projects",  "path" : "'${USER_DIR}/Projects'",  "MigrationDir" : "/Projects",  "icon" : "'${ICON_FILES}/DeveloperFolderIcon.icns'",          "size" : "'${project_size}'",   "files" : "'${projects_files}'",  "ignore" : "",              "progress" : "80"},
-					{"app" : "Freeform",  "path" : "'${FREEFORM_PATH}'",      "MigrationDir" : "/Freeform",  "icon" : "/System/Applications/Freeform.app",                 "size" : "'${freeform_size}'",  "files" : "'${freeform_files}'",  "ignore" : "",              "progress" : "88"},
-					{"app" : "Hidden",    "path" : "'${USER_DIR}'",           "MigrationDir" : "/Hidden",    "icon" : "'${ICON_FILES}/FinderIcon.icns'",                   "size" : "'${hidden_size}'",    "files" : "'${hidden_files}'",    "ignore" : ".Trash",        "progress" : "100" }]'
+	# If the log directory doesnt exist - create it and set the permissions
+	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
+	/bin/chmod 755 "${LOG_DIR}"
 
+	# If the log file does not exist - create it and set the permissions
+	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
+	/bin/chmod 644 "${LOG_FILE}"
+}
+
+function logMe () 
+{
+    # Basic two pronged logging function that will log like this:
+    #
+    # 20231204 12:00:00: Some message here
+    #
+    # This function logs both to STDOUT/STDERR and a file
+    # The log file is set by the $LOG_FILE variable.
+    #
+    # RETURN: None
+    #echo "${1}" 1>&2
+    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | /usr/bin/tee -a "${LOG_FILE}"
+}
+
+function check_swift_dialog_install ()
+{
+    # Check to make sure that Swift Dialog is installed and functioning correctly
+    # Will install process if missing or corrupted
+    #
+    # RETURN: None
+
+    logMe "Ensuring that swiftDialog version is installed..."
+    if [[ ! -x "${SW_DIALOG}" ]]; then
+        logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
+        install_swift_dialog
+        SD_VERSION=$( ${SW_DIALOG} --version)        
+    fi
+
+    if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
+        logMe "Swift Dialog is outdated - Installing version '${MIN_SD_REQUIRED_VERSION}' from JAMF..."
+        install_swift_dialog
+    else    
+        logMe "Swift Dialog is currently running: ${SD_VERSION}"
+    fi
+}
+
+function install_swift_dialog ()
+{
+    # Install Swift dialog From JAMF
+    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
+    #
+    # RETURN: None
+	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+}
+
+function check_support_files ()
+{
+    logMe "Checking Support Files"
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+}
+
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit 0
+}
+
+########################
+# 
+# Display Functions
+#
+########################
+
+function check_for_tech ()
+{
+	# Determine if they are using the "tech" mode which will allow them to use an external USB drive
+    #
+    # RETURN: Sets techMode to "Tech"
+	# VARIABLES None
+	# PARMS Passed: All of the parameters passed into the script
+
+	techMode="User"
+ 	for param in "$@"; do
+		[[ $param == *"tech"* ]] && techMode="tech"
+	done
 }
 
 function construct_dialog_header_settings()
@@ -126,91 +176,42 @@ function construct_dialog_header_settings()
 	# PARMS Passed: $1 is message to be displayed on the window
 
 	echo '{
-		"icon" : "'${SD_WINDOW_ICON}'",
+		"icon" : "'${SD_ICON_FILE}'",
 		"message" : "'$1'",
 		"bannerimage" : "'${SD_BANNER_IMAGE}'",
 		"bannertitle" : "'${SD_WINDOW_TITLE}'",
 		"titlefont" : "shadow=1",
 		"button1text" : "OK",
-		"height" : "675",
-		"width" : "920",
 		"moveable" : "true",
-		"messageposition" : "top",'		
+		"quitkey" : "0",
+		"messageposition" : "top",'
 }
 
-function create_json_dialog_blob()
+function display_welcome_message()
 {
-    # Adds to the existing Display BLOB with information from the construct_json_apps_blob
+	# Display welcome message to user
     #
-    # RETURN: Creates the temporary JSON_DIALOG_BLOB file
-	# VARIABLES expected: JSON_DIALOG_BLOB needs to be constructed first
-	# PARMS Passed: $1 is message to be displayed on the window
-
-	construct_dialog_header_settings "${1}" > "${JSON_DIALOG_BLOB}"
-	echo '"button1disabled" : "true",
-			"listitem" : [' >> "${JSON_DIALOG_BLOB}"
-
-	for i in {0..10}; do
-		app=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].app' )
-		icon=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].icon' )
-		echo '{"title" : "'"${app}"'", "status" : "pending", "statustext" : "Pending...", "icon" : "'"${icon}"'"},'>> "${JSON_DIALOG_BLOB}"
-	done
-	echo "]}" >> "${JSON_DIALOG_BLOB}"
-}
-
-function logMe() 
-{
-    # Writes log entry 
-    #
-    # RETURN: none
-	# VARIABLES expected: USER_LOG_FILE points to logfile location
-	# PARMS Passed: $1 is message to be written to log
-
-    echo "${1}" 1>&2
-    echo "$(/bin/date '+%Y%m%d %H:%M:%S')\n${1}\n" >> "${USER_LOG_FILE}"
-}
-
-function alltrim()
-{
-	# Removes all leading / trailing spaces 
-    #
-    # RETURN: trimmed variable
-	# VARIABLES expected: none
-	# PARMS Passed: $1 is variable to trim
-
-    echo "$1" | xargs
-}
-
-function check_swift_dialog_install ()
-{
-    # Check to make sure that Swift Dialog is installed and functioning correctly
-    # Will install process if missing or corrupted
-    #
-    # RETURN: None
-	# VARIABLES expected: SD_VERSION & MIN_SD_REQUIRED_VERSION must be set first
-	# PARMS Passed: none
-
-    logMe "Ensuring that swiftDialog is installed and up to date..."
-    if [[ ! -x "/usr/local/bin/dialog" ]]; then
-        logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
-        install_swift_dialog
-    fi
-
-    if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
-        logMe "Swift Dialog is outdated - Installing version '${MIN_SD_REQUIRED_VERSION}' from JAMF..."
-        install_swift_dialog
-    fi
-}
-
-function install_swift_dialog ()
-{
-    # Install Swift dialog From JAMF
-    #
-	# VARIABLES expected: DIALOG_INSALL_POLICY is the JAMF policy #
+	# VARIABLES expected: JSON_DIALOG_BLOB & SD_WINDOW_TITLE must be set
 	# PARMS Passed: None
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	WelcomeMsg="Welcome to the "${SD_WINDOW_TITLE} | xargs "<br><br>"
+	WelcomeMsg+="This utility is designed to backup certain critical data on your Mac and<br>"
+	WelcomeMsg+="you will also have the opportunity to restore this data to a new Mac.<br>"
+	WelcomeMsg+="*This utility will NOT backup your entire drive, but only the following files:*<br><br>"
+	for i in {0..$jsonAppBlobCount}; do
+		app=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].app' )
+		WelcomeMsg+="* ${app}<br>"
+	done
+	WelcomeMsg+="<br>If these files are relatively massive in size, it is strongly recommended<br>"
+	WelcomeMsg+="that you only backup your system while connected to the internal Giant Eagle<br>"
+	WelcomeMsg+="network.  Backup or restore over VPN will have very poor performance.<br>"
+
+	construct_dialog_header_settings "${WelcomeMsg}" > "${JSON_DIALOG_BLOB}"
+	echo '}' >> "${JSON_DIALOG_BLOB}"
+
+	${SW_DIALOG} --width 920 --height 675 --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null
+
 }
 
 function choose_backup_location()
@@ -222,73 +223,90 @@ function choose_backup_location()
 	# PARMS Passed: None
     # RETURN: None
 	
-	typeset values && values="Microsoft OneDrive (Faster), GE Network (Legacy)"
+	declare values && values='"Microsoft OneDrive (Faster)", "GE Network (Legacy)"'
 	
-	[[ $TechMode == "Tech" ]] && values+=", External Drive"
+	[[ $techMode == "Tech" ]] && values+=', "External Drive"'
 
-	DialogMsg="${SWDialog} \
-			--message \"Please select file Location\" \
-            --bannerimage \"${SD_BANNER_IMAGE}\" \
-            --bannertitle \"${SD_WINDOW_TITLE}\" \
-			--icon \"${SD_WINDOW_ICON}\" \
-			--moveable \
-			--selecttitle \"Location:\"\
-			--selectvalues \"${values}\" \
-			--height 330 \
-			--width 700 \
-			--button1text \"Proceed\" \
-			--selectdefault \"Microsoft OneDrive (Faster)\" \
-			--selecttitle \"Choose Action:\"\
-			--selectvalues \"Backup, Restore\" \
-			--json \
-			--infobuttontext \"Cancel\" "
+		construct_dialog_header_settings "Please select file Location and the action to be performed." > "${JSON_DIALOG_BLOB}"
+		echo '"selectitems" : [
+			{"title" : "Location",
+			"values" : ['$values'],
+			"default" : "Microsoft OneDrive (Faster)"},
+			{"title" : "Action",
+			"values" : ["Backup", "Restore"],
+			"default" : "Backup"},]}' >> "${JSON_DIALOG_BLOB}"
 
-	tmp=$(eval "${DialogMsg}" 2>/dev/null)
+	temp=$("${SW_DIALOG}" --width 800 --json --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null)
 	button=$?
-	echo "$button"
 
-	[[ "${button}" == "3" ]] && cleanup_and_exit
+	[[ $button -eq 3 || $button -eq 10 ]] && cleanup_and_exit
 
-	[[ ! -z $(echo $tmp | grep "Backup")  ]] && BACKUP_RESTORE="backup" || BACKUP_RESTORE="restore"	
-	[[ ! -z $(echo $tmp | grep "OneDrive") ]] && BACKUP_LOCATION="OneDrive" || BACKUP_LOCATION="Network"
-	[[ ! -z $(echo $tmp | grep "External" ) ]] && BACKUP_LOCATION="External"
-
-	#echo "Choices: "$BACKUP_LOCATION / $BACKUP_RESTORE
-
+	[[ ! -z $(echo $temp | /usr/bin/grep "Backup")  ]] && backupRestore="backup" || backupRestore="restore"	
+	[[ ! -z $(echo $temp | /usr/bin/grep "OneDrive") ]] && backupLocation="OneDrive" || backupLocation="Network"
+	[[ ! -z $(echo $temp | /usr/bin/grep "External" ) ]] && backupLocation="External"
+    logMe "INFO: User choose to ${backupRestore} using network location: $backupLocation"
 }
 
-function onedrive_disk_image()
+function check_network_drive()
 {
-	# routines to create / mount / unmount OneDrive disk images
+	# Check for the presence of the network storage location and display an error if it doesn't exist
+    #
+    # RETURN: None
 
-		case "$1" in 
+	declare oneDrive_found && oneDrive_found="No"
 
-			"Create" )
-				/usr/bin/hdiutil create "${one_drive_disk_image}" -type SPARSEBUNDLE -fs APFS  -volname "Migration"
-				;;
+	# if the migration directory exists the return gracefully
+	[[ -e $migrationDirectory ]] && {logMe "INFO: Storage location exists...continuing..."; return 0;}
 
-			"Mount"  )
-				/usr/bin/hdiutil attach -mountroot /Volumes "${one_drive_disk_image}"
+	# If not, then throw an error
+	if [[ ${backupLocation} == *"OneDrive"* ]]; then
+		title="The storeage location that you selected is not available.<br>Please make sure that OneDrive is running on your Mac."
+		[[ -e "/Applications/OneDrive.app" ]] && oneDrive_found="Yes"
+	else
+		title="Please make sure that the Network Volume is mounted on your Mac."
+	fi
 
-				# Wait 5 secs for volume to mount before continuing...
-				sleep 5
-				;;
+	MainDialogBody=(
+		--message "${title}"
+        --titlefont shadow=1
+        --ontop
+		--icon "${ICON_FILES}AlertStopIcon.icns"
+        --overlayicon "${OVERLAY_ICON}"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --helpmessage ""
+        --width 800
+		--height 400
+        --ignorednd
+        --quitkey 0
+    )
 
-			"UnMount" )
- 				if /sbin/mount | grep "/Migration"; then
-					/usr/bin/hdiutil detach "/Volumes/Migration"
-				fi
-				;;
+	[[ $oneDrive_found == "Yes" ]] && MainDialogBody+=(--button1text "Open OneDrive") || MainDialogBody+=(--button1text "OK")
 
-			"Destroy" )
-				if /sbin/mount | grep "/Migration"; then
-					/usr/bin/hdiutil detach "/Volumes/Migration"
-					/bin/rm -rf "${one_drive_disk_image}"
-				fi
-				;;
-		esac
+	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+	[[ $oneDrive_found == "Yes" ]] && open "/Applications/OneDrive.app"
 
-		MIGRATION_DIRECTORY="/Volumes/Migration"
+    logMe "ERROR: No backup drive present at $backupLocation"
+	cleanup_and_exit
+}
+
+function check_for_fulldisk_access()
+{
+	[[ $(plutil -lint /Library/Preferences/com.apple.TimeMachine.plist) == *"OK"* ]] && return 0
+	WelcomeMsg="To use this application, Full Disk access must be enabled:<br><br>"
+	WelcomeMsg+="1.  Click on Apple Menu ()<br>"
+	WelcomeMsg+="2.  Click on System Settings<br>"
+	WelcomeMsg+="3.  Navigate to Privacy & Security<br>"
+	WelcomeMsg+="4.  Navigate to Full Disk Access<br>"
+	WelcomeMsg+="5.  Enable 'Terminal'.  You will have to restart the terminal."
+
+	construct_dialog_header_settings "${WelcomeMsg}" > "${JSON_DIALOG_BLOB}"
+	echo '}' >> "${JSON_DIALOG_BLOB}"
+
+	${SW_DIALOG} --width 300 --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null
+    logMe "ERROR: Full disk access reuired."
+	exit 1
 }
 
 function select_migration_apps()
@@ -299,188 +317,96 @@ function select_migration_apps()
 	# PARMS Passed: None
     # RETURN: None
 
-	construct_dialog_header_settings "Select files to $BACKUP_RESTORE for user $LOGGED_IN_USER:" > "${JSON_DIALOG_BLOB}"
-	echo '"checkboxstyle" : {
-		  "style" : "switch",
-		  "size"  : "regular"
-		  }, "checkbox" : [' >> "${JSON_DIALOG_BLOB}"
+	construct_dialog_header_settings "Select files to $backupRestore for user $LOGGED_IN_USER:" > "${JSON_DIALOG_BLOB}"
+	create_checkbox_message_body "" "" "" "" "first"
 
-		for i in {0..10}; do
-			app=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].app' )
-			size=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].size' )
-			files=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].files' )
-			icon=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].icon' )
-			echo '{"label" : "'"$app (${size} / ${files} Files)"'", "checked" : true, "icon" : "'"${icon}"'"},'>> "${JSON_DIALOG_BLOB}"
-		done
-		echo "]}" >> "${JSON_DIALOG_BLOB}"
-
-	/bin/chmod 775 "${JSON_DIALOG_BLOB}"
+    for i in {0..$jsonAppBlobCount}; do
+        checked=true
+        disabled=false
+        app=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].app' )
+        size=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].size' )
+        files=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].files' )
+        icon=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].icon' )
+        if [[ -z $size || -z $files && $backupRestore = "backup" ]]; then
+            checked=false
+            disabled=true
+        fi
+		if [[ "${backupRestore}" == "backup" ]]; then
+	        create_checkbox_message_body "$app ($size / $files Files)" "$icon" "$checked" "$disabled"
+		else
+	        create_checkbox_message_body "$app" "$icon" "$checked" "$disabled"
+		fi
+    done
+    create_checkbox_message_body "" "" "" "" "last"
 
 	# Display the message and offer them options
 	
-	TmpMsg="${SWDialog} --json --jsonfile '${JSON_DIALOG_BLOB}'"
-
-	tmp=$(eval "${TmpMsg}")
+	retval=$(${SW_DIALOG} --width 920 --height 800 --json --jsonfile "${JSON_DIALOG_BLOB}")
 	button=$?
 
 	# User choose to exit, so cleanup & quit
-	[[ $button -eq 2 ]] && cleanup_and_exit
+	[[ $button -eq 2 || $button -eq 10 ]] && cleanup_and_exit
 
-	# Process each checkbox item and set it in the control array
-	for i in {0..10}; do
-		app=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].app' )
-		Answers[$i+1]=$(echo $tmp | grep "$app" | awk -F " : " '{print $NF}' | tr -d ',' )
-	done
-
+	# Mark each entry in the JSON with the user choice
+	for i in {0..$jsonAppBlobCount}; do
+		app=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].app' )
+		choice=$(echo $retval | /usr/bin/grep "$app" | /usr/bin/awk -F " : " '{print $NF}' | /usr/bin/tr -d ',' )
+        jsonAppBlob=$(modify_individual_json_field "$jsonAppBlob" "$app" "choice" "$choice")
+ 	done
 }
 
-function get_migration_directory()
+function create_checkbox_message_body ()
 {
-	# Determine migration directory from their choices, and make sure it is a valid path 
-    #
-	# VARIABLES expected: ONE_DRIVE_PATH must be set
-	# PARMS Passed: None
+    # PURPOSE: Construct a checkbox style body of the dialog box
+    #"checkbox" : [
+	#			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+
     # RETURN: None
+    # EXPECTED: message
+    # PARMS: $1 - title 
+    #        $2 - icon
+    #        $3 - Default Checked (true/false)
+    #        $4 - disabled (true/false)
+    #        $5 - first or last - construct appropriate listitem heders / footers
 
-	case "${BACKUP_LOCATION}" in
-
-		*"OneDrive"* )
-					
-			# Create the disk image if it doesn't exist
-			MIGRATION_DIRECTORY="/Volumes/Migration"
-			if [[ ! -e "${one_drive_disk_image}" && "${BACKUP_RESTORE}" == "backup" ]]; then
-				onedrive_disk_image "Create"
-			fi
-
-			# Mount the drive
-
-			onedrive_disk_image "Mount"
-			
-			;;
-			# MIGRATION_DIRECTORY="${ONE_DRIVE_PATH}"
-			#[[ -e "${MIGRATION_DIRECTORY}" ]] && /bin/mkdir -p "${MIGRATION_DIRECTORY}/Migration"
-			#MIGRATION_DIRECTORY+="/Migration"
-			#;;
-			
-		*"Network"* )
-
-			# Set the default Directory for network location
-
-			[[ -d "/Volumes/${LOGGED_IN_USER}" ]] && MIGRATION_DIRECTORY="/Volumes/${LOGGED_IN_USER}/Migration" || MIGRATION_DIRECTORY="/Users/${LOGGED_IN_USER}/Migration"
-			;;
-
-		*"External"* )
-
-			construct_dialog_header_settings "Please enter the location for your files" > "${JSON_DIALOG_BLOB}"
-			echo '"button2text" : "Cancel", "json" : "true"}'>> "${JSON_DIALOG_BLOB}"
-			tmp=$( ${SWDialog} --jsonfile "${JSON_DIALOG_BLOB}" --textfield "Select a storage location",fileselect,filetype=folder)
-
-			[[ "$?" == "2" ]] && cleanup_and_exit
-			
-			# Format the Volume name correctly
-
-			MIGRATION_DIRECTORY=$( echo $tmp | grep "location" | awk -F ": " '{print $NF}' | tr -d '\' | tr -d '"')
-
-			#MIGRATION_DIRECTORY+="/Migration"
-			;;
-	esac
-	if [[ "$1" == "backup" ]]; then
-
-		if [[ ! -e ${MIGRATION_DIRECTORY} ]]; then
-			no_network_drive_present
-			cleanup_and_exit
-		fi
-
-	else
-		#
-		# If they want to do a restore, then make sure that the Migration Volume is present and mount it
-		#
-		echo $BACKUP_LOCATION
-		case "${BACKUP_LOCATION}" in
-			*"OneDrive"* )
-
-				if [[ -e "${one_drive_disk_image}" ]]; then
-					onedrive_disk_image "Mount"
-
-					# If there was an error mounting the OneDrive volume then exit
-
-					if [[ $? -ne 0 ]]; then
-						cleanup_and_exit
-						exit 1
-					fi
-					MIGRATION_DIRECTORY="/Volumes/Migration"
-
-					# Make sure that their Network Home Drive is mounted, otherwise exit
-
-					if [[ ! -e "${MIGRATION_DIRECTORY}" ]]; then
-						no_network_drive_present
-						cleanup_and_exit
-					fi
-				fi
-				;;
-
-			*"Network"* )
-				# Verify mount point for network drive
-
-				[ -d "/Volumes/${LOGGED_IN_USER}" ] && MIGRATION_DIRECTORY="/Volumes/${LOGGED_IN_USER}/Migration" || MIGRATION_DIRECTORY="/Users/${LOGGED_IN_USER}/Migration"
-				;;
-
-			*"External"* )
-				construct_dialog_header_settings "Please enter the location for your files" > "${JSON_DIALOG_BLOB}"
-				echo '"button2text" : "Cancel", "json" : "true"}'>> "${JSON_DIALOG_BLOB}"
-				tmp=$( ${SWDialog} --jsonfile "${JSON_DIALOG_BLOB}" --textfield "Select a storage location",fileselect,filetype=folder)
-
-				[[ "$?" == "2" ]] && cleanup_and_exit
-				
-				# Format the Volume name correctly
-
-				MIGRATION_DIRECTORY=$( echo $tmp | grep "location" | awk -F ": " '{print $NF}' | tr -d '\' | tr -d '"')
-
-				#MIGRATION_DIRECTORY+="/Migration"
-				;;
-		esac
-	fi
-	
+    declare line && line=""
+    if [[ "$5:l" == "first" ]]; then
+        line='"checkbox" : ['
+    elif [[ "$5:l" == "last" ]]; then
+        line='], "checkboxstyle" : {"style" : "switch", "size"  : "small"}}'
+    else
+        line='{"label" : "'$1'", "icon" : "'$2'", "checked" : "'$3'", "disabled" : "'$4'"},'
+    fi
+    echo $line >> ${JSON_DIALOG_BLOB}
 }
 
-function no_network_drive_present()
+function create_listitem_message_body ()
 {
-	# No drive present, show user an error
-    #
+    # PURPOSE: Construct the List item body of the dialog box
+    #"listitem" : [
+	#			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+
     # RETURN: None
+    # EXPECTED: message
+    # PARMS: $1 - title 
+    #        $2 - icon
+    #        $3 - listitem
+    #        $4 - status
+    #        $5 - first or last - construct appropriate listitem heders / footers
 
-	[[ ${BACKUP_LOCATION} == "*OneDrive*" ]] && title="Please make sure that OneDrive is running on your Mac." || title="Please make sure that the Network Volume is mounted on your Mac."
+    declare line && line=""
 
-	${SWDialog} \
-		--message "${title}" \
-		--title "${SD_WINDOW_TITLE}" \
-		--icon "${ICON_FILES}AlertStopIcon.icns" \
-		--button1text "OK" \
-		--width 560 \
-		--height 200 \
-		--icon-size 50
+    if [[ "$5:l" == "first" ]]; then
+        line='"button1disabled" : "true", "listitem" : ['
+    elif [[ "$5:l" == "last" ]]; then
+        line=']}'
+    else
+        line='{"title" : "'$1'", "icon" : "'$2'", "status" : "'$4'", "statustext" : "'$3'"},'
+    fi
+    echo $line >> ${JSON_DIALOG_BLOB}
 }
 
-function create_migration_directories()
-{
-	# Create the backup subfolders inside the migration directory 
-    #
-	# VARIABLES expected: MIGRATION_DIRECTORY must be set
-	# PARMS Passed: None
-    # RETURN: None
-
-	typeset dir_name
-
-	if [[ "${BACKUP_METHOD}" == "tar" ]]; then
-		return 0
-	fi
-	for subdir_name in ${BACKUP_DIR_STRUCTURE}; do
-		# If the destination directory doesn't exist, make it
-	    [[ ! -d "${MIGRATION_DIRECTORY}${subdir_name}" ]] && /bin/mkdir -p "${MIGRATION_DIRECTORY}${subdir_name}"
-	done
-}
-
-function update_display_list()
+function update_display_list ()
 {
 	# Function to handle various aspects of the Swift Dialog behaviour
     #
@@ -507,13 +433,15 @@ function update_display_list()
 		#
 		create_json_dialog_blob "${2}"
 
-		${SWDialog} \
+		${SW_DIALOG} \
 			--progress \
 			--jsonfile "${JSON_DIALOG_BLOB}" \
 			--infobox "Please be patient while this is working.... If you have lots of files and/or folders, this process might take a while!" \
 			--commandfile ${DIALOG_CMD_FILE} \
+			--height 800 \
+			--width 920 \
 			--button1disabled \
-			--infotext "Files are stored in: ${MIGRATION_DIRECTORY}" & /bin/sleep .3
+			--infotext "Backup File Location: ${migrationDirectory} on ${backupLocation}" & /bin/sleep .2
 		;;
 
 	"Destroy" )
@@ -540,6 +468,144 @@ function update_display_list()
 	esac
 }
 
+function create_json_dialog_blob()
+{
+    # Adds to the existing Display BLOB with information from the construct_json_apps_blob
+    #
+    # RETURN: Creates the temporary JSON_DIALOG_BLOB file
+	# VARIABLES expected: JSON_DIALOG_BLOB needs to be constructed first
+	# PARMS Passed: $1 is message to be displayed on the window
+
+	construct_dialog_header_settings "${1}" > "${JSON_DIALOG_BLOB}"
+	create_listitem_message_body "" "" "" "" "first"
+	for i in {0..$jsonAppBlobCount}; do
+		app=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].app' )
+		icon=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].icon' )
+       create_listitem_message_body "$app" "$icon" "pending" "Pending..."
+	done
+	create_listitem_message_body "" "" "" "" "last"
+
+}
+
+function notify_user_migration_done()
+{
+	# All done!  Show results
+    #
+	# VARIABLES expected: migrationDirectory should be set
+	# PARMS Passed: None
+    # RETURN: None
+
+	msg="Your ${backupRestore} is done.<br><br>Total Elapsed Time $((EndTime / 3600)) hours, $(( (EndTime % 3600) / 60)) minutes and $((EndTime % 60)) Seconds.<br><br> Your files are located in ${migrationDirectory}."
+	construct_dialog_header_settings "${msg}" > "${JSON_DIALOG_BLOB}"
+	echo "}" >> "${JSON_DIALOG_BLOB}"
+	${SW_DIALOG} --width 800 --height 350 --jsonfile ${JSON_DIALOG_BLOB}
+}
+
+#####################
+#
+# Backup/Restore functions
+#
+####################
+
+function onedrive_disk_image()
+{
+	# routines to create / mount / unmount OneDrive disk images
+
+		case "$1:l" in 
+
+			"create" )
+				/usr/bin/hdiutil create "${one_drive_disk_image}" -type SPARSEBUNDLE -fs APFS  -volname "Migration"
+				;;
+
+			"mount"  )
+				/usr/bin/hdiutil attach -mountroot /Volumes "${one_drive_disk_image}"
+
+				# Wait 5 secs for volume to mount before continuing...
+				sleep 5
+				;;
+
+			"unmount" )
+ 				if /sbin/mount | /usr/bin/grep "/Migration"; then
+					/usr/bin/hdiutil detach "/Volumes/Migration"
+				fi
+				;;
+
+			"destroy" )
+				if /sbin/mount | /usr/bin/grep "/Migration"; then
+					/usr/bin/hdiutil detach "/Volumes/Migration"
+					/bin/rm -rf "${one_drive_disk_image}"
+				fi
+				;;
+		esac
+
+		#migrationDirectory="/Volumes/Migration"
+}
+
+function get_migration_directory()
+{
+	# Determine migration directory from their choices, and make sure it is a valid path 
+    #
+	# VARIABLES expected: ONE_DRIVE_PATH must be set
+	# PARMS Passed: None
+    # RETURN: None
+
+	case "${backupLocation}" in
+
+		*"OneDrive"* )
+					
+			# Create the disk image if it doesn't exist
+			migrationDirectory="/Volumes/Migration"
+			[[ ! -e "${one_drive_disk_image}" && "${backupRestore}" == "backup" ]] && onedrive_disk_image "Create"
+
+			# Mount the drive
+
+			onedrive_disk_image "Mount"
+			check_network_drive
+			;;
+			
+		*"Network"* )
+
+			# Set the default Directory for network location
+
+			[[ -d "/Volumes/${LOGGED_IN_USER}" ]] && migrationDirectory="/Volumes/${LOGGED_IN_USER}/Migration" || migrationDirectory="/Users/${LOGGED_IN_USER}/Migration"
+			;;
+
+		*"External"* )
+
+			construct_dialog_header_settings "Please enter the location to store the files:" > "${JSON_DIALOG_BLOB}"
+			echo '"button2text" : "Cancel", "json" : "true" }' >> "${JSON_DIALOG_BLOB}"
+
+			temp=$( ${SW_DIALOG} --width 800 --height 300 --jsonfile "${JSON_DIALOG_BLOB}" --textfield "Select a storage location",fileselect,filetype=folder)
+
+			[[ "$?" == "2" ]] && cleanup_and_exit
+			
+			# Format the Volume name correctly
+
+			migrationDirectory=$( echo $temp | /usr/bin/grep "location" | awk -F ": " '{print $NF}' | tr -d '\' | tr -d '"')
+			;;
+	esac
+}
+
+function create_migration_directories ()
+{
+	# Create the backup subfolders inside the migration directory 
+    #
+	# VARIABLES expected: migrationDirectory must be set
+	# PARMS Passed: None
+    # RETURN: None
+
+	declare subdir_name
+	declare dir_structure
+
+	[[ "${BACKUP_METHOD}" == "tar" ]] && return 0
+
+	dir_structure=$(echo "$jsonAppBlob" | /usr/bin/jq -r '.[].MigrationDir')
+	for subdir_name in ${dir_structure}; do
+		# If the destination directory doesn't exist, make it
+	    [[ ! -d "${migrationDirectory}${subdir_name}" ]] && /bin/mkdir -p "${migrationDirectory}${subdir_name}"
+	done
+}
+
 function create_migration_log()
 {
     # Creates the migration log output on the users desktop
@@ -561,63 +627,33 @@ function calculate_storage_space()
 	# VARIABLES expected: PATH, SIZE & FILES should be declared
 	# PARMS Passed: None
     # RETURN: None
+    declare -i i
 
 	update_display_list "Create" "Calculating Space Requirements..."
 
-	update_display_list "Update" "8" "Chrome" "Calculating Chrome" "wait" "Working..."
-	google_size=$( calculate_folder_size "${GOOGLE_PATH}" )
-	google_files=$( calculate_num_of_files "${GOOGLE_PATH}" )
-	update_display_list "Update" "8" "Chrome" "" "success" "Done"
+	for i in {0..$jsonAppBlobCount}; do
+        progress=$(( (i * 100) / jsonAppBlobCount ))
+        # Extract info from the JSON blob
+        app=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].app' )
+        path=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].path' )
+        # update the display
+        update_display_list "Update" "$progress" "$app" "Calculating Chrome" "wait" "Working..."
 
-	update_display_list "Update" "16" "Firefox" "Calculating Firefox" "wait" "Working..."
-	firefox_size=$( calculate_folder_size "${FIREFOX_PATH}" )
-	firefox_files=$( calculate_num_of_files "${FIREFOX_PATH}" )
-	update_display_list "Update" "16" "Firefox" "" "success" "Done"
+        # calculate # of files and sizes
+        size=$( calculate_folder_size "${path}" )
+        files=$( calculate_num_of_files "${path}" )
 
-	update_display_list "Update" "32" "Safari" "Calculating Safari" "wait" "Working..."
-	safari_size=$( calculate_folder_size "${SAFARI_PATH}" )
-	safari_files=$( calculate_num_of_files "${SAFARI_PATH}" )
-	update_display_list "Update" "32" "Safari" "" "success" "Done"
+        # Modify the JSON with the new info
+        jsonAppBlob=$(modify_individual_json_field "$jsonAppBlob" "$app" "size" "$size")
+        jsonAppBlob=$(modify_individual_json_field "$jsonAppBlob" "$app" "files" "$files")
 
-	update_display_list "Update" "46" "Notes" "Calculating Notes" "wait" "Working..."
-	notes_size=$( calculate_folder_size "${NOTES_PATH}" )
-	notes_files=$( calculate_num_of_files "${NOTES_PATH}" )
-	update_display_list "Update" "46" "Notes" "" "success" "Done"
-
-	update_display_list "Update" "54" "Stickies" "Calculating Stickies" "wait" "Working..."
-	stickies_size=$( calculate_folder_size "${STICKIES_PATH}" )
-	stickies_files=$( calculate_num_of_files "${STICKIES_PATH}" )
-	update_display_list "Update" "54" "Stickies" "" "success" "Done"
-
-	update_display_list "Update" "62" "Desktop" "Calculating Desktop" "wait" "Working..."
-	desktop_size=$( calculate_folder_size "${USER_DIR}/Desktop" )
-	desktop_files=$( calculate_num_of_files "${USER_DIR}/Desktop" )
-	update_display_list "Update" "62" "Desktop" "" "success" "Done"
-
-	update_display_list "Update" "70" "Documents" "Calculating Documents" "wait" "Working..."
-	documents_size=$( calculate_folder_size "${USER_DIR}/Documents" )
-	documents_files=$( calculate_num_of_files "${USER_DIR}/Documents" )
-	update_display_list "Update" "70" "Documents" "" "success" "Done"
-
-	update_display_list "Update" "78" "Pictures" "Calculating Pictures" "wait" "Working..."
-	picture_size=$( calculate_folder_size "${USER_DIR}/Pictures" )
-	picture_files=$( calculate_num_of_files "${USER_DIR}/Pictures" )
-	update_display_list "Update" "78" "Pictures" "" "success" "Done"
-
-	update_display_list "Update" "86" "Projects" "Calculating Projects" "wait" "Working..."
-	project_size=$( calculate_folder_size "${PROJECTS_PATH}" )
-	project_files=$( calculate_num_of_files "${PROJECTS_PATH}" )
-	update_display_list "Update" "86" "Projects" "" "success" "Done"
-
-	update_display_list "Update" "94" "Freeform" "Calculating Freeform" "wait" "Working..."
-	freeform_size=$( calculate_folder_size "${FREEFORM_PATH}" )
-	freeform_files=$( calculate_num_of_files "${FREEFORM_PATH}" )
-	update_display_list "Update" "94" "Freeform" "" "success" "Done"
-
-	update_display_list "Update" "100" "Hidden" "Calculating Hidden Files" "wait" "Working..."
-	hidden_size=$( calculate_folder_size "${USER_DIR}/hidden" )
-	hidden_files=$( calculate_num_of_files "${USER_DIR}/hidden" )
-	update_display_list "Update" "100" "Hidden" "" "success" "Done"
+        # Update the display
+		if [[ -z $size || -z $files ]]; then
+			update_display_list "Update" "$progress" "$app" "" "fail" "No Files"
+		else
+			update_display_list "Update" "$progress" "$app" "" "success" "Done"
+			fi
+    done
 
 	/bin/sleep 2
 	update_display_list "Destroy"
@@ -631,9 +667,10 @@ function calculate_folder_size()
 	# PARMS Passed: $1 is directory to be acted upon
 	# RETURN: Total Size of folder
 
-	[[ "${1}" == "${USER_DIR}/hidden" ]] && filepath="${USER_DIR}/.[^.]*" || filepath="${1}"
-	echo $( du -hcs ${~filepath} | tail -1 | awk '{print $1}' ) 2>&1
-	return 0
+    if [[ -e $1 ]]; then
+    	[[ "${1}" == "${USER_DIR}/hidden" ]] && filepath="${USER_DIR}/.[^.]*" || filepath="${1}"
+    	echo $( /usr/bin/du -hcs ${~filepath} | /usr/bin/tail -1 | /usr/bin/awk '{print $1}' ) 2>&1
+    fi
 }
 
 function calculate_num_of_files()
@@ -645,9 +682,9 @@ function calculate_num_of_files()
     # RETURN: Total # of files found
 
 	if [[ "${1}" == "${USER_DIR}/hidden" ]]; then
-		echo $( find ${USER_DIR} -name ".*" -maxdepth 3 -print | wc -l )
+		echo $( /usr/bin/find ${USER_DIR} -name ".*" -maxdepth 3 -print | /usr/bin/wc -l )
 	elif [[ -e "${1}" ]]; then
-		echo $( find "${1}" -name "*" -print 2>/dev/null | wc -l )
+		echo $( /usr/bin/find "${1}" -name "*" -print 2>/dev/null | /usr/bin/wc -l )
 	fi
 }
 
@@ -666,118 +703,125 @@ function perform_file_copy()
 	# Parm 9 - JSON block key index (appname)
 	# Parm 10- List Item Text
 	#
-	# ex: 	perform_file_copy "${USER_DIR}/" "${MIGRATION_DIRECTORY}/Hidden" "backup" "Hidden Files" ".Trash" "100" ${hidden_size} ${hidden_files} "Google"
+	# ex: perform_file_copy ${path} "${migrationDirectory}${migration}" "backup" "${app}" ${ignore} ${progress} ${size} ${files} "Working..."
+	# ex: perform_file_copy "${migrationDirectory}${migration}" ${path} "restore" "${app}" ${ignore} ${progress} ${size} ${files} "Restoring..."
 	#
     # RETURN: None
 
-	typeset log_msg
-	typeset source_dir
-	typeset exclude_files
-	typeset dest_dir
+	declare log_msg
+	declare source_dir
+	declare exclude_files
+	declare dest_dir
 
-	update_display_list "Update" "${6}" "${4}" "${4}" "wait" "${9}"
-
-	# Set the source directory differently if we are working on the hidden files
-
-	#[[ "${4}" == "Hidden" ]] && source_dir=${1}.[^.]* || source_dir=${1}
-	
-	exclude_files=${5}
+	source_dir=${1}
 	dest_dir=${2}
+	action=${3}
+	log_title=${4}
+	exclude_files=${5}
+	progress_count=${6}
+	file_size=${7}
+	file_number=${8}
+	app_name=${4}
 
-	log_msg="${3} files from ${source_dir} to ${dest_dir}\n"
-	log_msg+="Exclude the following directories: ${5}\n\n"
+	update_display_list "Update" "${progress_count}" "${log_title}" "${log_title}" "wait" "Working..."
+	
+	log_msg="-------------------------\n"
+	log_msg+="Working on ${app_name}\n"
+	log_msg+="${action} files from ${source_dir} to ${dest_dir}\n"
+	log_msg+="Exclude the following directories: ${exclude_files}\n"
+	log_msg+="-------------------------\n"
+	log_msg+="# of files to ${action}: ${file_number}\n"
+	log_msg+="total size of ${action}: ${file_size}\n"
 	log_msg+="-------------------------\n\n"
-	log_msg+="# of files to ${3}: ${8}\n"
-	log_msg+="Bytes to ${3}: ${7}\n\n"
 
 	case "${BACKUP_METHOD}" in
 
 		"tar")
 			copyCommand="/usr/bin/tar"
-            if [[ "${3}" == "backup" ]]; then
-				[[ "${4}" == "Hidden" ]] && { source_dir=${1}/.??* ; dest_dir="Hidden" } || source_dir=${1}
-                [[ "${exclude_files}" != '""' ]] && copyCommand+=" --exclude="${exclude_files}
+            if [[ "${action}" == "backup" ]]; then
+				[[ "${log_title}" == "Hidden" ]] && source_dir=${source_dir}/.??*
+                [[ ! -z $(echo "${exclude_files}" | /usr/bin/xargs ) ]] && copyCommand+=" --exclude="${exclude_files}
 			    copyCommand+=" -cvzPf ${dest_dir}.tar.gz ${source_dir}"
             else
-				[[ "${4}" == "Hidden" ]] && source_dir="Hidden" || source_dir=${1}
 			    copyCommand+=" -xvzPf ${source_dir}.tar.gz ${dest_dir}"
 			fi
-			log_msg+="${copyCommand}"
+			log_msg+="${copyCommand}\n"
 			echo $log_msg >> "${USER_LOG_FILE}"
-			eval ${copyCommand} 2>>"${USER_LOG_FILE}" 1>/private/tmp/tmp.log
+			eval ${copyCommand} >> "${USER_LOG_FILE}" 2>&1
 			;;
 
 		"rsync")
 			copyCommand="/usr/bin/rsync -avzrlD "${source_dir}" ${dest_dir} --progress"
-			[[ "${3}" == "backup" ]] && copyCommand+=" --exclude="${exclude_files}
-			log_msg+="\n${copyCommand}"
+			[[ "${action}" == "backup" ]] && copyCommand+=" --exclude="${exclude_files}
+			log_msg+="${copyCommand}\n"
 			echo $log_msg >> "${USER_LOG_FILE}"
-			eval ${copyCommand} 2>&1 >>"${USER_LOG_FILE}"
+			eval ${copyCommand} >> "${USER_LOG_FILE}" 2>&1
 			;;
 	esac
 
 	# restore ownership privledges
 
-	if [[ "${3}" = "restore" ]]; then
+	if [[ "${action}" = "restore" ]]; then
 		echo " " >> "${USER_LOG_FILE}"
-		echo "Restoring ownership permissions on ${2}" >> "${USER_LOG_FILE}"
-		/usr/sbin/chown -R ${LOGGED_IN_USER} "${2}"
+		echo "Restoring ownership permissions on ${dest_dir}" >> "${USER_LOG_FILE}"
+		/usr/sbin/chown -R ${LOGGED_IN_USER} "${dest_dir}"
 	fi
-	update_display_list "Update" "${6}" "${4}" "${4}" "success" "Finished"
+	update_display_list "Update" "${progress_count}" "${log_title}" "${log_title}" "success" "Finished"
 }
 
 function backup_files()
 {
 	# routine to backup files.  loop thru the requested choices
     #
-	# VARIABLES expected: JSON_APPS_BLOB, MIGRATION_DIRECTORY  & USER_LOG_FILE should be set
+	# VARIABLES expected: jsonAppBlob, migrationDirectory  & USER_LOG_FILE should be set
 	# PARMS Passed: None
     # RETURN: None
 
-	typeset path
-	typeset app
-	typeset ignore
-	typeset size
-	typeset files
-	typeset progresss
-	typeset migration_path
+	declare path
+	declare app
+	declare ignore
+	declare size
+	declare files
+	declare progresss
+	declare migration_path
 
 	create_migration_log
 
-	echo "\nSaving files to: \n"${MIGRATION_DIRECTORY} >> "${USER_LOG_FILE}"
+	echo "Backup file location: ${migrationDirectory}\n" >> "${USER_LOG_FILE}"
 
 	# Create the diretory Structure that we need to backup all the files
 	create_migration_directories
 
 	# Recreate the JSON blob so we can show status updates to the user
-	create_json_dialog_blob "Backing up files for user ${LOGGED_IN_USER}"
+	#create_json_dialog_blob "Back up files for user ${LOGGED_IN_USER} to ${migrationDirectory}"
 
 	# Make sure that the user has ownership rights in the Migration folder
-	/usr/sbin/chown ${LOGGED_IN_USER} "${MIGRATION_DIRECTORY}"
+	/usr/sbin/chown ${LOGGED_IN_USER} "${migrationDirectory}"
 	
 	# process each option. Read in the APPS blob for detailed info
-	update_display_list "Create" "Backing up files for ${LOGGED_IN_USER}:"
-	for i in {0..10}; do
-		app=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].app' )
-		verbal_app=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].verbalapp' )
-		path=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq '.['$i'].path' )
-		migration_sub=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].MigrationDir' )
-		size=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].size' )
-		files=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].files' )
-		ignore=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq '.['$i'].ignore' )
-		progress=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].progress' )
+	update_display_list "Create" "Back up files for ${LOGGED_IN_USER} to ${migrationDirectory}:"
+	for i in {0..$jsonAppBlobCount}; do
 
-		# Skip the file if they don't want to back it up
-		if [[ ${Answers[$i+1]} == "false" ]]; then
+		app=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].app' )
+        choice=$(echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].choice')
+        progress=$(( (i * 100) / jsonAppBlobCount ))
+        if [[ $choice == "false" ]]; then
 			update_display_list "Update" ${progress} "${app}" "" "error" "Skipped"
 			continue
-		fi
-		perform_file_copy ${path} "${MIGRATION_DIRECTORY}${migration_sub}" "backup" "${app}" ${ignore} ${progress} ${size} ${files} "Working..."
+        fi
+
+		path=$( echo "${jsonAppBlob}" | /usr/bin/jq '.['$i'].path' )
+		migration=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].MigrationDir' )
+		size=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].size' )
+		files=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].files' )
+		ignore=$( echo "${jsonAppBlob}" | /usr/bin/jq '.['$i'].ignore' )
+    	perform_file_copy ${path} "${migrationDirectory}${migration}" "backup" "${app}" ${ignore} ${progress} ${size} ${files} "Working..."
 	done
 
 	#
 	# All done with Backup, so cleanup and exit
 	#
+    logMe "INFO: Done $backupRestore to $backupLocation"
 	/bin/sleep 1
 }
 
@@ -785,103 +829,108 @@ function restore_files()
 {
 	# routine to restore files.  loop thru the requested choices
     #
-	# VARIABLES expected: JSON_APPS_BLOB, MIGRATION_DIRECTORY  & USER_LOG_FILE should be set
+	# VARIABLES expected: jsonAppBlob, migrationDirectory  & USER_LOG_FILE should be set
 	# PARMS Passed: None
     # RETURN: None
 
-	typeset path
-	typeset app
-	typeset ignore
-	typeset size
-	typeset files
-	typeset progresss
-	typeset migration_path
+	declare path
+	declare app
+	declare ignore
+	declare size
+	declare files
+	declare progresss
+	declare migration_path
 
 	create_migration_log
 
-	echo "\nSaving files to: \n"${MIGRATION_DIRECTORY} >> "${USER_LOG_FILE}"
+	echo "Backup file location: "${migrationDirectory} >> "${USER_LOG_FILE}"
 
 	# Create the diretory Structure that we need to backup all the files
-	create_migration_directories
-
-	# Recreate the JSON blob so we can show status updates to the user
-	create_json_dialog_blob "Restoring files for user ${LOGGED_IN_USER}"
+	#create_migration_directories
 
 	# Make sure that the user has ownership rights in the Migration folder
-	/usr/sbin/chown ${LOGGED_IN_USER} "${MIGRATION_DIRECTORY}"
+	/usr/sbin/chown ${LOGGED_IN_USER} "${migrationDirectory}"
 	
 	# process each option. Read in the APPS blob for detailed info
 	update_display_list "Create" "Restoring files for ${LOGGED_IN_USER}:"
-	for i in {0..10}; do
-		app=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].app' )
-		verbal_app=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].verbalapp' )
-		path=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq '.['$i'].path' )
-		migration_sub=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].MigrationDir' )
-		size=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].size' )
-		files=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].files' )
-		ignore=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq '.['$i'].ignore' )
-		progress=$( echo "${JSON_APPS_BLOB}" | /usr/local/ge/bin/jq -r '.['$i'].progress' )
+    for i in {0..$jsonAppBlobCount}; do
 
-		# Skip the file if they don't want to back it up
-		if [[ ${Answers[$i+1]} == "false" ]]; then
+        choice=$(echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].choice')
+        progress=$(( (i * 100) / jsonAppBlobCount ))
+		app=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].app' )
+
+        if [[ $choice == "false" ]]; then
 			update_display_list "Update" ${progress} "${app}" "" "error" "Skipped"
 			continue
-		fi
+        fi
+
+		path=$( echo "${jsonAppBlob}" | /usr/bin/jq '.['$i'].path' )
+		migration=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].MigrationDir' )
+		size=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].size' )
+		files=$( echo "${jsonAppBlob}" | /usr/bin/jq -r '.['$i'].files' )
+		ignore=$( echo "${jsonAppBlob}" | /usr/bin/jq '.['$i'].ignore' )
+
 		#osascript -e 'tell application "Google Chrome.app" to quit without saving'
+		# If the file doesn't exist, the show the error msg and continue on
+		if [[ ! -e "${migrationDirectory}${migration}.tar.gz" ]]; then
+			update_display_list "Update" ${progress} "${app}" "" "fail" "Backup file not found"
+			continue
+		fi
 		[[ ! -e "${path}" ]] && /bin/mkdir -p "${path}"
-		perform_file_copy "${MIGRATION_DIRECTORY}${migration_sub}" ${path} "restore" "${app}" ${ignore} ${progress} ${size} ${files} "Restoring..."
+		perform_file_copy "${migrationDirectory}${migration}" ${path} "restore" "${app}" ${ignore} ${progress} ${size} ${files} "Restoring..."
 	done
 
-	#
-	# All done with Backup, so cleanup and exit
-	#
+    # All done
+    logMe "INFO: Done $backupRestore from $backupLocation"
 	/bin/sleep 1
 }
 
-function notify_user_migration_done()
-{
-	# All done!  Show results
-    #
-	# VARIABLES expected: MIGRATION_DIRECTORY should be set
-	# PARMS Passed: None
-    # RETURN: None
+#####################
+#
+# JSON Blob functions
+#
+#####################
 
-	msg="Your ${BACKUP_RESTORE} is done.<br><br>Total Elapsed Time $((EndTime / 3600)) hours, $((EndTime / 60)) minutes and $((EndTime % 60)) Seconds.<br><br> Your files are located in ${MIGRATION_DIRECTORY}."
-	construct_dialog_header_settings "${msg}" > "${JSON_DIALOG_BLOB}"
-	echo "}" >> "${JSON_DIALOG_BLOB}"
-	$SWDialog --jsonfile ${JSON_DIALOG_BLOB}
+function modify_individual_json_field () 
+{
+	# Change the entry for a particular JSON record
+    #
+	# PARMS Passed: $1 = JSON Blob
+	#				$2 = entry to search for
+	#				$3 = field name to change
+    #               $4 = new value
+    # RETURN: Contents of discovered record
+
+    updated_json=$(echo "$1" | /usr/bin/jq --arg app "$2" --arg value "$4" 'map(if .app == $app then .'$3' = $value else . end)')
+    [[ $? -ne 0 ]] && return 1
+
+    echo "$updated_json"
 }
 
-function cleanup_and_exit()
+function extract_individual_json_field () 
 {
-	# Cleanup and quit the script
+	# Extract an indivdual entry of a particular record from a JSON blob
     #
-    # RETURN: None
-	/bin/rm "${DIALOG_CMD_FILE}"
-	/bin/rm "${JSON_DIALOG_BLOB}"
-	exit 0
+	# PARMS Passed: $1 = JSON Blob
+	#				$2 - JSON record to search for
+	#				$3 - field name to extract
+    # RETURN: Contents of discovered record
+
+	echo "$1" | /usr/bin/jq -r --arg app "$2" --arg fld "$3" '.[] | select(.app == $app) | .[$fld] // "Field not found"'
 
 }
 
-function check_for_fulldisk_access()
+function extract_json_field ()
 {
-	if ! plutil -lint /Library/Preferences/com.apple.TimeMachine.plist >/dev/null ; then
-		return 0
-	fi
-	WelcomeMsg="To use this application, Full Disk access must be enabled:<br><br>"
-	WelcomeMsg+="1.  Click on Apple Menu ()<br>"
-	WelcomeMsg+="2.  Click on System Settings<br>"
-	WelcomeMsg+="3.  Navigate to Privacy & Security<br>"
-	WelcomeMsg+="4.  Navigate to Full Disk Access<br>"
-	WelcomeMsg+="5.  Enable 'Terminal'.  You will have to restart the terminal."
+	# Extract a particular field from a JSON blob
+    #
+	# PARMS Passed: $1 = JSON Blob
+	#				$2 - field name to search for
+    # RETURN: Array of found items
 
-	
-
-	construct_dialog_header_settings "${WelcomeMsg}" > "${JSON_DIALOG_BLOB}"
-	echo '}'>> "${JSON_DIALOG_BLOB}"
-
-	${SWDialog} --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null
-	exit 1
+	declare -A result_array
+	result_array=$(echo "$1" | jq -r --arg field "$2" '.[].[$field]')
+	echo $result_array
 }
 
 ############################
@@ -891,28 +940,162 @@ function check_for_fulldisk_access()
 ############################
 autoload 'is-at-least'
 
-# Create the JSON blob so users can see status updates
+declare backupRestore
+declare backupLocation
+declare migrationDirectory
+declare techMode
+declare -a jsonAppBlob
+declare -i jsonAppBlobCount 
+
+ONE_DRIVE_PATH="${USER_DIR}/Library/CloudStorage/OneDrive-GiantEagle,Inc"
+one_drive_disk_image="${ONE_DRIVE_PATH}/ODMigration.sparsebundle"
+BACKUP_METHOD="tar"
+
+
+# Construct the core apps blob with all of the important info
+# The list is dynamic..you can add more backup items in here
+# Format of JSON structure:
+# Parm 1 - AppName
+# Parm 2 - Local Path
+# Parm 3 - Remote Subdirectory
+# Parm 4 - Icon Path
+# Parm 5 - Size of all files
+# Parm 6 - Number of folders
+# Parm 7 - files to exclude
+# Parm 8 - will be filled in with Y/N
+
+jsonAppBlob='[{
+"app" : "Chrome Bookmarks",   
+"path" : "'${USER_DIR}'/Library/Application Support/Google/Chrome/",
+"MigrationDir" : "/Google",
+"icon" : "/Applications/Google Chrome.app",
+"size" : "0",
+"files" : "0",
+"ignore" : "Services",
+"choice" : ""},
+
+{"app" : "Firefox Bookmarks",
+"path" : "'${USER_DIR}'/Library/Application Support/Firefox/",
+"MigrationDir" : "/Firefox",
+"icon" : "/Applications/FireFox.app",
+"size" : "0",
+"files" : "0",
+"ignore" : "Services*",
+"choice" : ""},
+
+{"app" : "Outlook Signatures",
+"path" : "'${USER_DIR}'/Library/Group Containers/UBF8T346G9.Office/Outlook/Outlook 15 Profiles/Main Profile/Data/Signatures",
+"MigrationDir" : "/OutlookSignature",
+"icon" : "/Applications/Microsoft Outlook.app",
+"size" : "0",
+"files" : "0",
+"ignore" : "",
+"choice" : ""},
+
+{"app" : "Safari Bookmarks",
+"path" : "'${USER_DIR}'/Library/Safari/",
+"MigrationDir" : "/Safari",
+"icon" : "/Applications/Safari.app",
+"size" : "0",
+"files" : "0",
+"ignore" : "Favicon Cache",
+"choice" : ""},
+
+{"app" : "Notes",
+"path" : "'${USER_DIR}'/Library/Group Containers/group.com.apple.notes/",
+"MigrationDir" : "/Notes",
+"icon" : "/System/Applications/Notes.app",
+"size" : "0",
+"files" : "0",
+"ignore" : "Cache",
+"choice" : ""},
+
+{"app" : "Stickies",
+"path" : "'${USER_DIR}'/Library/Containers/com.apple.Stickies/Data/Library/Stickies/",
+"MigrationDir" : "/Stickies",
+"icon" : "/System/Applications/Stickies.app",
+"size" : "0",
+"files" : "0",
+"ignore" : "cache",
+"choice" : ""},
+
+{"app" : "Desktop",
+"path" : "'${USER_DIR}'/Desktop",
+"MigrationDir" : "/Desktop",
+"icon" : "'${ICON_FILES}DesktopFolderIcon.icns'",
+"size" : "0",
+"files" : "0",
+"ignore" : "",
+"choice" : ""},
+
+{"app" : "Documents",
+"path" : "'${USER_DIR}'/Documents",
+"MigrationDir" : "/Documents",
+"icon" : "'${ICON_FILES}DocumentsFolderIcon.icns'",
+"size" : "0",
+"files" : "0",
+"ignore" : "",
+"choice" : ""},
+
+{"app" : "Pictures",
+"path" : "'${USER_DIR}'/Pictures",
+"MigrationDir" : "/Pictures",
+"icon" : "/System/Applications/Photos.app",
+"size" : "0",
+"files" : "0",
+"ignore" : "cache",
+"choice" : ""},
+
+{"app" : "Projects",
+"path" : "'${USER_DIR}'/Projects",
+"MigrationDir" : "/Projects",
+"icon" : "'${ICON_FILES}DeveloperFolderIcon.icns'",
+"size" : "0",
+"files" : "0",
+"ignore" : "",
+"choice" : ""},
+
+{"app" : "Freeform",
+"path" : "'${USER_DIR}'/Library/Containers/com.apple.freeform/",
+"MigrationDir" : "/Freeform",
+"icon" : "/System/Applications/Freeform.app",
+"size" : "0",
+"files" : "0",
+"ignore" : "",
+"choice" : ""},
+
+{"app" : "Hidden Files",
+"path" : "'${USER_DIR}'",
+"MigrationDir" : "/Hidden",
+"icon" : "'${ICON_FILES}FinderIcon.icns'",
+"size" : "0",
+"files" : "0",
+"ignore" : ".Trash",
+"choice" : ""
+}]'
 
 check_swift_dialog_install
-#check_for_fulldisk_access
+check_support_files
+check_for_tech "$@"
+check_for_fulldisk_access
+jsonAppBlobCount=$(($(echo "$jsonAppBlob" | jq 'length')-1))
 display_welcome_message
 choose_backup_location
 get_migration_directory
-create_json_app_blob
-create_json_dialog_blob "Performing space calculations for Files & Folders"
-calculate_storage_space
-create_json_app_blob
-select_migration_apps
 
+
+create_json_dialog_blob "Performing space calculations for Files & Folders"
+[[ "${backupRestore}" == "backup" ]] && calculate_storage_space
+select_migration_apps
 
 #
 # Start the elapsed time clock
 #
 SECONDS=0
 #
-# Performa the Backup or Restore routine
+# Perform the Backup or Restore routine
 #
-[[ "${BACKUP_RESTORE}" == "backup" ]] && backup_files || restore_files
+[[ "${backupRestore}" == "backup" ]] && backup_files || restore_files
 #
 # sound the alarm!
 #
@@ -923,6 +1106,6 @@ echo -e "\a"
 # Cleanup and exit
 
 update_display_list "Destroy"
-notify_user_migration_done
 onedrive_disk_image "UnMount"
+notify_user_migration_done
 cleanup_and_exit
