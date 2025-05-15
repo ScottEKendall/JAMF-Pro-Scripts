@@ -58,6 +58,7 @@ SD_INFO_BOX_MSG=""
 LOG_FILE="${LOG_DIR}/MigrationWizard.log"
 SD_ICON_FILE="SF=externaldrive.fill.badge.timemachine,colour=blue,colour2=purple"
 OVERLAY_ICON="/Applications/Self Service.app"
+ONE_DRIVE_PATH="${USER_DIR}/Library/CloudStorage/OneDrive-GiantEagle,Inc"
 USER_LOG_FILE="${USER_DIR}/Documents/Migration Wizard.log"
 DIALOG_CMD_FILE=$(mktemp /var/tmp/MigrationWizard.XXXXX)
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/MigrationWizard.XXXXX)
@@ -947,7 +948,6 @@ declare techMode
 declare -a jsonAppBlob
 declare -i jsonAppBlobCount 
 
-ONE_DRIVE_PATH="${USER_DIR}/Library/CloudStorage/OneDrive-GiantEagle,Inc"
 one_drive_disk_image="${ONE_DRIVE_PATH}/ODMigration.sparsebundle"
 BACKUP_METHOD="tar"
 
