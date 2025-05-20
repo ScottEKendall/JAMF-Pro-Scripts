@@ -5,12 +5,13 @@
 # by: Scott Kendall
 #
 # Written: 02/01/2025
-# Last updated: 02/13/2025
+# Last updated: 05/20/2025
 #
 # Script Purpose: Change the name of the user folder and migrate data to new folder
 #
 # 1.0 - Initial
 # 1.1 - Code cleanup to be more consistant with all apps
+# 1.2 - changed the 'create_welcome_dialog' function to use JSON output and parse info differently
 
 ######################################################################################################
 #
@@ -341,6 +342,7 @@ function create_welcome_dialog ()
         --selecttitle "Select user to migrate FROM",required --selectvalues "${USERS_ON_SYSTEM}"
         --width 800
         --ignorednd
+        --json
         --moveable
 		--quitkey 0
 		--button1text "OK"
@@ -350,9 +352,11 @@ function create_welcome_dialog ()
 	returnval=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     [[ "$?" == "2" ]] && cleanup_and_exit "Good"
 
-    oldUser=$(echo $returnval | grep "SelectedOption" | awk '{print $3}' | tr -d '"' | xargs )
-    newUser=$(echo $returnval | grep "NEW" | awk -F ":" '{print $2}' | xargs )
+    oldUser=$(echo $returnval | grep "SelectedOption" | awk '{print $3}' | tr -d '",' | xargs )
+    newUser=$(echo $returnval | grep "NEW" | awk -F ":" '{print $2}' | tr -d '",' | xargs )
+    
 }
+
 
 function create_workflow_dialog ()
 {
