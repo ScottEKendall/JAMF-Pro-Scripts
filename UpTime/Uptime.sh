@@ -10,6 +10,7 @@
 # 1.0 - Initial Commit
 # 1.1 - Added more logging details
 # 1.2 - Added shutdown -r now command in case the applescript method fails
+# 1.3 - Add logic to not display restart option if already on day 0...this addresses an issue in JAMF that this policy might be run before inventory gets accurate info
 # 
 ######################################################################################################
 #
@@ -172,8 +173,6 @@ function cleanup_and_exit ()
 
 function welcomemsg ()
 {
-    uptimeOutput=$(uptime)
-    [[ "${uptimeOutput/day/}" != "${uptimeOutput}" ]] && uptimeDays=$(echo $uptimeOutput | awk -F "up | day" '{print $2}')
     
     messagebody="${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  This is an automated message from JAMF to let "
     messagebody+="you know that it has been over ${uptimeDays:-0} days since your system was<br>"
@@ -243,7 +242,13 @@ function display_restart_timer ()
 #
 ####################################################################################################
 
+declare uptimeDays
+
 autoload 'is-at-least'
+
+# Special condition for JAMF...if the user restart, but the jamf recon hasn't been run yet, then JAMF still thinks the computer needs resarted
+uptimeOutput=$(uptime)
+[[ "${uptimeOutput/day/}" != "${uptimeOutput}" ]] && uptimeDays=$(echo $uptimeOutput | awk -F "up | day" '{print $2}') || exit 0
 
 check_swift_dialog_install
 check_support_files
