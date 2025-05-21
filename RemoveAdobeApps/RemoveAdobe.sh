@@ -13,6 +13,7 @@
 # 1.1 - Changed buttons to "Next" and "Remove" on the appropriate screens
 # 1.2 - Change find command to exclude Adobe Experience Manager and Adobe Acrobat DC
 # 1.3 - Add option for "silent" remove (no prompt) and which apps than can be removed 3D & CC or CC only
+# 1.4 - Move some functions calls to the top to make sure they get execute for both types of removal
 #
 
 ######################################################################################################
@@ -966,10 +967,13 @@ adobeJSONarray='{
         {"name": "Substance 3D Stager", "code": "STGR" },
         {"name": "XD", "code": "SPRK"}
     ]}'
-AdobeUninstallerList=$( ${ADOBE_UNINSTALLER} --list | grep -v -e "\-----" -e "AdobeUninstaller" -e '^$' -e "Version" | awk '{CODE=NF-2 ; VER=NF-1 ; print $CODE "#" $VER}')
 
+check_swift_dialog_install
+check_support_files
 create_log_directory
 create_file_list
+
+AdobeUninstallerList=$( ${ADOBE_UNINSTALLER} --list | grep -v -e "\-----" -e "AdobeUninstaller" -e '^$' -e "Version" | awk '{CODE=NF-2 ; VER=NF-1 ; print $CODE "#" $VER}')
 
 # Two options - Silent removal (no prompts)
 if [[ ${SCRIPT_METHOD:l} = "silent" ]]; then
@@ -977,8 +981,6 @@ if [[ ${SCRIPT_METHOD:l} = "silent" ]]; then
     remove_apps_no_prompt
 else
     # Or allow the user to choose
-    check_swift_dialog_install
-    check_support_files
     create_infobox_message
     display_welcome_message
     confirm_removal
