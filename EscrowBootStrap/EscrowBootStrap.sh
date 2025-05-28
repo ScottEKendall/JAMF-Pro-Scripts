@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/18/2025
-# Last updated: 02/19/2025
+# Last updated: 05/28/2025
 #
 # Script Purpose: Escrow a users bootstrap token to the server if it isn't already.
 # Based off of script by: Robert Schroeder
@@ -14,6 +14,7 @@
 #
 # 1.0 - Initial
 # 1,1 - Add a display message (with failure message) if the boostrap was not successful
+# 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 
 ######################################################################################################
 #
@@ -31,7 +32,6 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
