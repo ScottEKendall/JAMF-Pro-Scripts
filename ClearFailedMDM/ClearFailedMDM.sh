@@ -3,7 +3,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 04/01/2025
+# Last updated: 05/28/2025
 #
 # Script Purpose: This script retrieves the Mac Hardware UUID, fetches the corresponding Computer ID from Jamf Pro, 
 # checks for any failed MDM commands, and clears them if found.
@@ -17,6 +17,7 @@
 # 1.0 - Initial code
 # 1.1 - Changed wording of results screen to include device ID
 # 1.2 - Added support for jq to pase results.  Also put in logic to install JQ from JAMF if missing
+# 1.3 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 #
 ######################################################################################################
 #
@@ -34,7 +35,6 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
@@ -114,7 +114,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
