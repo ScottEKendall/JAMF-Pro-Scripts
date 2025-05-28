@@ -3,12 +3,13 @@
 # App Delete
 # Purpose: Allow end users to delete apps using Swift Dialog
 #
-# Written: Aug 3, 2022
-# Last updated: Feb 13, 2025
+# Written: 8/3/2022
+# Last updated: 05/28/2025
 #
 # v1.0 - Initial Release
 # v1.1 - Major code cleanup & documentation
 #		 Structred code to be more inline / consistent across all apps
+# 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 #
 ######################################################################################################
 #
@@ -26,7 +27,6 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
