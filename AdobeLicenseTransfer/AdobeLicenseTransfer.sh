@@ -3,12 +3,13 @@
 # by: Scott Kendall
 #
 # Written: 04/16/2025
-# Last updated: 04/16/2025
+# Last updated: 05/28/2025
 
 # Script for store users to request an Adobe license transfer 
 #
 # 1.0 - Initial code
 # 1.1 - more concise model name ("2023 Macbook Pro") vs ("MacBook Pro (14-inch, Nov 2023)")
+# 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 #
 ######################################################################################################
 #
@@ -31,7 +32,6 @@ MAC_MODEL_YEAR=${MAC_MODEL: -5:4}
 MAC_MODEL=$(echo $MAC_MODEL | awk -F '(' '{print $1}' | xargs)
 MAC_MODEL_NAME=$MAC_MODEL_YEAR' '$MAC_MODEL
 
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 TOTAL_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Total Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
