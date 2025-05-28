@@ -4,14 +4,15 @@
 # BatteryInfo.sh
 #
 # Written by: Scott E. Kendall
-# Created: 01-15-2025
-# Last Modified: 2025-02-20-2025
+# Created: 01/25/2025
+# Last Modified: 05/28/2025
 #
 # Script Purpose: Prompt user if battery needs service
 #
 # 1.0 - Initial
 # 1.1 - Code cleanup to be more consistant with all apps
 # 1.2 - fix the SD_ICON reference in the display prompt
+# 1.3 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 
 ######################################################################################################
 #
@@ -29,7 +30,6 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
