@@ -5,12 +5,13 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2025
-# Last updated: 02/13/2025
+# Last updated: 05/28/2025
 #
 # Script Purpose: Display user friendly dialog to users about their disk space
 #
 # 1.0 - Initial 
 # 1.1 - Code cleanup to be more consistant with all apps
+# 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 
 ######################################################################################################
 #
@@ -28,21 +29,16 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
-SW_DIALOG="/usr/local/bin/dialog"
-SD_BANNER_IMAGE="/Library/Application Support/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="/Library/Application Support/GiantEagle/logs"
-LOG_FILE="${LOG_DIR}/LowDiskSpace.log"
+LOG_DIR="${SUPPORT_DIR}/logs"
 
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/FixProfileOwner.XXXXX)
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
-OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/DiskSpace.png"
 
 # Swift Dialog version requirements
 
@@ -52,18 +48,21 @@ MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/DiskSpace.png"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_INFO_BOX_MSG=""
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Disk Space Notification"
-SHOW_DISK_USAGE="ShowDiskUsage"
+###################################################
+#
+# App Specfic variables (Feel free to change these)
+#
+###################################################
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Low Disk Space"
+
+SD_INFO_BOX_MSG=""
+LOG_FILE="${LOG_DIR}/LowDiskSpace.log"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/DiskSpace.png"
+
 
 ##################################################
 #
@@ -106,7 +105,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
