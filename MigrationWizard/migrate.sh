@@ -960,8 +960,8 @@ BACKUP_METHOD="tar"
 # Parm 4 - Icon Path
 # Parm 5 - Size of all files
 # Parm 6 - Number of folders
-# Parm 7 - files to exclude
-# Parm 8 - will be filled in with Y/N
+# Parm 7 - directories to exclude
+# Parm 8 - User menu choice - will be filled in with Y/N
 
 jsonAppBlob='[{
 "app" : "Chrome Bookmarks",   
