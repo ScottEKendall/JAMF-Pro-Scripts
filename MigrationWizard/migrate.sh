@@ -1,8 +1,8 @@
 #!/bin/zsh
 
-# Written: May 3, 2022
-# Last updated: May 7, 2025
-# by: Scott Kendall (w491008)
+# Written: 05/03/2022
+# Last updated: 05/28/2025
+# by: Scott Kendall
 #
 # Script Purpose: Migrate user data to/from MacOS computers
 #
@@ -26,7 +26,6 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
@@ -60,10 +59,10 @@ SD_ICON_FILE="SF=externaldrive.fill.badge.timemachine,colour=blue,colour2=purple
 OVERLAY_ICON="/Applications/Self Service.app"
 ONE_DRIVE_PATH="${USER_DIR}/Library/CloudStorage/OneDrive-GiantEagle,Inc"
 USER_LOG_FILE="${USER_DIR}/Documents/Migration Wizard.log"
-DIALOG_CMD_FILE=$(mktemp /var/tmp/MigrationWizard.XXXXX)
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/MigrationWizard.XXXXX)
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/MigrationWizard.XXXXX)
 /bin/chmod 666 "${JSON_DIALOG_BLOB}"
-/bin/chmod 666 "${DIALOG_CMD_FILE}"
+/bin/chmod 666 "${DIALOG_COMMAND_FILE}"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
@@ -438,7 +437,7 @@ function update_display_list ()
 			--progress \
 			--jsonfile "${JSON_DIALOG_BLOB}" \
 			--infobox "Please be patient while this is working.... If you have lots of files and/or folders, this process might take a while!" \
-			--commandfile ${DIALOG_CMD_FILE} \
+			--commandfile ${DIALOG_COMMAND_FILE} \
 			--height 800 \
 			--width 920 \
 			--button1disabled \
@@ -450,7 +449,7 @@ function update_display_list ()
 		#
 		# Kill the progress bar and clean up
 		#
-		echo "quit:" >> "${DIALOG_CMD_FILE}"
+		echo "quit:" >> "${DIALOG_COMMAND_FILE}"
 		;;
 
 	"Update" | "Change" )
@@ -460,8 +459,8 @@ function update_display_list ()
 		#
 
 		# change the list item status and increment the progress bar
-		/bin/echo "listitem: title: "$3", status: $5, statustext: $6" >> "${DIALOG_CMD_FILE}"
-		/bin/echo "progress: $2" >> "${DIALOG_CMD_FILE}"
+		/bin/echo "listitem: title: "$3", status: $5, statustext: $6" >> "${DIALOG_COMMAND_FILE}"
+		/bin/echo "progress: $2" >> "${DIALOG_COMMAND_FILE}"
 
 		/bin/sleep .5
 		;;
