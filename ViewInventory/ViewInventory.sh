@@ -3,13 +3,14 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 04/04/2025
+# Last updated: 05/28/2025
 
 # Script to view inventory detail of a JAMF record and show pertitent info in SwiftDialog
 # 
 # 1.0 - Initial code
 # 1.1 - Added addition logic for Mac mini...it isn't formatted the same as regular model names
 # 1.2 - Added feature for compliance reporting, removed unnecessasry functions
+# 1.3 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 #
 ######################################################################################################
 #
@@ -26,7 +27,6 @@ SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_MODEL=$(ioreg -l | grep "product-name" | awk -F ' = ' '{print $2}' | tr -d '<>"')
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 TOTAL_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Total Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
@@ -226,7 +226,7 @@ function display_device_info ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --titlefont shadow=1
         --icon "${SD_ICON}"
-        --message "Compliance information symbols are displayed next to the required item(s).  To see the reson for any failures, please click the 'Compliance' button for details."
+        --message "Compliance information symbols are displayed next to the required item(s).  To see the reason for any failures, please click the 'Compliance' button for details."
         --iconsize 128
         --infobox "${SD_INFO_BOX_MSG}"
         --ontop

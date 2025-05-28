@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 9/20/2023
-# Last updated: 04/15/2025
+# Last updated: 05/28/2025
 #
 # Script Purpose: Display the IP address on all adapters as well as Cisco VPN if they are connected
 #
@@ -13,23 +13,36 @@
 # 1.1 - Code cleanup to be more consistant with all apps
 # 1.2 - Reworked logic for all physical adapters to accomodate for older macs
 # 1.3 - Included logic to display Wifi name if found
+# 1.4 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore... / code cleanup
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Gobal "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+
+SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
+MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
+MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
+MAC_MODEL=$(ioreg -l | grep "product-name" | awk -F ' = ' '{print $2}' | tr -d '<>"')
+MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+TOTAL_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Total Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+
+MACOS_VERSION=$( sw_vers -productVersion | xargs)
+MAC_LOCALNAME=$(scutil --get LocalHostName)
+
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-
-
-LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/NetworkIP.log"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+LOG_DIR="${SUPPORT_DIR}/logs"
+
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
@@ -38,15 +51,23 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+JQ_FILE_INSTALL_POLICY="install_jq"
+JSS_FILE="/Library/Managed Preferences/com.gianteagle.jss.plist"
 
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
+###################################################
+#
+# App Specfic variables (Feel free to change these)
+#
+###################################################
 
-JSON_OPTIONS=$(mktemp /var/tmp/NetworkIP.XXXXX)
-chmod 777 $JSON_OPTIONS
-BANNER_TEXT_PADDING="      " #5 Spaces to accomodate for Logo
-SD_WINDOW_TITLE=$BANNER_TEXT_PADDING"What's my IP?"
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}What's my IP?"
 SD_INFO_BOX_MSG=""
+LOG_FILE="${LOG_DIR}/NetworkIP.log"
+SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
+JSON_OPTIONS=$(mktemp /var/tmp/ViewInventory.XXXXX)
+chmod 666 ${JSON_OPTIONS}
+
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ##################################################
@@ -58,9 +79,11 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
-
-typeset -a adapter
-typeset -a ip_address
+####################################################################################################
+#
+# Functions
+#
+####################################################################################################
 
 function create_log_directory ()
 {
@@ -88,7 +111,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -226,6 +248,9 @@ function display_welcome_message()
 # Main Program
 #
 ##############################
+typeset -a adapter
+typeset -a ip_address
+
 autoload 'is-at-least'
 
 create_log_directory

@@ -5,12 +5,13 @@
 #
 # Created by: Scott Kendall
 # Created on: 02/10/25
-# Last Modified: 05/12/2025
+# Last Modified: 05/28/2025
 # 
 # 1.0 - Initial Commit
 # 1.1 - Added more logging details
 # 1.2 - Added shutdown -r now command in case the applescript method fails
 # 1.3 - Add logic to not display restart option if already on day 0...this addresses an issue in JAMF that this policy might be run before inventory gets accurate info
+# 1.4 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 
 ######################################################################################################
 #
@@ -28,7 +29,6 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
