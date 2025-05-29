@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 # Written: 05/03/2022
-# Last updated: 05/28/2025
+# Last updated: 05/29/2025
 # by: Scott Kendall
 #
 # Script Purpose: Migrate user data to/from MacOS computers
@@ -986,6 +986,15 @@ jsonAppBlob='[{
 "path" : "'${USER_DIR}'/Library/Group Containers/UBF8T346G9.Office/Outlook/Outlook 15 Profiles/Main Profile/Data/Signatures",
 "MigrationDir" : "/OutlookSignature",
 "icon" : "/Applications/Microsoft Outlook.app",
+"size" : "0",
+"files" : "0",
+"ignore" : "",
+"choice" : ""},
+
+{"app" : "OnteNote Notebooks",
+"path" : "'${USER_DIR}'/Library/Containers/com.microsoft.onenote.mac/Data/Library/Application Support/Microsoft User Data/OneNote",
+"MigrationDir" : "/OneNote",
+"icon" : "/Applications/Microsoft OneNote.app",
 "size" : "0",
 "files" : "0",
 "ignore" : "",
