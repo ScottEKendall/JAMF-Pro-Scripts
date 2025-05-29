@@ -10,6 +10,7 @@
 #
 # 1.0 - Initial code
 # 2.0 - rewrite using JSON blobs for all data content
+# 2.1 - Add support to install JQ if it is missing
 ######################################################################################################
 #
 # Gobal "Common" variables
@@ -44,6 +45,7 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+JQ_FILE_INSTALL_POLICY="install_jq"
 
 ###################################################
 #
@@ -137,6 +139,7 @@ function check_support_files ()
 {
     logMe "Checking Support Files"
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+	[[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
 }
 
 function cleanup_and_exit ()
