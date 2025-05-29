@@ -1,6 +1,6 @@
 ## Migration Wizard
 
-In our environment we disable users from being admins, so that also means that you cannot run Appl's Migration Assistant either, so I had to come up with a solution that would work for non-admin users.
+In our environment we disable users from being admins, so that also means that you cannot run Apple's Migration Assistant either, so I had to come up with a solution that would work for non-admin users.
 
 ![](/MigrationWizard/MigrationWizard-Selection.png)
 
