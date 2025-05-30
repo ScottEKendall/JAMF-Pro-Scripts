@@ -994,7 +994,7 @@ jsonAppBlob='[{
 "ignore" : "",
 "choice" : ""},
 
-{"app" : "OnteNote Notebooks",
+{"app" : "OneNote Notebooks",
 "path" : "'${USER_DIR}'/Library/Containers/com.microsoft.onenote.mac/Data/Library/Application Support/Microsoft User Data/OneNote",
 "MigrationDir" : "/OneNote",
 "icon" : "/Applications/Microsoft OneNote.app",
