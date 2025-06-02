@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 05/28/2025
-# Last updated: 05/28/2025
+# Last updated: 05/30/2025
 #
 # Script Purpose: Exract all of the scripts from the JAMF server and store them on a local drive
 #
@@ -28,7 +28,6 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_HADWARE_CLASS=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.machine_name' 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
@@ -66,7 +65,6 @@ JSON_DIALOG_BLOB=$(mktemp /var/tmp/JAMFScriptBackup.XXXXX)
 DIALOG_CMD_FILE=$(mktemp /var/tmp/JAMFScriptBackup.XXXXX)
 /bin/chmod 666 $JSON_DIALOG_BLOB
 /bin/chmod 666 $DIALOG_CMD_FILE
-
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
@@ -337,8 +335,7 @@ function create_display_list ()
         line="${line/<name>/}"
         # Remove the closing tag
         line="${line/<\/name>/}"
-        #line=$(echo ${line} | sed -e 's/:/-/g' -e 's/ //g' -e 's/\//-/g'  -e 's/|/-/g')
-        line=$(echo ${line} | sed -e 's/:/-/g' -e 's/\//-/g'  -e 's/|/-/g')
+        line=$(make_apfs_safe $line)
         create_listitem_message_body "$line" "" "pending" "Pending..."
     done
     create_listitem_message_body "" "" "" "" "last"
@@ -487,20 +484,20 @@ function Retrieve_JAMF_XML_Data_Details ()
     xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}${1}")
 }
 
-function retrieve_script_details ()
+function extract_script_details ()
 {
 	[[ -z "${1}" ]] && return 0
 
     Retrieve_JAMF_XML_Data_Details "JSSResource/scripts/id/$1"
-    scriptName=$( echo "$xmlBlob" | tr -d "[:cntrl:]" | xmllint --xpath 'string(//name)' --format - 2>/dev/null)
-    scriptInfo=$(echo "$xmlBlob" | xmllint --xpath 'string(//info)' - 2>/dev/null)
-    scriptCategory=$(echo "$xmlBlob" | xmllint --xpath 'string(//category)' - 2>/dev/null)
-    scriptFileName=$( echo "$xmlBlob" | xmllint --xpath 'string(//filename)' - 2>/dev/null)
-    scriptContents=$(echo "$xmlBlob" | xmllint --xpath 'string(//script_contents)' - 2>/dev/null)
+
+    scriptName=$(extract_xml_data $xmlBlob "name")
+    scriptInfo=$(extract_xml_data $xmlBlob  "info")
+    scriptCategory=$(extract_xml_data $xmlBlob "category")
+    scriptFileName=$(extract_xml_data $xmlBlob "filename")
+    scriptContents=$(extract_xml_data $xmlBlob "script_contents")
 
     # Remove any special characters that might mess with APFS
-    #formatted_scriptName=$(echo ${scriptName} | sed -e 's/:/-/g' -e 's/ //g' -e 's/\//-/g' -e 's/|/-/g')
-    formatted_scriptName=$(echo ${scriptName} | sed -e 's/:/-/g' -e 's/\//-/g' -e 's/|/-/g')
+    formatted_scriptName=$(make_apfs_safe $scriptName)
 
     # if the script shows as empty (probably due to import issues), then show as a failure and report it
     if [[ -z $scriptContents ]]; then
@@ -513,6 +510,25 @@ function retrieve_script_details ()
         update_display_list "Update" "" "${formatted_scriptName}" "" "success" "Finished"
     fi
     update_display_list "progress" "" "" "" "Exporting: ${scriptName}" $((100* ${2} /scriptCount))
+}
+
+function extract_xml_data ()
+{
+    # PURPOSE: extract an XML strng from the passed string
+    # RETURN: parsed XML string
+    # PARAMETERS: $1 - XML "blob"
+    #             $2 - String to extract
+    # EXPECTED: None
+    echo $(echo "$1" | tr -d "[:cntrl:]" | xmllint --xpath 'string(//'${2}')' - 2>/dev/null)
+}
+
+function make_apfs_safe ()
+{
+    # PURPOSE: Remove any "illegal" APFS macOS characters from filename
+    # RETURN: ADFS safe filename
+    # PARAMETERS: $1 - string to format
+    # EXPECTED: None
+    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/\//-/g' -e 's/|/-/g')
 }
 
 function show_backup_errors ()
@@ -542,7 +558,6 @@ function show_backup_errors ()
 	
     "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
 }
-
 
 ####################################################################################################
 #
@@ -579,7 +594,7 @@ create_display_list
 count=1
 
 for item in ${ScriptIDs[@]}; do
-    retrieve_script_details $item $count
+    extract_script_details $item $count
     ((count++))
 done
 
