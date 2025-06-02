@@ -11,6 +11,7 @@
 #
 # 1.0 - Initial
 # 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.2 - Created a few new functions to reduce complexity / document function details / renamed all JAMF functions to start with JAMF......
 
 ######################################################################################################
 #
@@ -194,7 +195,7 @@ function welcomemsg ()
         --quitkey 0
         --button1text "OK"
         --button2text "Cancel"
-        --textfield "Select a storage location",fileselect,filetype=folder
+        --textfield "Select a storage location",fileselect,filetype=folder,required
     )
 	
 			
@@ -206,7 +207,7 @@ function welcomemsg ()
 
 }
 
-function construct_dialog_header_settings()
+function construct_dialog_header_settings ()
 {
     # Construct the basic Switft Dialog screen info that is used on all messages
     #
@@ -323,46 +324,6 @@ function update_display_list ()
 	esac
 }
 
-function check_ss_policy_icons ()
-{
-
-    declare PolicyId="$1"
-    declare PolicyName
-    declare ss_policy_check
-    declare ss_icon
-    declare ss_iconName
-    declare ss_iconURI
-
-	[[ -z "${PolicyId}" ]] && return 0
-
-    #JAMF_Check_And_Renew_API_Token
-
-    ss_xml_data=$(/usr/bin/curl -s "${jamfpro_url}JSSResource/policies/id/${PolicyId}"  -H "accept: application/xml" -H "Authorization: Bearer ${api_token}")
-    PolicyName=$( echo "$ss_xml_data" | xmllint --xpath '/policy/general/name/text()' - 2>/dev/null)
-    ss_policy_check=$(echo "$ss_xml_data" | xmllint --xpath '/policy/self_service/use_for_self_service/text()' - 2>/dev/null)
-    ss_icon=$(echo "$ss_xml_data" | xmllint --xpath '/policy/self_service/self_service_icon/id/text()' - 2>/dev/null)
-    ss_iconName=$(echo "$ss_xml_data" | xmllint --xpath '/policy/self_service/self_service_icon/filename/text()' - 2>/dev/null)
-    ss_iconURI=$(echo "$ss_xml_data" | xmllint --xpath '/policy/self_service/self_service_icon/uri/text()' - 2>/dev/null)
-
-    # Remove any special characters that might mess with APFS
-    formatted_ss_policy_name=$(echo ${PolicyName} | sed -e 's/:/-/g' -e 's/ //g' -e 's/\//-/g' -e 's/|/-/g')
-    ss_iconName=$(echo ${ss_iconName} | sed -e 's/:/-/g' -e 's/ //g')
-
-    if [[ "$ss_policy_check" = "true" ]] && [[ -n "$ss_icon" ]] && [[ -n "$ss_iconURI" ]]; then
-       # If the policy has an icon associated with it then extract the name & icon name and format it correctly and then download it
-        update_display_list "Update" "" "${formatted_ss_policy_name}" "" "wait" "Working..."
-
-        # Retrieve the icon and store it in the dest folder
-        ss_icon_filepath="${formatted_ss_policy_name}"-"${PolicyId}"-"${ss_iconName}"
-        logMe "${ss_icon_filepath} to ${ssStoragePath}."
-
-        curl -s ${ss_iconURI} -X GET > "${ssStoragePath}"/"${ss_icon_filepath}"
-        update_display_list "Update" "" "${formatted_ss_policy_name}" "" "success" "Finished"
-    else
-        update_display_list "Update" "" "${formatted_ss_policy_name}" "" "error" "No Icon"
-    fi
-}
-
 function create_display_list ()
 {
     construct_dialog_header_settings "The following Self Service Policy icons will be backed up" > "${JSON_DIALOG_BLOB}"
@@ -373,14 +334,39 @@ function create_display_list ()
         line="${line/<name>/}"
         # Remove the closing tag
         line="${line/<\/name>/}"
-        line=$(echo ${line} | sed -e 's/:/-/g' -e 's/ //g' -e 's/\//-/g'  -e 's/|/-/g')
+        line=$(make_apfs_safe "$line")
         create_listitem_message_body "$line" "" "pending" "Pending..."
     done
     create_listitem_message_body "" "" "" "" "last"
     update_display_list "Create"
 }
 
-function check_JSS_Connection()
+function extract_xml_data ()
+{
+    # PURPOSE: extract an XML strng from the passed string
+    # RETURN: parsed XML string
+    # PARAMETERS: $1 - XML "blob"
+    #             $2 - String to extract
+    # EXPECTED: None
+    echo $(echo "$1" | tr -d "[:cntrl:]" | xmllint --xpath 'string(//'${2}')' - 2>/dev/null)
+}
+
+function make_apfs_safe ()
+{
+    # PURPOSE: Remove any "illegal" APFS macOS characters from filename
+    # RETURN: ADFS safe filename
+    # PARAMETERS: $1 - string to format
+    # EXPECTED: None
+    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/\//-/g' -e 's/|/-/g')
+}
+
+###########################
+#
+# JAMF functions
+#
+###########################
+
+function JAMF_check_connection ()
 {
     # PURPOSE: Function to check connectivity to the Jamf Pro server
     # RETURN: None
@@ -393,7 +379,7 @@ function check_JSS_Connection()
     logMe "JSS connection active!"
 }
 
-function get_JAMF_Server ()
+function JAMF_get_server ()
 {
     # PURPOSE: Retreive your JAMF server URL from the preferences file
     # RETURN: None
@@ -403,7 +389,7 @@ function get_JAMF_Server ()
     logMe "JAMF Pro server is: $jamfpro_url"
 }
 
-function get_JamfPro_Classic_API_Token ()
+function JAMF_get_classic_api_token ()
 {
     # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
     # PARMS: None
@@ -414,7 +400,7 @@ function get_JamfPro_Classic_API_Token ()
 
 }
 
-function validate_JAMF_token () 
+function JAMF_validate_token () 
 {
      # Verify that API authentication is using a valid token by running an API command
      # which displays the authorization details associated with the current API user. 
@@ -423,7 +409,7 @@ function validate_JAMF_token ()
      api_authentication_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/auth" --request GET --header "Authorization: Bearer ${api_token}")
 }
 
-function get_JAMF_Access_Token()
+function JAMF_get_access_token ()
 {
     # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
     # RETURN: connection stringe (either error code or valid data)
@@ -447,19 +433,13 @@ function get_JAMF_Access_Token()
     api_token=$(echo "$returnval" | plutil -extract access_token raw -)
 }
 
-function get_jamf_policy_list()
-{
-    PolicyList=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/policies" )
-    echo $PolicyList
-}
-
-function JAMF_Check_And_Renew_API_Token ()
+function JAMF_check_and_renew_api_token ()
 {
      # Verify that API authentication is using a valid token by running an API command
      # which displays the authorization details associated with the current API user. 
      # The API call will only return the HTTP status code.
 
-     validate_JAMF_token
+     JAMF_validate_token
 
      # If the api_authentication_check has a value of 200, that means that the current
      # bearer token is valid and can be used to authenticate an API call.
@@ -476,11 +456,11 @@ function JAMF_Check_And_Renew_API_Token ()
           # If the current bearer token is not valid, this will trigger the issuing of a new bearer token
           # using Basic Authentication.
 
-          get_JamfPro_Classic_API_Token
+          JAMF_get_classic_api_token
      fi
 }
 
-function invalidate_JAMF_Token()
+function JAMF_invalidate_token ()
 {
     # PURPOSE: invalidate the JAMF Token to the server
     # RETURN: None
@@ -498,7 +478,66 @@ function invalidate_JAMF_Token()
     fi    
 }
 
-####################################################################################################
+function JAMF_retrieve_xml_data_details ()
+{    
+    # PURPOSE: Extract the summary of the JAMF conmand results
+    # RETURN: XML contents of command
+    # PARAMTERS: The subset API command of the JAMF atrribute to read
+    # EXPECTED: 
+    #   api_token - base64 hex code of your bearer token
+    #   jamppro_url - the URL of your JAMF server   
+    xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}${1}")
+}
+
+function JAMF_get_policy_list ()
+{
+    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/policies" )
+
+}
+
+###############################################
+#
+# Application Specific functions
+#
+###############################################
+
+function extract_policy_icons ()
+{
+
+    declare PolicyName
+    declare ss_policy_check
+    declare ss_icon
+    declare ss_iconName
+    declare ss_iconURI
+
+	[[ -z "${1}" ]] && return 0
+    JAMF_retrieve_xml_data_details "JSSResource/policies/id/$1"
+
+    PolicyName=$(extract_xml_data $xmlBlob "name")
+    ss_icon=$(extract_xml_data $xmlBlob "self_service_icon/id")
+    ss_iconName=$(extract_xml_data $xmlBlob "self_service_icon/filename")
+    ss_iconURI=$(extract_xml_data $xmlBlob "self_service_icon/uri")
+    ss_policy_check=$(extract_xml_data $xmlBlob "self_service/use_for_self_service")
+
+    # Remove any special characters that might mess with APFS
+    formatted_ss_policy_name=$(make_apfs_safe "${PolicyName}")
+    ss_iconName=$(make_apfs_safe "${ss_iconName}")
+    if [[ "$ss_policy_check" = "true" ]] && [[ -n "$ss_icon" ]] && [[ -n "$ss_iconURI" ]]; then
+       # If the policy has an icon associated with it then extract the name & icon name and format it correctly and then download it
+        update_display_list "Update" "" "${formatted_ss_policy_name}" "" "wait" "Working..."
+
+        # Retrieve the icon and store it in the dest folder
+        ss_icon_filepath="${formatted_ss_policy_name}"-"${1}"-"${ss_iconName}"
+        logMe "${ss_icon_filepath} to ${ssStoragePath}."
+
+        curl -s ${ss_iconURI} -X GET > "${ssStoragePath}"/"${ss_icon_filepath}"
+        update_display_list "Update" "" "${formatted_ss_policy_name}" "" "success" "Finished"
+    else
+        update_display_list "Update" "" "${formatted_ss_policy_name}" "" "error" "No Icon"
+    fi
+}
+
+########################################################################################
 #
 # Main Script
 #
@@ -509,6 +548,7 @@ declare api_token
 declare jamfpro_url
 declare ssStoragePath
 declare PolicyList
+declare xmlBlob
 
 create_log_directory
 check_swift_dialog_install
@@ -516,14 +556,14 @@ check_support_files
 create_infobox_message
 welcomemsg
 
-check_JSS_Connection
-get_JAMF_Server
-get_JamfPro_Classic_API_Token
+JAMF_check_connection
+JAMF_get_server
+JAMF_get_classic_api_token
 
 # Download all Jamf Pro policy ID numbers
 
-JAMF_Check_And_Renew_API_Token
-PolicyList=$(get_jamf_policy_list)
+JAMF_check_and_renew_api_token
+PolicyList=$(JAMF_get_policy_list)
 create_display_list
 
 PolicyIDList=$(echo $PolicyList | xmllint --xpath '//id' - 2>/dev/null)
@@ -541,7 +581,7 @@ activeJobs=0
 
 for item in ${PolicyIDs[@]}; do
     ((activeJobs=activeJobs%maxCurrentJobs)); ((activeJobs++==0)) #&& wait
-    check_ss_policy_icons $item &
+    extract_policy_icons $item &
 done
 
 # Wait for remaining concurrent jobs to finish
@@ -552,7 +592,7 @@ DirectoryCount=$(ls ${ssStoragePath} | wc -l | xargs )
 # Display how many Self Service icon files were downloaded.
 
 logMe "$DirectoryCount Self Service icon files downloaded to $ssStoragePath."
-invalidate_JAMF_Token
+JAMF_invalidate_token
 update_display_list "progress" "" "" "" "All Done!" 100
 update_display_list "buttonenable"
 wait
