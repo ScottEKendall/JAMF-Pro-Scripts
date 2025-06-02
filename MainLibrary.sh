@@ -12,6 +12,7 @@
 # 1.0 - Initial
 # 1.1 - Code optimization
 # 1.1 - Changed the get_nic_info logic
+# 1.2 - renamed all JAMF functions to start with JAMF_.....
 
 ######################################################################################################
 #
@@ -248,7 +249,7 @@ function update_display_list ()
         "create" | "show" )
  
             # Display the Dialog prompt
-            eval "${DYNAMIC_DIALOG_BASE_STRING}"
+            eval "${JSON_OPTIONS}"
             ;;
      
         "add" )
@@ -412,11 +413,6 @@ function Contains ()
     return 1
 }
 
-function alltrim ()
-{
-    echo "${1}" | /usr/bin/xargs
-}
-
 function unload_and_delete_daemon ()
 {
     # Unloads the launch daemon from launchctl
@@ -478,7 +474,13 @@ function get_nic_info ()
 
 }
 
-function check_JSS_Connection()
+###########################
+#
+# JAMF functions
+#
+###########################
+
+function JAMF_check_connection()
 {
     # PURPOSE: Function to check connectivity to the Jamf Pro server
     # RETURN: None
@@ -491,7 +493,7 @@ function check_JSS_Connection()
     logMe "JSS connection active!"
 }
 
-function get_JAMF_Server ()
+function JAMF_get_server ()
 {
     # PURPOSE: Retreive your JAMF server URL from the preferences file
     # RETURN: None
@@ -501,7 +503,7 @@ function get_JAMF_Server ()
     logMe "JAMF Pro server is: $jamfpro_url"
 }
 
-function get_JamfPro_Classic_API_Token ()
+function JAMF_get_classic_api_token ()
 {
     # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
     # PARMS: None
@@ -512,7 +514,7 @@ function get_JamfPro_Classic_API_Token ()
 
 }
 
-function validate_JAMF_token () 
+function JAMF_validate_token () 
 {
      # Verify that API authentication is using a valid token by running an API command
      # which displays the authorization details associated with the current API user. 
@@ -521,7 +523,7 @@ function validate_JAMF_token ()
      api_authentication_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/auth" --request GET --header "Authorization: Bearer ${api_token}")
 }
 
-function get_JAMF_Access_Token()
+function JAMF_get_access_token()
 {
     # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
     # RETURN: connection stringe (either error code or valid data)
@@ -545,13 +547,13 @@ function get_JAMF_Access_Token()
     api_token=$(echo "$returnval" | plutil -extract access_token raw -)
 }
 
-function JAMF_Check_And_Renew_API_Token ()
+function JAMF_check_and_renew_api_token ()
 {
      # Verify that API authentication is using a valid token by running an API command
      # which displays the authorization details associated with the current API user. 
      # The API call will only return the HTTP status code.
 
-     validate_JAMF_token
+     JAMF_validate_token
 
      # If the api_authentication_check has a value of 200, that means that the current
      # bearer token is valid and can be used to authenticate an API call.
@@ -568,8 +570,61 @@ function JAMF_Check_And_Renew_API_Token ()
           # If the current bearer token is not valid, this will trigger the issuing of a new bearer token
           # using Basic Authentication.
 
-          GetJamfProAPIToken
+          JAMF_get_classic_api_token
      fi
+}
+
+function JAMF_invalidate_token()
+{
+    # PURPOSE: invalidate the JAMF Token to the server
+    # RETURN: None
+    # Expected jamfpro_url, ap_token
+
+    returnval=$(/usr/bin/curl -w "%{http_code}" -H "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth/invalidate-token" -X POST -s -o /dev/null)
+
+    if [[ $returnval == 204 ]]; then
+        logMe "Token successfully invalidated"
+    elif [[ $returnval == 401 ]]; then
+        logMe "Token already invalid"
+    else
+        logMe "Unexpected response code: $returnval"
+        exit 1  # Or handle it in a different way (e.g., retry or log the error)
+    fi    
+}
+
+function JAMF_retrieve_xml_data_summary ()
+{    
+    # PURPOSE: Extract the summary of the JAMF conmand results
+    # RETURN: XML contents of command
+    # PARAMTERS: The API command of the JAMF atrribute to read
+    # EXPECTED: 
+    #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
+    #   api_token - base64 hex code of your bearer token
+    #   jamppro_url - the URL of your JAMF server   
+    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}${1}" )
+}
+
+function JAMF_retrieve_xml_data_details ()
+{    
+    # PURPOSE: Extract the summary of the JAMF conmand results
+    # RETURN: XML contents of command
+    # PARAMTERS: The API command of the JAMF atrribute to read
+    # EXPECTED: 
+    #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
+    #   api_token - base64 hex code of your bearer token
+    #   jamppro_url - the URL of your JAMF server   
+    xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}${1}")
+}
+
+function JAMF_get_inventory_record ()
+{
+    # PURPOSE: Uses the JAMF 
+    # RETURN: the device ID (UDID) for the device in question.
+    # PARMS: $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
+    #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
+    #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
+    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$ID?section=$1" 2>/dev/null)
+    echo $retval
 }
 
 function get_JAMF_DeviceID ()
@@ -585,24 +640,6 @@ function get_JAMF_DeviceID ()
     # if ID is not found, display a message or something...
     [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* ]] && display_failure_message
     echo $ID
-}
-
-function invalidate_JAMF_Token()
-{
-    # PURPOSE: invalidate the JAMF Token to the server
-    # RETURN: None
-    # Expected jamfpro_url, ap_token
-
-    returnval=$(/user/bin/curl -w "%{http_code}" -H "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth/invalidate-token" -X POST -s -o /dev/null)
-
-    if [[ $returnval == 204 ]]; then
-        logMe "Token successfully invalidated"
-    elif [[ $returnval == 401 ]]; then
-        logMe "Token already invalid"
-    else
-        logMe "Unexpected response code: $returnval"
-        exit 1  # Or handle it in a different way (e.g., retry or log the error)
-    fi    
 }
 
 function sendRecoveryLockCommand()
@@ -644,14 +681,3 @@ function FileVaultRecoveryKeyRetrieval ()
      filevault_recovery_key_retrieved=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" | plutil -extract personalRecoveryKey raw -)   
 }
 
-function get_JAMF_InventoryRecord ()
-{
-    # PURPOSE: Uses the JAMF 
-    # RETURN: the device ID (UDID) for the device in question.
-    # PARMS: $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
-    #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
-    #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
-    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$ID?section=$1" 2>/dev/null)
-    echo $retval
-
-}
