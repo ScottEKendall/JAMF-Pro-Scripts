@@ -207,7 +207,7 @@ function welcomemsg ()
 
 }
 
-function construct_dialog_header_settings()
+function construct_dialog_header_settings ()
 {
     # Construct the basic Switft Dialog screen info that is used on all messages
     #
@@ -341,13 +341,32 @@ function create_display_list ()
     update_display_list "Create"
 }
 
+function extract_xml_data ()
+{
+    # PURPOSE: extract an XML strng from the passed string
+    # RETURN: parsed XML string
+    # PARAMETERS: $1 - XML "blob"
+    #             $2 - String to extract
+    # EXPECTED: None
+    echo $(echo "$1" | tr -d "[:cntrl:]" | xmllint --xpath 'string(//'${2}')' - 2>/dev/null)
+}
+
+function make_apfs_safe ()
+{
+    # PURPOSE: Remove any "illegal" APFS macOS characters from filename
+    # RETURN: ADFS safe filename
+    # PARAMETERS: $1 - string to format
+    # EXPECTED: None
+    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/\//-/g' -e 's/|/-/g')
+}
+
 ###########################
 #
 # JAMF functions
 #
 ###########################
 
-function JAMF_check_connection()
+function JAMF_check_connection ()
 {
     # PURPOSE: Function to check connectivity to the Jamf Pro server
     # RETURN: None
@@ -390,7 +409,7 @@ function JAMF_validate_token ()
      api_authentication_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/auth" --request GET --header "Authorization: Bearer ${api_token}")
 }
 
-function JAMF_get_access_token()
+function JAMF_get_access_token ()
 {
     # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
     # RETURN: connection stringe (either error code or valid data)
@@ -441,7 +460,7 @@ function JAMF_check_and_renew_api_token ()
      fi
 }
 
-function JAMF_invalidate_token()
+function JAMF_invalidate_token ()
 {
     # PURPOSE: invalidate the JAMF Token to the server
     # RETURN: None
@@ -475,9 +494,8 @@ function JAMF_retrieve_xml_data_details ()
 {    
     # PURPOSE: Extract the summary of the JAMF conmand results
     # RETURN: XML contents of command
-    # PARAMTERS: The API command of the JAMF atrribute to read
+    # PARAMTERS: The subset API command of the JAMF atrribute to read
     # EXPECTED: 
-    #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
     #   api_token - base64 hex code of your bearer token
     #   jamppro_url - the URL of your JAMF server   
     xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}${1}")
@@ -520,25 +538,6 @@ function extract_script_details ()
         update_display_list "Update" "" "${formatted_scriptName}" "" "success" "Finished"
     fi
     update_display_list "progress" "" "" "" "Exporting: ${scriptName}" $((100* ${2} /scriptCount))
-}
-
-function extract_xml_data ()
-{
-    # PURPOSE: extract an XML strng from the passed string
-    # RETURN: parsed XML string
-    # PARAMETERS: $1 - XML "blob"
-    #             $2 - String to extract
-    # EXPECTED: None
-    echo $(echo "$1" | tr -d "[:cntrl:]" | xmllint --xpath 'string(//'${2}')' - 2>/dev/null)
-}
-
-function make_apfs_safe ()
-{
-    # PURPOSE: Remove any "illegal" APFS macOS characters from filename
-    # RETURN: ADFS safe filename
-    # PARAMETERS: $1 - string to format
-    # EXPECTED: None
-    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/\//-/g' -e 's/|/-/g')
 }
 
 function show_backup_errors ()
