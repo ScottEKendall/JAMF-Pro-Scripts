@@ -560,34 +560,6 @@ function extract_user_details ()
     update_display_list "progress" "" "" "" "Exporting: ${userShortName}" $((100* ${2} /userCount))
 }
 
-function show_backup_errors ()
-{
-    message="The below list of scripts could not be backed up for some reason!<br><br>"
-    for item in "${failedMigration[@]}"; do
-        message+="* $item<br>"
-    done
-    message+="<br>This might be due to improper formatting in the original script or invalid characters.  You might need to copy these scripts manually out of JAMF."
-
-	MainDialogBody=(
-        --message "$message"
-        --titlefont shadow=1
-        --ontop
-        --icon "${SD_ICON_FILE}"
-        --overlayicon warning
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --infobox "${SD_INFO_BOX_MSG}"
-        --helpmessage ""
-        --width 800
-        --height 460
-        --ignorednd
-        --quitkey 0
-        --button1text "OK"
-    )
-	
-    "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-}
-
 function export_vcf_file
 {
 
@@ -600,7 +572,6 @@ EMAIL:$2
 TITLE:$3
 END:VCARD"
 echo $VCF_DATA
-
 }
 
 function extract_assigned_systems ()
@@ -666,5 +637,4 @@ JAMF_invalidate_token
 update_display_list "progress" "" "" "" "All Done!" 100
 update_display_list "buttonenable"
 wait
-[[ ! -z $failedMigration ]] && show_backup_errors
 cleanup_and_exit
