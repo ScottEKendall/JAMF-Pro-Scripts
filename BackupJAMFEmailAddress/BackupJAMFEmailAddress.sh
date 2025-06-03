@@ -1,14 +1,13 @@
 #!/bin/zsh
 #
-# JAMFScriptBackup
+# JAMFEmailBackup
 #
 # by: Scott Kendall
 #
 # Written: 05/28/2025
-# Last updated: 05/30/2025
+# Last updated: 06/03/2025
 #
-# Script Purpose: Exract all of the scripts from the JAMF server and store them on a local drive
-#
+# Script Purpose: This script will extract all of the email addresses from your JAMF server and store them in local folder in a VCF format.
 # 1.0 - Initial
 # 1.1 - Created a few new functions to reduce complexity / document function details / renamed all JAMF functions to start with JAMF......
 
