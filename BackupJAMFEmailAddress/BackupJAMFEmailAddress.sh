@@ -206,7 +206,6 @@ function welcomemsg ()
 
     ssStoragePath=$( echo $temp | jq -r '.StorageLocation' | tr -d '\\' | tr -d '"')
     ssOnlyManagedUsers=$( echo $temp | jq -r '.OnlyManagedUsers' | tr -d '\\' | tr -d '"')
-    
 }
 
 function construct_dialog_header_settings ()
