@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 02/25/2025
+# Last updated: 06/04/2025
 #
 # Script Purpose: Main Library containing all of my commonly used fuctions.
 #
@@ -13,6 +13,7 @@
 # 1.1 - Code optimization
 # 1.1 - Changed the get_nic_info logic
 # 1.2 - renamed all JAMF functions to start with JAMF_.....
+# 1.3 - Changed JAMF function names to be more descriptive
 
 ######################################################################################################
 #
@@ -74,7 +75,7 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 ####################################################################################################
@@ -480,7 +481,7 @@ function get_nic_info ()
 #
 ###########################
 
-function JAMF_check_connection()
+function JAMF_check_connection ()
 {
     # PURPOSE: Function to check connectivity to the Jamf Pro server
     # RETURN: None
@@ -523,7 +524,7 @@ function JAMF_validate_token ()
      api_authentication_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/auth" --request GET --header "Authorization: Bearer ${api_token}")
 }
 
-function JAMF_get_access_token()
+function JAMF_get_access_token ()
 {
     # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
     # RETURN: connection stringe (either error code or valid data)
@@ -574,7 +575,7 @@ function JAMF_check_and_renew_api_token ()
      fi
 }
 
-function JAMF_invalidate_token()
+function JAMF_invalidate_token ()
 {
     # PURPOSE: invalidate the JAMF Token to the server
     # RETURN: None
@@ -608,9 +609,8 @@ function JAMF_retrieve_xml_data_details ()
 {    
     # PURPOSE: Extract the summary of the JAMF conmand results
     # RETURN: XML contents of command
-    # PARAMTERS: The API command of the JAMF atrribute to read
+    # PARAMTERS: The subset API command of the JAMF atrribute to read
     # EXPECTED: 
-    #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
     #   api_token - base64 hex code of your bearer token
     #   jamppro_url - the URL of your JAMF server   
     xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}${1}")
@@ -623,11 +623,17 @@ function JAMF_get_inventory_record ()
     # PARMS: $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
     #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
     #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
-    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$ID?section=$1" 2>/dev/null)
-    echo $retval
+    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$1?section=$2" 2>/dev/null)
+    echo $retval | tr -d '\n'
 }
 
-function get_JAMF_DeviceID ()
+function JAMF_get_policy_list ()
+{
+    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/policies" )
+
+}
+
+function JAMF_get_deviceID ()
 {
     # PURPOSE: uses the serial number or hostname to get the device ID (UDID) from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
     # RETURN: the device ID (UDID) for the device in question.
@@ -635,11 +641,7 @@ function get_JAMF_DeviceID ()
 
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
 
-    ID=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" | /usr/bin/plutil -extract results.0.id raw -)
-
-    # if ID is not found, display a message or something...
-    [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* ]] && display_failure_message
-    echo $ID
+    echo $(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" | /usr/bin/plutil -extract results.0.id raw -)
 }
 
 function sendRecoveryLockCommand()
