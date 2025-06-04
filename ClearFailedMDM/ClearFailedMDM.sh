@@ -55,8 +55,6 @@ DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 JQ_FILE_INSTALL_POLICY="install_jq"
 
-#JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
-
 ###################################################
 #
 # App Specfic variables (Feel free to change these)
@@ -179,11 +177,12 @@ function cleanup_and_exit ()
 	exit 0
 }
 
-function display_welcome_message ()
+function welcomemsg ()
 {
      MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
         --icon "${SD_ICON}"
         --iconsize 128
         --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial or hostname of the device you want to check and/or clear the failed MDM commands on."
@@ -217,10 +216,10 @@ function display_status_message ()
      MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
         --icon "${SD_ICON}"
         --infobox "${SD_INFO_BOX_MSG}"
         --iconsize 128
-        --messagefont name=Arial,size=17
         --button1text "Quit"
         --ontop
         --height 420
@@ -240,16 +239,15 @@ function display_status_message ()
     $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
     buttonpress=$?
 
-    [[ $buttonpress == 2 ]] && clear_JAMF_failed_mdm_commands "$ID"
+    [[ $buttonpress == 2 ]] && JAMF_clear_failed_mdm_commands "$ID"
 }
 
-function check_JSS_Connection()
+function JAMF_check_connection()
 {
     # PURPOSE: Function to check connectivity to the Jamf Pro server
     # RETURN: None
     # EXPECTED: None
 
-    #echo "Checking JSS connection..."
     if ! /usr/local/bin/jamf -checkjssconnection -retry 5; then
         logMe "Error: JSS connection not active."
         exit 1
@@ -257,13 +255,13 @@ function check_JSS_Connection()
     logMe "JSS connection active!"
 }
 
-function get_JAMF_Server () 
+function JAMF_get_server  () 
 {
     jamfpro_url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
     logMe "JAMF Pro server is: $jamfpro_url"
 }
 
-function get_JamfPro_Classic_API_Token ()
+function JAMF_get_classic_api_token ()
 {
     # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
     # PARMS: None
@@ -274,23 +272,23 @@ function get_JamfPro_Classic_API_Token ()
 
 }
 
-function get_JAMF_Access_Token()
+function JAMF_get_access_token ()
 {
     # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
     # RETURN: connection stringe (either error code or valid data)
     # PARMS: None
-    # EXPECTED: client_ID, client_secret, jamfpro_url
+    # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
 
-    response=$(curl --silent --location --request POST "${jamfpro_url}/api/oauth/token" \
+    returnval=$(curl --silent --location --request POST "${jamfpro_url}/api/oauth/token" \
         --header "Content-Type: application/x-www-form-urlencoded" \
         --data-urlencode "client_id=${CLIENT_ID}" \
         --data-urlencode "grant_type=client_credentials" \
         --data-urlencode "client_secret=${CLIENT_SECRET}")
     
-    if [[ -z "$response" ]]; then
+    if [[ -z "$returnval" ]]; then
         logMe "Check Jamf URL"
         exit 1
-    elif [[ "$response" == '{"error":"invalid_client"}' ]]; then
+    elif [[ "$returnval" == '{"error":"invalid_client"}' ]]; then
         logMe "Check the API Client credentials and permissions"
         exit 1
     fi
@@ -300,7 +298,7 @@ function get_JAMF_Access_Token()
     token_expiration_epoch=$((current_epoch + token_expires_in - 1))
 }
 
-function get_JAMF_DeviceID ()
+function JAMF_get_device_id ()
 {
     # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
     # RETURN: the device ID for the device in question.
@@ -312,7 +310,7 @@ function get_JAMF_DeviceID ()
     logMe "Device ID #$ID"
 }
 
-function invalidate_JAMF_Token()
+function JAMF_validate_token()
 {
     # PURPOSE: invalidate the JAMF Token
     # RETURN: None
@@ -329,7 +327,7 @@ function invalidate_JAMF_Token()
     fi    
 }
 
-function get_JAMF_failed_commands() 
+function JAMF_get_failed_commands() 
 {
     # PURPOSE: get the number of failed MDM commands for the computer
     # RETURN: None
@@ -347,7 +345,7 @@ function get_JAMF_failed_commands()
     fi
 }
 
-function clear_JAMF_failed_mdm_commands()
+function JAMF_clear_failed_mdm_commands()
 {
     # PURPOSE: clear failed MDM commands for the computer in Jamf Pro
     # RETURN: None
@@ -380,15 +378,15 @@ create_log_directory
 check_swift_dialog_install
 check_support_files
 create_infobox_message
-display_welcome_message
+welcomemsg
 
 # Perform JAMF API calls to locate device and clear MDM failures
 
-check_JSS_Connection
-get_JAMF_Server
-get_JamfPro_Classic_API_Token
-get_JAMF_DeviceID ${search_type}
-get_JAMF_failed_commands ${ID}
-invalidate_JAMF_Token
+JAMF_check_connection
+JAMF_get_server 
+JAMF_get_classic_api_token
+JAMF_get_device_id ${search_type}
+JAMF_get_failed_commands ${ID}
+JAMF_validate_token
 
 exit 0
