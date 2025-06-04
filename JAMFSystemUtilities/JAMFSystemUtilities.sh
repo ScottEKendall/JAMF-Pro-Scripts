@@ -72,7 +72,7 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID="$4"
 CLIENT_SECRET="$5"
@@ -186,6 +186,9 @@ function construct_dialog_header_settings ()
 		"icon" : "'${SD_ICON_FILE}'",
 		"message" : "'$1'",
 		"bannerimage" : "'${SD_BANNER_IMAGE}'",
+        "infobox" : "'${SD_INFO_BOX_MSG}'",
+        "overlayicon" : "'${OVERLAY_ICON}'",
+        "ontop" : "true",
 		"bannertitle" : "'${SD_WINDOW_TITLE}'",
 		"titlefont" : "shadow=1",
 		"button1text" : "OK",
@@ -314,7 +317,7 @@ function extract_xml_data ()
     # PARAMETERS: $1 - XML "blob"
     #             $2 - String to extract
     # EXPECTED: None
-    echo $(echo "$1" | tr -d "[:cntrl:]" | xmllint --xpath 'string(//'${2}')' - 2>/dev/null)
+    echo $(echo "$1" | xmllint --xpath 'string(//'${2}')' - 2>/dev/null)
 }
 
 function make_apfs_safe ()
@@ -594,7 +597,7 @@ function extract_assigned_systems ()
 
 ###############################################
 #
-# Backup JAMF Scripts functions
+# Backup System Scripts functions
 #
 ###############################################
 
@@ -620,7 +623,7 @@ function backup_jamf_scripts ()
     update_display_list "buttonenable"
     wait
     logMe "Exported ${scriptCount} scripts from JAMF to ${menu_storageLocation}/JAMFScripts"
-    [[ ! -z $failedMigration ]] && show_backup_errors
+    [[ ! -z $failedMigration ]] && show_script_backup_errors
     
 }
 
@@ -636,6 +639,7 @@ function extract_script_details ()
     declare scriptFileName
     declare scriptContents
     declare formatted_scriptName
+    declare exported_filename
 
 	[[ -z "${1}" ]] && return 0
 
@@ -645,7 +649,9 @@ function extract_script_details ()
     scriptInfo=$(extract_xml_data $xmlBlob  "info")
     scriptCategory=$(extract_xml_data $xmlBlob "category")
     scriptFileName=$(extract_xml_data $xmlBlob "filename")
-    scriptContents=$(extract_xml_data $xmlBlob "script_contents")
+    # For some reason, the script contents are not being extracted correctly, so we will use the following line instead
+    scriptContents=$(echo "$xmlBlob" | xmllint --xpath 'string(//'script_contents')' - 2>/dev/null)
+    #scriptContents=$(extract_xml_data $xmlBlob "script_contents")
 
     # Remove any special characters that might mess with APFS
     formatted_scriptName=$(make_apfs_safe $scriptName)
@@ -658,14 +664,15 @@ function extract_script_details ()
     else
         update_display_list "Update" "" "${scriptName}" "" "wait" "Working..."
         # Store the script in the destination folder
-        logMe "Exporting script ${scriptName} to ${menu_storageLocation}/JAMFScripts/${formatted_scriptName}.sh"
-        echo "${scriptContents}" > "${menu_storageLocation}/JAMFScripts/${formatted_scriptName}.sh"
+        exported_filename="${menu_storageLocation}/JAMFScripts/${formatted_scriptName}.sh"
+        logMe "Exporting script ${scriptName} to ${exported_filename}"
+        echo "${scriptContents}" > "${exported_filename}"
         update_display_list "Update" "" "${scriptName}" "" "success" "Finished"
     fi
     update_display_list "progress" "" "" "" "Exporting: ${scriptName}" $((100* ${2} /scriptCount))
 }
 
-function show_backup_errors ()
+function show_script_backup_errors ()
 {
     message="The below list of scripts could not be backed up for some reason!<br><br>"
     for item in "${failedMigration[@]}"; do
@@ -773,6 +780,109 @@ function extract_policy_icons ()
     fi
 }
 
+###############################################
+#
+# Backup Computer Extensions attributes 
+#
+###############################################
+
+function  backup_computer_extensions ()
+{
+    # PURPOSE: Backup the computer extensions from JAMF
+    # RETURN: None
+    # EXPECTED: None
+
+    logMe "Backing up computer extensions"
+    failedMigration=""
+
+    ExtensionList=$(JAMF_retrieve_xml_data_summary "JSSResource/computerextensionattributes")
+    create_display_list "The following Computer EAs are being downloaded from JAMF" "$ExtensionList"
+
+    ExtensionIDs=$(echo $ExtensionList | xmllint --xpath '//id' - 2>/dev/null)
+    ExtensionIDs=($(echo "$ExtensionIDs" | grep -Eo "[0-9]+"))
+    extensionCount=${#ExtensionIDs[@]}
+
+    count=1
+    for item in ${ExtensionIDs[@]}; do
+        extract_extension_details $item $count
+        ((count++))
+    done
+
+    update_display_list "progress" "" "" "" "All Done!" 100
+    update_display_list "buttonenable"
+    wait
+    logMe "Exported ${extensionCount} computer extensions from JAMF to ${menu_storageLocation}/ComputerExtensions"
+    [[ ! -z $failedMigration ]] && show_computer_extension_backup_errors
+}
+
+function extract_extension_details ()
+{
+    # PURPOSE: extract the XNL string from the JAMF ID and create a list of found items
+    # RETURN: None
+    # PARAMETERS: $1 - API substring to call from JAMF
+    # EXPECTED: xmlBlob should be globally defined
+    declare extensionName
+    declare extensionScript
+    declare formatted_extensionName
+    declare exported_filename
+
+    [[ -z "${1}" ]] && return 0
+
+    JAMF_retrieve_xml_data_details "JSSResource/computerextensionattributes/id/$1"
+
+    extensionName=$(extract_xml_data $xmlBlob "name")
+    #for some reason, the script contents are not being extracted correctly, so we will use the following line instea
+  
+    extensionScript=$(echo "$xmlBlob" | xmllint --xpath 'string(//'script')' - 2>/dev/null)
+    #extensionScript=$(extract_xml_data $xmlBlob  "script")    
+
+    # Remove any special characters that might mess with APFS
+    formatted_extensionName=$(make_apfs_safe $extensionName)
+
+    # if the script shows as empty (probably due to import issues), then show as a failure and report it
+    if [[ -z $extensionScript ]]; then
+        update_display_list "Update" "" "${extensionName}" "" "fail" "Not exported!"
+        logMe "Extension ${extensionName} not exported due to empty contents"
+        failedMigration+=("${formatted_extensionName}")
+    else
+        update_display_list "Update" "" "${extensionName}" "" "wait" "Working..."
+        # Store the script in the destination folder
+        exported_filename="${menu_storageLocation}/ComputerEA/${formatted_extensionName}.sh"
+        logMe "Exporting extension ${extensionName} to $exported_filename"
+        echo "${extensionScript}" > "${exported_filename}"
+        update_display_list "Update" "" "${extensionName}" "" "success" "Finished"
+    fi
+    update_display_list "progress" "" "" "" "Exporting: ${extensionName}" $((100* ${2} /extensionCount))
+}
+
+function show_computer_extension_backup_errors ()
+{
+    message="The below list of Computer EAs could not be backed up for some reason!<br><br>"
+    for item in "${failedMigration[@]}"; do
+        message+="* $item<br>"
+    done
+    message+="<br>This might be due to improper formatting in the original script or invalid characters.  You might need to copy these scripts manually out of JAMF."
+
+	MainDialogBody=(
+        --message "$message"
+        --titlefont shadow=1
+        --ontop
+        --icon "${SD_ICON_FILE}"
+        --overlayicon warning
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --helpmessage ""
+        --width 800
+        --height 460
+        --ignorednd
+        --quitkey 0
+        --button1text "OK"
+    )
+	
+    "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+}
+
 function welcomemsg ()
 {
     # PURPOSE: Display the welcome message to the user
@@ -787,19 +897,20 @@ function welcomemsg ()
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
-        --helpmessage ""
         --width 800
-        --height 560
+        --height 660
         --ignorednd
         --json
         --quitkey 0
         --button1text "OK"
         --button2text "Cancel"
+        --helpmessage "This script will backup various items from your JAMF server.  Please select the items you wish to backup and the location to store them.  Source code is available at: https://github.com/ScottEKendall/JAMF-Pro-Scripts"
         --textfield "Select a storage location",fileselect,filetype=folder,required,name=StorageLocation
         --checkbox "Backup SS Icons",checked,name=BackupSSIcons
         --checkbox "Backup System Scripts",checked,name=BackupJAMFScripts
+        --checkbox "Backup Computer Extensions",checked,name=BackupComputerExtensions
         --checkbox "Create VCF cards from email address",checked,name=createVCFcards
-        --checkbox "(VCF Option)- Export only users with managed systems",checked,name=OnlyManagedUsers
+        --checkbox " ↳ Export only users with managed systems",checked,name=OnlyManagedUsers
     )
 	
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
@@ -810,8 +921,26 @@ function welcomemsg ()
     menu_backupJAMFScripts=$( echo $temp | jq -r '.BackupJAMFScripts' )
     menu_createVCFcards=$( echo $temp | jq -r '.createVCFcards' )
     menu_storageLocation=$( echo $temp | jq -r '.StorageLocation' )
+    menu_computerea=$( echo $temp | jq -r '.BackupComputerExtensions' )
     menu_onlyManagedUsers=$( echo $temp | jq -r '.OnlyManagedUsers' | tr -d '\\' | tr -d '"')
 }
+
+function check_directories ()
+{
+    # PURPOSE: Check if the directories exist and create them if they do not
+    # RETURN: None
+    # EXPECTED: menu_storageLocation should be set
+    # PARMS: None
+
+    [[ ! -d "${menu_storageLocation}" ]] && /bin/mkdir -p "${menu_storageLocation}"
+    [[ ! -d "${menu_storageLocation}/SSIcons" ]] && /bin/mkdir -p "${menu_storageLocation}/SSIcons"
+    [[ ! -d "${menu_storageLocation}/JAMFScripts" ]] && /bin/mkdir -p "${menu_storageLocation}/JAMFScripts"
+    [[ ! -d "${menu_storageLocation}/ComputerEA" ]] && /bin/mkdir -p "${menu_storageLocation}/ComputerEA"
+    [[ ! -d "${menu_storageLocation}/Contacts" ]] && /bin/mkdir -p "${menu_storageLocation}/Contacts"
+    chmod -R 755 "${menu_storageLocation}"
+    chown -R "${USER}" "${menu_storageLocation}"
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -832,6 +961,7 @@ declare menu_backupSSIcons
 declare menu_createVCFcards
 declare menu_storageLocation
 declare menu_onlyManagedUsers
+declare menu_computerea
 
 
 create_log_directory
@@ -843,12 +973,14 @@ welcomemsg
 JAMF_check_connection
 JAMF_get_server
 JAMF_get_classic_api_token
+check_directories
 
 [[ "${menu_backupSSIcons}" == "true" ]] && backup_ss_icons
 [[ "${menu_backupJAMFScripts}" == "true" ]] && backup_jamf_scripts
 [[ "${menu_createVCFcards}" == "true" ]] && create_vcf_cards
-
+[[ "${menu_computerea}" == "true" ]] && backup_computer_extensions
 JAMF_invalidate_token
+
 # If we get here, then we are done with the script
 logMe "JAMF Backup Utilities completed successfully!"
 cleanup_and_exit
