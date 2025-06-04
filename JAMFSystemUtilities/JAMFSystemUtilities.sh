@@ -72,7 +72,7 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER="$3"                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}                          # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID="$4"
 CLIENT_SECRET="$5"
@@ -799,7 +799,7 @@ function welcomemsg ()
         --checkbox "Backup SS Icons",checked,name=BackupSSIcons
         --checkbox "Backup System Scripts",checked,name=BackupJAMFScripts
         --checkbox "Create VCF cards from email address",checked,name=createVCFcards
-        --checkbox "    Export only users with managed systems",checked,name=OnlyManagedUsers
+        --checkbox "(VCF Option)- Export only users with managed systems",checked,name=OnlyManagedUsers
     )
 	
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
