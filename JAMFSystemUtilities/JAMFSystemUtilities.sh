@@ -53,8 +53,10 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 #
 ###################################################
 
+BACKGROUND_TASKS=20 # Number of background tasks to run in parallel
+
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF System Utilities"
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF System Admin Tools"
 SD_INFO_BOX_MSG=""
 LOG_FILE="${LOG_DIR}/JAMFSystemUtilities.log"
 SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
@@ -241,9 +243,9 @@ function update_display_list ()
 	## i.e. update_display_list "Update" "8" "Google Chrome" "Calculating Chrome" "pending" "Working..."
 	## i.e.	update_display_list "Update" "8" "Google Chrome" "" "success" "Done"
 
-	case "$1" in
+	case "$1:l" in
 
-	"Create" )
+	"create" )
 
 		#
 		# Create the progress bar
@@ -262,7 +264,7 @@ function update_display_list ()
             /bin/echo "button1: enable" >> "${DIALOG_CMD_FILE}"
             ;;
 
-	"Destroy" )
+	"destroy" )
 	
 		#
 		# Kill the progress bar and clean up
@@ -270,7 +272,7 @@ function update_display_list ()
 		echo "quit:" >> "${DIALOG_CMD_FILE}"
 		;;
 
-	"Update" | "Change" )
+	"update" | "change" )
 
 		#
 		# Increment the progress bar by ${2} amount
@@ -296,10 +298,29 @@ function update_display_list ()
 
 function create_display_list ()
 {
+    # PURPOSE: Create the display list for the dialog box
+    # RETURN: None
+    # EXPECTED: JSON_DIALOG_BLOB should be defined
+    # PARMS: $1 - message to be displayed on the window
+    #        $2 - tyoe of data to parse XML or JSON
+    #        #3 - key to parse for list items
+    #        $4 - string to parse for list items
+    # EXPECTED: None
+
     construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
     create_listitem_message_body "" "" "" "" "first"
 
-    echo $2 | xmllint --xpath '//name' - | while IFS= read -r line; do
+    # Parse the XML data and create list items
+    
+    if [[ "$2:l" == "json" ]]; then
+        # If the second parameter is XML, then parse the XML data
+        xml_blob=$(echo $4 | jq -r '.results[]'$3)
+    else
+        # If the second parameter is JSON, then parse the JSON data
+        xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2) #>/dev/null)
+    fi
+
+    echo $xml_blob | while IFS= read -r line; do
         # Remove the opening tag
         line="${line/<name>/}"
         # Remove the closing tag
@@ -447,27 +468,32 @@ function JAMF_invalidate_token ()
     fi    
 }
 
-function JAMF_retrieve_xml_data_summary ()
+function JAMF_retrieve_data_summary ()
 {    
     # PURPOSE: Extract the summary of the JAMF conmand results
     # RETURN: XML contents of command
-    # PARAMTERS: The API command of the JAMF atrribute to read
+    # PARAMTERS: $1 = The API command of the JAMF atrribute to read
+    #            $2 = format to return XML or JSON
     # EXPECTED: 
     #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
     #   api_token - base64 hex code of your bearer token
     #   jamppro_url - the URL of your JAMF server   
-    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}${1}" )
+    [[ -z "${2}" ]] && $2="xml"
+    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/$2" "${jamfpro_url}${1}" )
 }
 
-function JAMF_retrieve_xml_data_details ()
+function JAMF_retrieve_data_details ()
 {    
     # PURPOSE: Extract the summary of the JAMF conmand results
     # RETURN: XML contents of command
-    # PARAMTERS: The subset API command of the JAMF atrribute to read
+    # PARAMTERS: $1 = The API command of the JAMF atrribute to read
+    #            $2 = format to return XML or JSON
     # EXPECTED: 
     #   api_token - base64 hex code of your bearer token
-    #   jamppro_url - the URL of your JAMF server   
-    xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}${1}")
+    #   jamppro_url - the URL of your JAMF server
+    declare format=$2
+    [[ -z "${format}" ]] && format="xml"
+    xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}")
 }
 
 function JAMF_get_inventory_record ()
@@ -483,8 +509,385 @@ function JAMF_get_inventory_record ()
 
 function JAMF_get_policy_list ()
 {
-    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/policies" )
+    echo $(curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/policies")
 
+}
+
+###############################################
+#
+# Backup Self Service Icons functions
+#
+###############################################
+
+function backup_ss_icons ()
+{
+
+    declare processed_tasks=0
+    declare tasks=()
+    declare logMsg
+
+    # PURPOSE: Backup all of the Self Service icons from JAMF
+    logMe "Backing up Self Service icons"
+    PolicyList=$(JAMF_get_policy_list)
+    create_display_list "The following Self Service icons are being downloaded from JAMF" "xml" "name" "$PolicyList"
+
+    PolicyIDList=$(echo $PolicyList | xmllint --xpath '//id' - 2>/dev/null)
+    PolicyIDs=($(echo "$PolicyIDList" | grep -Eo "[0-9]+"))
+    PoliciesCount=${#PolicyIDs[@]}
+
+    logMe "Checking $PoliciesCount policies for Self Service icons ..."
+
+    for item in ${PolicyIDs[@]}; do
+        tasks+=("extract_ss_policy_icons $item")
+    done
+    execute_in_parallel 10 "${tasks[@]}"
+
+   # Display how many Self Service icon files were downloaded.
+    DirectoryCount=$(ls $location_SSIcons| wc -l | xargs )
+    logMsg="$DirectoryCount Self Service icon files downloaded to $location_SSIcons."
+    logMe $logMsg 
+    update_display_list "progress" "" "" "" "$logMsg" 100
+    update_display_list "buttonenable"
+    wait
+}
+
+function extract_ss_policy_icons ()
+{
+    # PURPOSE: extract the XNL string from the JAMF ID and create a list of found items 
+    # RETURN: None
+    # PARAMETERS: $1 - API substring to call from JAMF
+    # EXPECTED: xmlBlob should be globally defined
+    # This function will extract the Self Service icon from the policy and download it to the SSIcons folder
+    # EXPECTED: menu_storageLocation should be defined
+    declare id="${1}"
+    declare PolicyName
+    declare ss_policy_check
+    declare ss_icon
+    declare ss_iconName
+    declare ss_iconURI
+
+    JAMF_retrieve_data_details "JSSResource/policies/id/$1" "xml"
+    PolicyName=$(extract_xml_data $xmlBlob "name")
+    ss_icon=$(extract_xml_data $xmlBlob "self_service_icon/id")
+    ss_iconName=$(extract_xml_data $xmlBlob "self_service_icon/filename")
+    ss_iconURI=$(extract_xml_data $xmlBlob "self_service_icon/uri")
+    ss_policy_check=$(extract_xml_data $xmlBlob "self_service/use_for_self_service")
+
+
+    # Remove any special characters that might mess with APFS
+    formatted_ss_policy_name=$(make_apfs_safe "${PolicyName}")
+    ss_iconName=$(make_apfs_safe "${ss_iconName}")
+    if [[ "$ss_policy_check" = "true" ]] && [[ -n "$ss_icon" ]] && [[ -n "$ss_iconURI" ]]; then
+       # If the policy has an icon associated with it then extract the name & icon name and format it correctly and then download it
+        update_display_list "Update" "" "${PolicyName}" "" "wait" "Working..."
+
+        # Retrieve the icon and store it in the dest folder
+        ss_icon_filepath="${formatted_ss_policy_name}"-"${id}"-"${ss_iconName}"
+        logMe "${ss_icon_filepath} to ${menu_storageLocation}"
+
+        curl -s ${ss_iconURI} -X GET > "$location_SSIcons/${ss_icon_filepath}"
+        update_display_list "Update" "" "${PolicyName}" "" "success" "Finished"
+    else
+        update_display_list "Update" "" "${PolicyName}" "" "error" "No Icon"
+    fi
+}
+
+###############################################
+#
+# export failed MDM devices functions
+#
+###############################################
+function export_failed_mdm_devices ()
+{
+
+    declare processed_tasks=0
+    declare tasks=()
+    declare logMsg
+    # PURPOSE: Export all of the failed MDM devices from JAMF
+    logMe "Exporting failed MDM devices"
+    DeviceList=$(JAMF_retrieve_data_summary "/api/v1/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc" "json")
+    create_display_list "The following failed MDM devices are being exported from JAMF" "json" ".general.name" "$DeviceList"
+    
+    DeviceIDs=($(echo $DeviceList | jq -r '.results[].general.name'))
+    deviceCount=${#DeviceIDs[@]}
+
+    for item in ${DeviceIDs[@]}; do
+        tasks+=("export_failed_mdm_details $item")
+    done
+    execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
+
+   # Display how many Failed MDM command files were downloaded.
+    DirectoryCount=$(ls $location_FailedMDM | wc -l | xargs )
+    logMsg="$DirectoryCount Failed MDM files were downloaded to $location_FailedMDM."
+    logMe $logMsg 
+    update_display_list "progress" "" "" "" "$logMsg" 100
+    update_display_list "buttonenable"
+    wait
+}
+
+function export_failed_mdm_details ()
+{
+    # PURPOSE: extract the XNL string from the JAMF ID and create a list of found items
+    # RETURN: None
+    # PARAMETERS: $1 - API substring to call from JAMF
+    # EXPECTED: xmlBlob should be globally defined
+    declare id="${1}"
+    declare deviceName
+    declare deviceSerialNumber
+    declare deviceUDID
+    declare deviceModel
+    declare deviceOSVersion
+    declare formatted_deviceName
+    declare exported_filename
+
+    JAMF_retrieve_data_details "JSSResource/computerhistory/name/$id" "xml"
+    deviceName=$(extract_xml_data $xmlBlob "name")
+
+    devicefailedMDM=$(extract_xml_data $xmlBlob "failed")
+    # Remove any special characters that might mess with APFS
+    formatted_deviceName=$(make_apfs_safe $deviceName)
+
+    # if the script shows as empty (probably due to import issues), then show as a failure and report it
+    # check to see if there are any failed command, use grep & awk to see if the results are empty
+    if [[ -z $devicefailedMDM ]]; then
+        update_display_list "Update" "" "${deviceName}" "" "success" "No failed Commands."
+        #logMe "Device ${deviceName} not exported due to empty UDID"
+        failedMigration+=("${formatted_deviceName}")
+    else
+        update_display_list "Update" "" "${deviceName}" "" "wait" "Working..."
+        # Store the script in the destination folder
+        exported_filename="$location_FailedMDM/${formatted_deviceName}.txt"
+        logMe "Exporting failed MDM device ${deviceName} to ${exported_filename}"
+        echo "${devicefailedMDM}" > "${exported_filename}"
+        update_display_list "Update" "" "${deviceName}" "" "error" "Exported failed commands"
+    fi
+}
+
+###############################################
+#
+# Backup System Scripts functions
+#
+###############################################
+
+function backup_jamf_scripts ()
+{
+    declare processed_tasks=0
+    declare tasks=()
+    declare logMsg
+    # PURPOSE: Backup all of the JAMF scripts from JAMF
+    logMe "Backing up JAMF scripts"
+    ScriptList=$(JAMF_retrieve_data_summary "JSSResource/scripts" "xml") 
+    create_display_list "The following JAMF scripts are being downloaded from JAMF" "xml" "name" "$ScriptList"
+
+    ScriptIDs=$(echo $ScriptList | xmllint --xpath '//id' - 2>/dev/null)
+    ScriptIDs=($(echo "$ScriptIDs" | grep -Eo "[0-9]+"))
+    scriptCount=${#ScriptIDs[@]}
+
+    for item in ${ScriptIDs[@]}; do
+        tasks+=("extract_script_details $item")
+    done
+    execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
+
+   # Display how many Failed MDM command files were downloaded.
+    DirectoryCount=$(ls $location_JAMFScripts | wc -l | xargs )
+    logMsg="$DirectoryCount Script files were downloaded to $location_JAMFScripts."
+    logMe $logMsg 
+    update_display_list "progress" "" "" "" "$logMsg" 100
+    update_display_list "buttonenable"
+    wait
+    
+}
+
+function extract_script_details ()
+{
+    # PURPOSE: extract the XNL string from the JAMF ID and create a list of found items
+    # RETURN: None
+    # PARAMETERS: $1 - API substring to call from JAMF
+    # EXPECTED: xmlBlob should be globally defined
+    declare scriptName
+    declare scriptInfo
+    declare scriptCategory
+    declare scriptFileName
+    declare scriptContents
+    declare formatted_scriptName
+    declare exported_filename
+
+    JAMF_retrieve_data_details "JSSResource/scripts/id/$1" "xml"
+
+    scriptName=$(extract_xml_data $xmlBlob "name")
+    scriptInfo=$(extract_xml_data $xmlBlob  "info")
+    scriptCategory=$(extract_xml_data $xmlBlob "category")
+    scriptFileName=$(extract_xml_data $xmlBlob "filename")
+    # For some reason, the script contents are not being extracted correctly, so we will use the following line instead
+    scriptContents=$(echo "$xmlBlob" | xmllint --xpath 'string(//'script_contents')' - 2>/dev/null)
+    #scriptContents=$(extract_xml_data $xmlBlob "script_contents")
+
+    # Remove any special characters that might mess with APFS
+    formatted_scriptName=$(make_apfs_safe $scriptName)
+
+    # if the script shows as empty (probably due to import issues), then show as a failure and report it
+    if [[ -z $scriptContents ]]; then
+        update_display_list "Update" "" "${scriptName}" "" "fail" "Not exported!"
+        logMe "Script ${scriptName} not exported due to empty contents"
+        failedMigration+=("${formatted_scriptName}")
+    else
+        update_display_list "Update" "" "${scriptName}" "" "wait" "Working..."
+        # Store the script in the destination folder
+        exported_filename="$location_JAMFScripts/${formatted_scriptName}.sh"
+        logMe "Exporting script ${scriptName} to ${exported_filename}"
+        echo "${scriptContents}" > "${exported_filename}"
+        update_display_list "Update" "" "${scriptName}" "" "success" "Finished"
+    fi
+}
+
+###############################################
+#
+# Backup Computer Extensions attributes 
+#
+###############################################
+
+function  backup_computer_extensions ()
+{
+    declare processed_tasks=0
+    declare tasks=()
+    declare logMsg
+    # PURPOSE: Backup the computer extensions from JAMF
+    # RETURN: None
+    # EXPECTED: None
+
+    logMe "Backing up computer extensions"
+
+    ExtensionList=$(JAMF_retrieve_data_summary "JSSResource/computerextensionattributes" "xml")
+    create_display_list "The following Computer EAs are being downloaded from JAMF" "xml" "name" "$ExtensionList"
+
+    ExtensionIDs=$(echo $ExtensionList | xmllint --xpath '//id' - 2>/dev/null)
+    ExtensionIDs=($(echo "$ExtensionIDs" | grep -Eo "[0-9]+"))
+    extensionCount=${#ExtensionIDs[@]}
+
+    for item in ${ExtensionIDs[@]}; do
+        tasks+=("extract_extension_details $item")
+    done
+    execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
+
+   # Display how many Failed MDM command files were downloaded.
+    DirectoryCount=$(ls $location_ComputerEA | wc -l | xargs )
+    logMsg="$DirectoryCount Computer EAs were downloaded to $location_ComputerEA."
+    logMe $logMsg 
+    update_display_list "progress" "" "" "" "$logMsg" 100
+    update_display_list "buttonenable"
+    wait
+}
+
+function extract_extension_details ()
+{
+    # PURPOSE: extract the XNL string from the JAMF ID and create a list of found items
+    # RETURN: None
+    # PARAMETERS: $1 - API substring to call from JAMF
+    # EXPECTED: xmlBlob should be globally defined
+    declare extensionName
+    declare extensionScript
+    declare formatted_extensionName
+    declare exported_filename
+
+    [[ -z "${1}" ]] && return 0
+
+    JAMF_retrieve_data_details "JSSResource/computerextensionattributes/id/$1" "xml"
+
+    extensionName=$(extract_xml_data $xmlBlob "name")
+    #for some reason, the script contents are not being extracted correctly, so we will use the following line instea
+  
+    extensionScript=$(echo "$xmlBlob" | xmllint --xpath 'string(//'script')' - 2>/dev/null)
+    #extensionScript=$(extract_xml_data $xmlBlob  "script")    
+
+    # Remove any special characters that might mess with APFS
+    formatted_extensionName=$(make_apfs_safe $extensionName)
+
+    # if the script shows as empty (probably due to import issues), then show as a failure and report it
+    if [[ -z $extensionScript ]]; then
+        update_display_list "Update" "" "${extensionName}" "" "fail" "Not exported!"
+        logMe "Extension ${extensionName} not exported due to empty contents"
+        failedMigration+=("${formatted_extensionName}")
+    else
+        update_display_list "Update" "" "${extensionName}" "" "wait" "Working..."
+        # Store the script in the destination folder
+        exported_filename="$location_ComputerEA/${formatted_extensionName}.sh"
+        logMe "Exporting extension ${extensionName} to $exported_filename"
+        echo "${extensionScript}" > "${exported_filename}"
+        update_display_list "Update" "" "${extensionName}" "" "success" "Finished"
+    fi
+}
+
+###############################################
+#
+# Backup Configuration Profiles functions
+#
+###############################################
+function backup_configuration_profiles ()
+{
+    declare processed_tasks=0
+    declare tasks=()
+    declare logMsg
+    # PURPOSE: Backup all of the configuration profiles from JAMF
+    logMe "Backing up configuration profiles"
+    ProfileList=$(JAMF_retrieve_data_summary "JSSResource/osxconfigurationprofiles" "xml")
+    create_display_list "The following configuration profiles are being downloaded from JAMF" "xml" "name" "$ProfileList"
+
+    ProfileIDs=$(echo $ProfileList | xmllint --xpath '//id' - 2>/dev/null)
+    ProfileIDs=($(echo "$ProfileIDs" | grep -Eo "[0-9]+"))
+    profileCount=${#ProfileIDs[@]}
+
+    for item in ${ProfileIDs[@]}; do
+        tasks+=("extract_profile_details $item")
+    done
+    execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
+
+   # Display how many Failed MDM command files were downloaded.
+    DirectoryCount=$(ls $location_ConfigurationProfiles | wc -l | xargs )
+    logMsg="$DirectoryCount Configuration profiles were downloaded to $location_ConfigurationProfiles."
+    logMe $logMsg 
+    update_display_list "progress" "" "" "" "$logMsg" 100
+    update_display_list "buttonenable"
+    wait
+}
+
+function extract_profile_details ()
+{
+    # PURPOSE: extract the XNL string from the JAMF ID and create a list of found items
+    # RETURN: None
+    # PARAMETERS: $1 - API substring to call from JAMF
+    # EXPECTED: xmlBlob should be globally defined
+    declare profileName
+    declare profileUUID
+    declare profileFileName
+    declare profileContents
+    declare formatted_profileName
+    declare exported_filename
+
+    [[ -z "${1}" ]] && return 0
+
+    JAMF_retrieve_data_details "JSSResource/osxconfigurationprofiles/id/$1" "xml"
+
+    profileName=$(extract_xml_data $xmlBlob "name")
+    profileUUID=$(extract_xml_data $xmlBlob "uuid")
+    profileFileName=$(extract_xml_data $xmlBlob "filename")
+    profileContents=$(echo "$xmlBlob" | xmllint --xpath 'string(//payloads)' - 2>/dev/null)
+
+    # Remove any special characters that might mess with APFS
+    formatted_profileName=$(make_apfs_safe $profileName)
+
+    # if the script shows as empty (probably due to import issues), then show as a failure and report it
+    if [[ -z $profileContents ]]; then
+        update_display_list "Update" "" "${profileName}" "" "fail" "Not exported!"
+        logMe "Profile ${profileName} not exported due to empty contents"
+        failedMigration+=("${formatted_profileName}")
+    else
+        update_display_list "Update" "" "${profileName}" "" "wait" "Working..."
+        # Store the script in the destination folder
+        exported_filename="$location_ConfigurationProfiles/${formatted_profileName}.mobileconfig"
+        logMe "Exporting profile ${profileName} to ${exported_filename}"
+        echo "${profileContents}" > "${exported_filename}"
+        update_display_list "Update" "" "${profileName}" "" "success" "Finished"
+    fi
 }
 
 ###############################################
@@ -495,27 +898,29 @@ function JAMF_get_policy_list ()
 
 function create_vcf_cards ()
 {
+    declare processed_tasks=0
+    declare tasks=()
+    declare logMsg
     # PURPOSE: Create VCF cards from the JAMF users
     logMe "Creating VCF Cards from JAMF users"
-    UserList=$(JAMF_retrieve_xml_data_summary "JSSResource/users")
+    UserList=$(JAMF_retrieve_data_summary "JSSResource/users" "xml")
+    create_display_list "The following VCF Cards are being created from the JAMF server" "xml" "name" $UserList
     UserIDs=$(echo $UserList | xmllint --xpath '//id' - 2>/dev/null)
     UserIDs=($(echo "$UserIDs" | grep -Eo "[0-9]+"))
     userCount=${#UserIDs[@]}
 
-    create_display_list "The following VCF Cards are being created from the JAMF server" $UserList
-
-    count=1
-    logMe "Exporting ${userCount} users from JAMF"
-
     for item in ${UserIDs[@]}; do
-        extract_user_details $item $count
-        ((count++))
+        tasks+=("extract_user_details $item")
     done
+    execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
 
-    update_display_list "progress" "" "" "" "All Done!" 100
+   # Display how many Failed MDM command files were downloaded.
+    DirectoryCount=$(ls $location_Contacts | wc -l | xargs )
+    logMsg="$DirectoryCount Contacts were downloaded to $location_Contacts."
+    logMe $logMsg 
+    update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
     wait
-    logMe "Exported ${userCount} users from JAMF to ${menu_storageLocation}/Contacts"
 }
 
 function extract_user_details ()
@@ -528,7 +933,7 @@ function extract_user_details ()
 
 	[[ -z "${1}" ]] && return 0
 
-    JAMF_retrieve_xml_data_details "JSSResource/users/id/$1"
+    JAMF_retrieve_data_details "JSSResource/users/id/$1" "xml"
 
     userShortName=$(extract_xml_data $xmlBlob "name")
     userFullName=$(extract_xml_data $xmlBlob  "full_name")
@@ -556,11 +961,10 @@ function extract_user_details ()
         else
             #export the VCF file
             userVCFBlob=$(export_vcf_file $userFullName $userEmail $userPosition)
-            echo "${userVCFBlob}" > "${menu_storageLocation}/Contacts/${userShortName}.vcf"
+            echo "${userVCFBlob}" > "$location_Contacts/${userShortName}.vcf"
             update_display_list "Update" "" "${userShortName}" "" "success" "Finished"
         fi
     fi
-    update_display_list "progress" "" "" "" "Exporting: ${userShortName}" $((100* ${2} /userCount))
 }
 
 function export_vcf_file
@@ -597,290 +1001,37 @@ function extract_assigned_systems ()
 
 ###############################################
 #
-# Backup System Scripts functions
+# Application functions
 #
 ###############################################
 
-function backup_jamf_scripts ()
+function execute_in_parallel ()
 {
-    # PURPOSE: Backup all of the JAMF scripts from JAMF
-    logMe "Backing up JAMF scripts"
-    ScriptList=$(JAMF_retrieve_xml_data_summary "JSSResource/scripts")
-    create_display_list "The following JAMF scripts are being downloaded from JAMF" "$ScriptList"
-
-    ScriptIDs=$(echo $ScriptList | xmllint --xpath '//id' - 2>/dev/null)
-    ScriptIDs=($(echo "$ScriptIDs" | grep -Eo "[0-9]+"))
-    scriptCount=${#ScriptIDs[@]}
-
-    count=1
-
-    for item in ${ScriptIDs[@]}; do
-        extract_script_details $item $count
-        ((count++))
-    done
-
-    update_display_list "progress" "" "" "" "All Done!" 100
-    update_display_list "buttonenable"
-    wait
-    logMe "Exported ${scriptCount} scripts from JAMF to ${menu_storageLocation}/JAMFScripts"
-    [[ ! -z $failedMigration ]] && show_script_backup_errors
-    
-}
-
-function extract_script_details ()
-{
-    # PURPOSE: extract the XNL string from the JAMF ID and create a list of found items
+    # PURPOSE: Execute a list of tasks in parallel, with a limit on the number of concurrent jobs
     # RETURN: None
-    # PARAMETERS: $1 - API substring to call from JAMF
-    # EXPECTED: xmlBlob should be globally defined
-    declare scriptName
-    declare scriptInfo
-    declare scriptCategory
-    declare scriptFileName
-    declare scriptContents
-    declare formatted_scriptName
-    declare exported_filename
-
-	[[ -z "${1}" ]] && return 0
-
-    JAMF_retrieve_xml_data_details "JSSResource/scripts/id/$1"
-
-    scriptName=$(extract_xml_data $xmlBlob "name")
-    scriptInfo=$(extract_xml_data $xmlBlob  "info")
-    scriptCategory=$(extract_xml_data $xmlBlob "category")
-    scriptFileName=$(extract_xml_data $xmlBlob "filename")
-    # For some reason, the script contents are not being extracted correctly, so we will use the following line instead
-    scriptContents=$(echo "$xmlBlob" | xmllint --xpath 'string(//'script_contents')' - 2>/dev/null)
-    #scriptContents=$(extract_xml_data $xmlBlob "script_contents")
-
-    # Remove any special characters that might mess with APFS
-    formatted_scriptName=$(make_apfs_safe $scriptName)
-
-    # if the script shows as empty (probably due to import issues), then show as a failure and report it
-    if [[ -z $scriptContents ]]; then
-        update_display_list "Update" "" "${scriptName}" "" "fail" "Not exported!"
-        logMe "Script ${scriptName} not exported due to empty contents"
-        failedMigration+=("${formatted_scriptName}")
-    else
-        update_display_list "Update" "" "${scriptName}" "" "wait" "Working..."
-        # Store the script in the destination folder
-        exported_filename="${menu_storageLocation}/JAMFScripts/${formatted_scriptName}.sh"
-        logMe "Exporting script ${scriptName} to ${exported_filename}"
-        echo "${scriptContents}" > "${exported_filename}"
-        update_display_list "Update" "" "${scriptName}" "" "success" "Finished"
-    fi
-    update_display_list "progress" "" "" "" "Exporting: ${scriptName}" $((100* ${2} /scriptCount))
-}
-
-function show_script_backup_errors ()
-{
-    message="The below list of scripts could not be backed up for some reason!<br><br>"
-    for item in "${failedMigration[@]}"; do
-        message+="* $item<br>"
-    done
-    message+="<br>This might be due to improper formatting in the original script or invalid characters.  You might need to copy these scripts manually out of JAMF."
-
-	MainDialogBody=(
-        --message "$message"
-        --titlefont shadow=1
-        --ontop
-        --icon "${SD_ICON_FILE}"
-        --overlayicon warning
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --infobox "${SD_INFO_BOX_MSG}"
-        --helpmessage ""
-        --width 800
-        --height 460
-        --ignorednd
-        --quitkey 0
-        --button1text "OK"
-    )
-	
-    "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-}
-
-###############################################
-#
-# Backup Self Service Icons functions
-#
-###############################################
-
-function backup_ss_icons ()
-{
-    # PURPOSE: Backup all of the Self Service icons from JAMF
-    logMe "Backing up Self Service icons"
-    PolicyList=$(JAMF_get_policy_list)
-    create_display_list "The following Self Service icons are being downloaded from JAMF" "$PolicyList"
-
-    PolicyIDList=($(echo $PolicyList | xmllint --xpath '//id' - 2>/dev/null))
-
-    PolicyIDs=($(echo "$PolicyIDList" | grep -Eo "[0-9]+"))
-    PoliciesCount=$(echo "$PolicyIDs" | grep -c ^)
-
-    logMe "Checking $PoliciesCount policies for Self Service icons ..."
-
-    # Loop thru all of the policies by multiple background processes
-
-    maxCurrentJobs=10
-    activeJobs=0
-
-    for item in ${PolicyIDs[@]}; do
-        ((activeJobs=activeJobs%maxCurrentJobs)); ((activeJobs++==0)) #&& wait
-        extract_policy_icons $item &
-    done
-
-    # Wait for remaining concurrent jobs to finish
-    sleep 10
-
-    DirectoryCount=$(ls ${menu_storageLocation}/SSIcons | wc -l | xargs )
-
-    # Display how many Self Service icon files were downloaded.
-
-    logMe "$DirectoryCount Self Service icon files downloaded to ${menu_storageLocation}/SSIcons."
-    update_display_list "progress" "" "" "" "All Done!" 100
-    update_display_list "buttonenable"
-    wait
-}
-
-function extract_policy_icons ()
-{
-
-    declare PolicyName
-    declare ss_policy_check
-    declare ss_icon
-    declare ss_iconName
-    declare ss_iconURI
-
-	[[ -z "${1}" ]] && return 0
-    JAMF_retrieve_xml_data_details "JSSResource/policies/id/$1"
-
-    PolicyName=$(extract_xml_data $xmlBlob "name")
-    ss_icon=$(extract_xml_data $xmlBlob "self_service_icon/id")
-    ss_iconName=$(extract_xml_data $xmlBlob "self_service_icon/filename")
-    ss_iconURI=$(extract_xml_data $xmlBlob "self_service_icon/uri")
-    ss_policy_check=$(extract_xml_data $xmlBlob "self_service/use_for_self_service")
-
-
-    # Remove any special characters that might mess with APFS
-    formatted_ss_policy_name=$(make_apfs_safe "${PolicyName}")
-    ss_iconName=$(make_apfs_safe "${ss_iconName}")
-    if [[ "$ss_policy_check" = "true" ]] && [[ -n "$ss_icon" ]] && [[ -n "$ss_iconURI" ]]; then
-       # If the policy has an icon associated with it then extract the name & icon name and format it correctly and then download it
-        update_display_list "Update" "" "${formatted_ss_policy_name}" "" "wait" "Working..."
-
-        # Retrieve the icon and store it in the dest folder
-        ss_icon_filepath="${formatted_ss_policy_name}"-"${1}"-"${ss_iconName}"
-        logMe "${ss_icon_filepath} to ${menu_storageLocation}"
-
-        curl -s ${ss_iconURI} -X GET > "${menu_storageLocation}"/SSIcons/"${ss_icon_filepath}"
-        update_display_list "Update" "" "${formatted_ss_policy_name}" "" "success" "Finished"
-    else
-        update_display_list "Update" "" "${formatted_ss_policy_name}" "" "error" "No Icon"
-    fi
-}
-
-###############################################
-#
-# Backup Computer Extensions attributes 
-#
-###############################################
-
-function  backup_computer_extensions ()
-{
-    # PURPOSE: Backup the computer extensions from JAMF
-    # RETURN: None
+    # PARAMETERS: $1 - Maximum number of concurrent jobs
+    #             $2 - Array list of tasks to execute
     # EXPECTED: None
 
-    logMe "Backing up computer extensions"
-    failedMigration=""
+    declare max_jobs=$1
+    shift
+    declare tasks=("$@")
+    declare current_jobs=0
+    declare pids=()
 
-    ExtensionList=$(JAMF_retrieve_xml_data_summary "JSSResource/computerextensionattributes")
-    create_display_list "The following Computer EAs are being downloaded from JAMF" "$ExtensionList"
-
-    ExtensionIDs=$(echo $ExtensionList | xmllint --xpath '//id' - 2>/dev/null)
-    ExtensionIDs=($(echo "$ExtensionIDs" | grep -Eo "[0-9]+"))
-    extensionCount=${#ExtensionIDs[@]}
-
-    count=1
-    for item in ${ExtensionIDs[@]}; do
-        extract_extension_details $item $count
-        ((count++))
+    for task in "${tasks[@]}"; do
+        eval "${task}" &
+        pids+=($!)
+        ((current_jobs++))
+        if [[ $current_jobs -ge $max_jobs ]]; then
+            for pid in "${pids[@]}"; do wait $pid; done
+            current_jobs=0
+            pids=()
+        fi
     done
 
-    update_display_list "progress" "" "" "" "All Done!" 100
-    update_display_list "buttonenable"
-    wait
-    logMe "Exported ${extensionCount} computer extensions from JAMF to ${menu_storageLocation}/ComputerExtensions"
-    [[ ! -z $failedMigration ]] && show_computer_extension_backup_errors
-}
-
-function extract_extension_details ()
-{
-    # PURPOSE: extract the XNL string from the JAMF ID and create a list of found items
-    # RETURN: None
-    # PARAMETERS: $1 - API substring to call from JAMF
-    # EXPECTED: xmlBlob should be globally defined
-    declare extensionName
-    declare extensionScript
-    declare formatted_extensionName
-    declare exported_filename
-
-    [[ -z "${1}" ]] && return 0
-
-    JAMF_retrieve_xml_data_details "JSSResource/computerextensionattributes/id/$1"
-
-    extensionName=$(extract_xml_data $xmlBlob "name")
-    #for some reason, the script contents are not being extracted correctly, so we will use the following line instea
-  
-    extensionScript=$(echo "$xmlBlob" | xmllint --xpath 'string(//'script')' - 2>/dev/null)
-    #extensionScript=$(extract_xml_data $xmlBlob  "script")    
-
-    # Remove any special characters that might mess with APFS
-    formatted_extensionName=$(make_apfs_safe $extensionName)
-
-    # if the script shows as empty (probably due to import issues), then show as a failure and report it
-    if [[ -z $extensionScript ]]; then
-        update_display_list "Update" "" "${extensionName}" "" "fail" "Not exported!"
-        logMe "Extension ${extensionName} not exported due to empty contents"
-        failedMigration+=("${formatted_extensionName}")
-    else
-        update_display_list "Update" "" "${extensionName}" "" "wait" "Working..."
-        # Store the script in the destination folder
-        exported_filename="${menu_storageLocation}/ComputerEA/${formatted_extensionName}.sh"
-        logMe "Exporting extension ${extensionName} to $exported_filename"
-        echo "${extensionScript}" > "${exported_filename}"
-        update_display_list "Update" "" "${extensionName}" "" "success" "Finished"
-    fi
-    update_display_list "progress" "" "" "" "Exporting: ${extensionName}" $((100* ${2} /extensionCount))
-}
-
-function show_computer_extension_backup_errors ()
-{
-    message="The below list of Computer EAs could not be backed up for some reason!<br><br>"
-    for item in "${failedMigration[@]}"; do
-        message+="* $item<br>"
-    done
-    message+="<br>This might be due to improper formatting in the original script or invalid characters.  You might need to copy these scripts manually out of JAMF."
-
-	MainDialogBody=(
-        --message "$message"
-        --titlefont shadow=1
-        --ontop
-        --icon "${SD_ICON_FILE}"
-        --overlayicon warning
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --infobox "${SD_INFO_BOX_MSG}"
-        --helpmessage ""
-        --width 800
-        --height 460
-        --ignorednd
-        --quitkey 0
-        --button1text "OK"
-    )
-	
-    "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+    # Wait for any remaining jobs
+    for pid in "${pids[@]}"; do wait $pid; done
 }
 
 function welcomemsg ()
@@ -901,16 +1052,22 @@ function welcomemsg ()
         --height 660
         --ignorednd
         --json
+        --moveable
         --quitkey 0
         --button1text "OK"
         --button2text "Cancel"
-        --helpmessage "This script will backup various items from your JAMF server.  Please select the items you wish to backup and the location to store them.  Source code is available at: https://github.com/ScottEKendall/JAMF-Pro-Scripts"
+        --infobuttontext "My Repo"
+        --infobuttonaction "https://github.com/ScottEKendall/JAMF-Pro-Scripts"
+        --helpmessage "This script will backup various items from your JAMF server.  Please select the items you wish to backup and the location to store them."
         --textfield "Select a storage location",fileselect,filetype=folder,required,name=StorageLocation
-        --checkbox "Backup SS Icons",checked,name=BackupSSIcons
-        --checkbox "Backup System Scripts",checked,name=BackupJAMFScripts
-        --checkbox "Backup Computer Extensions",checked,name=BackupComputerExtensions
-        --checkbox "Create VCF cards from email address",checked,name=createVCFcards
-        --checkbox " ↳ Export only users with managed systems",checked,name=OnlyManagedUsers
+        --checkbox "Backup Self Service Icons (*.png)",checked,name=BackupSSIcons
+        --checkbox "Exported failed MDM commands (*.txt)",checked,name=BackupFailedMDMCommands
+        --checkbox "↳ (Failed MDM): Optionally clear failed items",name=ClearFailedMDMCommands
+        --checkbox "Backup System Scripts (*.sh)",checked,name=BackupJAMFScripts
+        --checkbox "Backup Computer Extensions (*.sh)",checked,name=BackupComputerExtensions
+        --checkbox "Backup Configuration Profiles (*.mobileconfig)",checked,name=BackupConfigurationProfiles
+        --checkbox "Create VCF cards from email address (*.vcf)",checked,name=createVCFcards
+        --checkbox " ↳ (VCF Option): Export only users with managed systems",name=OnlyManagedUsers
     )
 	
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
@@ -922,7 +1079,38 @@ function welcomemsg ()
     menu_createVCFcards=$( echo $temp | jq -r '.createVCFcards' )
     menu_storageLocation=$( echo $temp | jq -r '.StorageLocation' )
     menu_computerea=$( echo $temp | jq -r '.BackupComputerExtensions' )
-    menu_onlyManagedUsers=$( echo $temp | jq -r '.OnlyManagedUsers' | tr -d '\\' | tr -d '"')
+    menu_onlyManagedUsers=$( echo $temp | jq -r '.OnlyManagedUsers')
+    menu_configurationProfiles=$( echo $temp | jq -r '.BackupConfigurationProfiles')
+    menu_backupFailedMDM=$( echo $temp | jq -r '.BackupFailedMDMCommands' )
+
+}
+
+function show_backup_errors ()
+{
+    message="$1<br><br>"
+    for item in "${failedMigration[@]}"; do
+        message+="* $item<br>"
+    done
+    message+="<br>This might be due to improper formatting in the original script or invalid characters.  You might need to copy these scripts manually out of JAMF."
+
+	MainDialogBody=(
+        --message "$message"
+        --titlefont shadow=1
+        --ontop
+        --icon "${SD_ICON_FILE}"
+        --overlayicon warning
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --helpmessage ""
+        --width 800
+        --height 460
+        --ignorednd
+        --quitkey 0
+        --button1text "OK"
+    )
+	
+    "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
 }
 
 function check_directories ()
@@ -932,13 +1120,22 @@ function check_directories ()
     # EXPECTED: menu_storageLocation should be set
     # PARMS: None
 
+    location_SSIcons="${menu_storageLocation}/SSIcons"
+    location_JAMFScripts="${menu_storageLocation}/JAMFScripts"
+    location_ComputerEA="${menu_storageLocation}/ComputerEA"
+    location_Contacts="${menu_storageLocation}/Contacts"
+    location_ConfigurationProfiles="${menu_storageLocation}/ConfigurationProfiles"
+    location_FailedMDM="${menu_storageLocation}/FailedMDM"
+
     [[ ! -d "${menu_storageLocation}" ]] && /bin/mkdir -p "${menu_storageLocation}"
-    [[ ! -d "${menu_storageLocation}/SSIcons" ]] && /bin/mkdir -p "${menu_storageLocation}/SSIcons"
-    [[ ! -d "${menu_storageLocation}/JAMFScripts" ]] && /bin/mkdir -p "${menu_storageLocation}/JAMFScripts"
-    [[ ! -d "${menu_storageLocation}/ComputerEA" ]] && /bin/mkdir -p "${menu_storageLocation}/ComputerEA"
-    [[ ! -d "${menu_storageLocation}/Contacts" ]] && /bin/mkdir -p "${menu_storageLocation}/Contacts"
+    [[ ! -d "$location_SSIcons" ]] && /bin/mkdir -p "$location_SSIcons"
+    [[ ! -d "$location_JAMFScripts" ]] && /bin/mkdir -p "${location_JAMFScripts}"
+    [[ ! -d "$location_ComputerEA" ]] && /bin/mkdir -p "${location_ComputerEA}"
+    [[ ! -d "$location_Contacts" ]] && /bin/mkdir -p "${location_Contacts}"
+    [[ ! -d "$location_ConfigurationProfiles" ]] && /bin/mkdir -p "${location_ConfigurationProfiles}"
+    [[ ! -d "$location_FailedMDM" ]] && /bin/mkdir -p "${location_FailedMDM}"
     chmod -R 755 "${menu_storageLocation}"
-    chown -R "${USER}" "${menu_storageLocation}"
+    chown -R "${LOGGED_IN_USER}" "${menu_storageLocation}"
 }
 
 ####################################################################################################
@@ -956,13 +1153,22 @@ declare xmlBlob
 declare -a failedMigration
 declare scriptCount
 declare userCount
+declare deviceCount
 declare menu_backupJAMFScripts
 declare menu_backupSSIcons
 declare menu_createVCFcards
 declare menu_storageLocation
 declare menu_onlyManagedUsers
 declare menu_computerea
-
+declare menu_configurationProfiles
+declare menu_backupFailedMDM
+declare location_SSIcons
+declare location_JAMFScripts
+declare location_ComputerEA
+declare location_Contacts
+declare location_ConfigurationProfiles
+declare location_FailedMDM
+declare jamfpro_version
 
 create_log_directory
 check_swift_dialog_install
@@ -976,12 +1182,19 @@ JAMF_get_classic_api_token
 check_directories
 
 [[ "${menu_backupSSIcons}" == "true" ]] && backup_ss_icons
+[[ "${menu_backupFailedMDM}" == "true" ]] && export_failed_mdm_devices
 [[ "${menu_backupJAMFScripts}" == "true" ]] && backup_jamf_scripts
-[[ "${menu_createVCFcards}" == "true" ]] && create_vcf_cards
 [[ "${menu_computerea}" == "true" ]] && backup_computer_extensions
+[[ "${menu_configurationProfiles}" == "true" ]] && backup_configuration_profiles
+[[ "${menu_createVCFcards}" == "true" ]] && create_vcf_cards
+
 JAMF_invalidate_token
 
 # If we get here, then we are done with the script
 logMe "JAMF Backup Utilities completed successfully!"
+# Show errors if any failed backups occurred
+echo "Failed "$failedMigration
+[[ ! -z $failedMigration ]] && show_backup_errors "The following items could not be backed up for some reason!"
 cleanup_and_exit
+
 
