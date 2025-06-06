@@ -321,10 +321,9 @@ function create_display_list ()
     fi
 
     echo $xml_blob | while IFS= read -r line; do
-        # Remove the opening tag
-        line="${line/<name>/}"
-        # Remove the closing tag
-        line="${line/<\/name>/}"
+        # Remove the <name> and </name> tags from the line and trailing spaces
+        line="${${line#*<name>}%</name>*}"
+        line=$(echo $line | sed 's/[[:space:]]*$//')
         create_listitem_message_body "$line" "" "pending" "Pending..."
     done
     create_listitem_message_body "" "" "" "" "last"
@@ -513,6 +512,17 @@ function JAMF_get_policy_list ()
 
 }
 
+function JAMF_clear_failed_mdm_commands()
+{
+    # PURPOSE: clear failed MDM commands for the computer in Jamf Pro
+    # RETURN: None
+    # Expected jamfpro_url, api_token, ID
+    
+    response=$(curl -s -X DELETE "${jamfpro_url}JSSResource/commandflush/computers/id/$1/status/Failed" -H "Authorization: Bearer $api_token")
+    logMe "Clear MDM Commands Response: $response"
+}
+
+
 ###############################################
 #
 # Backup Self Service Icons functions
@@ -642,6 +652,7 @@ function export_failed_mdm_details ()
 
     JAMF_retrieve_data_details "JSSResource/computerhistory/name/$id" "xml"
     deviceName=$(extract_xml_data $xmlBlob "name")
+    deviceID=$(extract_xml_data $xmlBlob "id")
 
     devicefailedMDM=$(extract_xml_data $xmlBlob "failed")
     # Remove any special characters that might mess with APFS
@@ -651,15 +662,27 @@ function export_failed_mdm_details ()
     # check to see if there are any failed command, use grep & awk to see if the results are empty
     if [[ -z $devicefailedMDM ]]; then
         update_display_list "Update" "" "${deviceName}" "" "success" "No failed Commands."
-        #logMe "Device ${deviceName} not exported due to empty UDID"
-        failedMigration+=("${formatted_deviceName}")
+        return 1
+    fi
+    update_display_list "Update" "" "${deviceName}" "" "wait" "Working..."
+    # Store the script in the destination folder
+    exported_filename="$location_FailedMDM/${formatted_deviceName}.txt"
+    logMe "Exporting failed MDM device ${deviceName} to ${exported_filename}"
+    echo "Computer ID:${id} ($deviceID)\n${devicefailedMDM}" > "${exported_filename}"
+
+    if [[ $menu_clearFailedMDM == "true" ]]; then
+        if [[ -z $deviceID ]]; then
+            logMe "Error: Failed to retrieve device ID for ${deviceName}"
+            update_display_list "Update" "" "${deviceName}" "" "error" "Failed to retrieve device ID"
+            return 1
+        fi
+        # If the menu_clearFailedMDM is set to true, then clear the failed MDM commands
+        logMe "Clearing failed MDM commands for ${deviceName}"
+        JAMF_clear_failed_mdm_commands "$deviceID"
+        update_display_list "Update" "" "${deviceName}" "" "success" "Cleared failed commands"
     else
-        update_display_list "Update" "" "${deviceName}" "" "wait" "Working..."
-        # Store the script in the destination folder
-        exported_filename="$location_FailedMDM/${formatted_deviceName}.txt"
-        logMe "Exporting failed MDM device ${deviceName} to ${exported_filename}"
-        echo "${devicefailedMDM}" > "${exported_filename}"
         update_display_list "Update" "" "${deviceName}" "" "error" "Exported failed commands"
+
     fi
 }
 
@@ -676,11 +699,12 @@ function backup_jamf_scripts ()
     declare logMsg
     # PURPOSE: Backup all of the JAMF scripts from JAMF
     logMe "Backing up JAMF scripts"
-    ScriptList=$(JAMF_retrieve_data_summary "JSSResource/scripts" "xml") 
+    ScriptList=$(JAMF_retrieve_data_summary "JSSResource/scripts" "xml")
     create_display_list "The following JAMF scripts are being downloaded from JAMF" "xml" "name" "$ScriptList"
 
     ScriptIDs=$(echo $ScriptList | xmllint --xpath '//id' - 2>/dev/null)
     ScriptIDs=($(echo "$ScriptIDs" | grep -Eo "[0-9]+"))
+
     scriptCount=${#ScriptIDs[@]}
 
     for item in ${ScriptIDs[@]}; do
@@ -713,8 +737,13 @@ function extract_script_details ()
     declare exported_filename
 
     JAMF_retrieve_data_details "JSSResource/scripts/id/$1" "xml"
-
+    
     scriptName=$(extract_xml_data $xmlBlob "name")
+    # if the Script name is empty, then we will not be able to export it, so show as a failure and report it
+    if [[ -z $scriptName ]]; then
+        fix_import_errors "$xmlBlob" "Problems saving script"
+        return 1
+    fi
     scriptInfo=$(extract_xml_data $xmlBlob  "info")
     scriptCategory=$(extract_xml_data $xmlBlob "category")
     scriptFileName=$(extract_xml_data $xmlBlob "filename")
@@ -729,7 +758,8 @@ function extract_script_details ()
     if [[ -z $scriptContents ]]; then
         update_display_list "Update" "" "${scriptName}" "" "fail" "Not exported!"
         logMe "Script ${scriptName} not exported due to empty contents"
-        failedMigration+=("${formatted_scriptName}")
+        failedItems+=("${scriptName}")
+        echo "errors found: $failedItems"
     else
         update_display_list "Update" "" "${scriptName}" "" "wait" "Working..."
         # Store the script in the destination folder
@@ -806,7 +836,8 @@ function extract_extension_details ()
     if [[ -z $extensionScript ]]; then
         update_display_list "Update" "" "${extensionName}" "" "fail" "Not exported!"
         logMe "Extension ${extensionName} not exported due to empty contents"
-        failedMigration+=("${formatted_extensionName}")
+        failedItems+=("${formatted_extensionName}")
+        echo "errors found: $extensionName"
     else
         update_display_list "Update" "" "${extensionName}" "" "wait" "Working..."
         # Store the script in the destination folder
@@ -879,7 +910,8 @@ function extract_profile_details ()
     if [[ -z $profileContents ]]; then
         update_display_list "Update" "" "${profileName}" "" "fail" "Not exported!"
         logMe "Profile ${profileName} not exported due to empty contents"
-        failedMigration+=("${formatted_profileName}")
+        failedItems+=("${formatted_profileName}")
+        echo "errors found: $profileName"
     else
         update_display_list "Update" "" "${profileName}" "" "wait" "Working..."
         # Store the script in the destination folder
@@ -945,7 +977,8 @@ function extract_user_details ()
     if [[ -z $userFullName ]]; then
         update_display_list "Update" "" "${userShortName}" "" "fail" "Not exported"
         logMe "User ${userShortName} not exported due to empty full name"
-        failedMigration+=("${userShortName}")
+        failedItems+=("${userShortName}")
+        echo "errors found: $userShortName"
     else
         update_display_list "Update" "" "${userShortName}" "" "wait" "Working..."
         logMe "Exporting user ${userShortName} (${userFullName}) to VCF file"
@@ -1064,7 +1097,7 @@ function welcomemsg ()
         --checkbox "Exported failed MDM commands (*.txt)",checked,name=BackupFailedMDMCommands
         --checkbox "↳ (Failed MDM): Optionally clear failed items",name=ClearFailedMDMCommands
         --checkbox "Backup System Scripts (*.sh)",checked,name=BackupJAMFScripts
-        --checkbox "Backup Computer Extensions (*.sh)",checked,name=BackupComputerExtensions
+        --checkbox "Backup Computer Extension Attributes (*.sh)",checked,name=BackupComputerExtensions
         --checkbox "Backup Configuration Profiles (*.mobileconfig)",checked,name=BackupConfigurationProfiles
         --checkbox "Create VCF cards from email address (*.vcf)",checked,name=createVCFcards
         --checkbox " ↳ (VCF Option): Export only users with managed systems",name=OnlyManagedUsers
@@ -1082,13 +1115,13 @@ function welcomemsg ()
     menu_onlyManagedUsers=$( echo $temp | jq -r '.OnlyManagedUsers')
     menu_configurationProfiles=$( echo $temp | jq -r '.BackupConfigurationProfiles')
     menu_backupFailedMDM=$( echo $temp | jq -r '.BackupFailedMDMCommands' )
-
+    menu_clearFailedMDM=$( echo $temp | jq -r '.ClearFailedMDMCommands' )
 }
 
 function show_backup_errors ()
 {
     message="$1<br><br>"
-    for item in "${failedMigration[@]}"; do
+    for item in "${failedItems[@]}"; do
         message+="* $item<br>"
     done
     message+="<br>This might be due to improper formatting in the original script or invalid characters.  You might need to copy these scripts manually out of JAMF."
@@ -1138,6 +1171,23 @@ function check_directories ()
     chown -R "${LOGGED_IN_USER}" "${menu_storageLocation}"
 }
 
+function fix_import_errors
+{
+    # PURPOSE: Fix import errors by logging the error and adding it to the failItems array
+    # RETURN: None
+    # PARAMETERS: $1 - XML blob to parse for errors
+    #             $2 - Error message to log
+    # EXPECTED: None
+
+    local errorMessage
+
+    errorMessage=$(echo $1 | head -n 5 | awk -F '<name>|</name>' '{print $2}')
+    update_display_list "Update" "" "${errorMessage}" "" "error" "$2"
+    logMe "Error in import: $errorMessage $2"
+    failedItems+=("$errorMessage")
+
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -1150,7 +1200,7 @@ declare jamfpro_url
 declare ScriptList
 declare UserList
 declare xmlBlob
-declare -a failedMigration
+declare failedItems
 declare scriptCount
 declare userCount
 declare deviceCount
@@ -1161,6 +1211,7 @@ declare menu_storageLocation
 declare menu_onlyManagedUsers
 declare menu_computerea
 declare menu_configurationProfiles
+declare menu_clearFailedMDM
 declare menu_backupFailedMDM
 declare location_SSIcons
 declare location_JAMFScripts
@@ -1193,8 +1244,5 @@ JAMF_invalidate_token
 # If we get here, then we are done with the script
 logMe "JAMF Backup Utilities completed successfully!"
 # Show errors if any failed backups occurred
-echo "Failed "$failedMigration
-[[ ! -z $failedMigration ]] && show_backup_errors "The following items could not be backed up for some reason!"
+[[ ! -z $failedItems ]] && show_backup_errors "The following items could not be backed up for some reason!"
 cleanup_and_exit
-
-
