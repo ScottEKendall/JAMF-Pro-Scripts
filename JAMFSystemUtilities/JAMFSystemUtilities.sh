@@ -1334,7 +1334,7 @@ function export_computer_group_details ()
         echo "errors found: $groupName"
     else
         update_display_list "Update" "" "${groupName}" "" "wait" "Working..."
-        logMe "Exporting group ${groupName} to text file"
+        logMe "Exporting ${groupIsSmart} group ${groupName} to text file"
         echo "${groupCondition}" > "$location_backupSmartGroups/${groupIsSmart}/${groupName}.txt"
         update_display_list "Update" "" "${groupName}" "" "success" "Finished"
     fi
@@ -1569,8 +1569,8 @@ check_directories
 [[ "${menu_backupJAMFScripts}" == "true" ]] && backup_jamf_scripts
 [[ "${menu_computerea}" == "true" ]] && backup_computer_extensions
 [[ "${menu_configurationProfiles}" == "true" ]] && backup_configuration_profiles
-[[ "${menu_createVCFcards}" == "true" ]] && create_vcf_cards
 [[ "${menu_backupSmartGroups}" == "true" ]] && export_computer_groups
+[[ "${menu_createVCFcards}" == "true" ]] && create_vcf_cards
 
 JAMF_invalidate_token
 
