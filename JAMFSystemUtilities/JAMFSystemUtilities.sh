@@ -46,6 +46,7 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.3.3"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+JQ_INSTALL_POLICY="install_jq"
 
 ###################################################
 #
@@ -150,6 +151,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -199,6 +201,40 @@ function construct_dialog_header_settings ()
 		"messageposition" : "top",'
 }
 
+function create_listitem_list ()
+{
+    # PURPOSE: Create the display list for the dialog box
+    # RETURN: None
+    # EXPECTED: JSON_DIALOG_BLOB should be defined
+    # PARMS: $1 - message to be displayed on the window
+    #        $2 - tyoe of data to parse XML or JSON
+    #        #3 - key to parse for list items
+    #        $4 - string to parse for list items
+    # EXPECTED: None
+
+    construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
+    create_listitem_message_body "" "" "" "" "first"
+
+    # Parse the XML data and create list items
+    
+    if [[ "$2:l" == "json" ]]; then
+        # If the second parameter is XML, then parse the XML data
+        xml_blob=$(echo $4 | jq -r '.results[]'$3)
+    else
+        # If the second parameter is JSON, then parse the JSON data
+        xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2) #>/dev/null)
+    fi
+
+    echo $xml_blob | while IFS= read -r line; do
+        # Remove the <name> and </name> tags from the line and trailing spaces
+        line="${${line#*<name>}%</name>*}"
+        line=$(echo $line | sed 's/[[:space:]]*$//')
+        create_listitem_message_body "$line" "" "pending" "Pending..."
+    done
+    create_listitem_message_body "" "" "" "" "last"
+    update_display_list "Create"
+}
+
 function create_listitem_message_body ()
 {
     # PURPOSE: Construct the List item body of the dialog box
@@ -221,6 +257,69 @@ function create_listitem_message_body ()
         line=']}'
     else
         line='{"title" : "'$1'", "icon" : "'$2'", "status" : "'$4'", "statustext" : "'$3'"},'
+    fi
+    echo $line >> ${JSON_DIALOG_BLOB}
+}
+
+function create_dropdown_list ()
+{
+    # PURPOSE: Create the dropdown list for the dialog box
+    # RETURN: None
+    # EXPECTED: JSON_DIALOG_BLOB should be defined
+    # PARMS: $1 - message to be displayed on the window
+    #        $2 - tyoe of data to parse XML or JSON
+    #        #3 - key to parse for list items
+    #        $4 - string to parse for list items
+    # EXPECTED: None
+    declare -a array
+
+    construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
+    create_dropdown_message_body "" "" "first"
+
+    # Parse the XML data and create list items
+    
+    if [[ "$2:l" == "json" ]]; then
+        # If the second parameter is XML, then parse the XML data
+        xml_blob=$(echo $4 | jq -r '.results[]'$3)
+    else
+        # If the second parameter is JSON, then parse the JSON data
+        xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2) #>/dev/null)
+    fi
+    
+    echo $xml_blob | while IFS= read -r line; do
+        # Remove the <name> and </name> tags from the line and trailing spaces
+        line="${${line#*<name>}%</name>*}"
+        line=$(echo $line | sed 's/[[:space:]]*$//')
+        array+='"'$line'",'
+    done
+    # Remove the trailing comma from the array
+    array="${array%,}"
+    create_dropdown_message_body "Select Groups:" "$array"
+
+    create_dropdown_message_body "" "" "last"
+    update_display_list "Create"
+}
+
+function create_dropdown_message_body ()
+{
+    # PURPOSE: Construct the List item body of the dialog box
+    # "listitem" : [
+    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+
+    # RETURN: None
+    # EXPECTED: message
+    # PARMS: $1 - title 
+    #        $2 - values (comma separated list)
+    #        $3 - first or last - construct appropriate listitem heders / footers
+
+    declare line && line=""
+
+    if [[ "$3:l" == "first" ]]; then
+        line=' "selectitems" : ['
+    elif [[ "$3:l" == "last" ]]; then
+        line=']}'
+    else
+        line='{"title" : "'$1'", "values" : ['$2']},'
     fi
     echo $line >> ${JSON_DIALOG_BLOB}
 }
@@ -296,48 +395,16 @@ function update_display_list ()
 	esac
 }
 
-function create_display_list ()
-{
-    # PURPOSE: Create the display list for the dialog box
-    # RETURN: None
-    # EXPECTED: JSON_DIALOG_BLOB should be defined
-    # PARMS: $1 - message to be displayed on the window
-    #        $2 - tyoe of data to parse XML or JSON
-    #        #3 - key to parse for list items
-    #        $4 - string to parse for list items
-    # EXPECTED: None
-
-    construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
-    create_listitem_message_body "" "" "" "" "first"
-
-    # Parse the XML data and create list items
-    
-    if [[ "$2:l" == "json" ]]; then
-        # If the second parameter is XML, then parse the XML data
-        xml_blob=$(echo $4 | jq -r '.results[]'$3)
-    else
-        # If the second parameter is JSON, then parse the JSON data
-        xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2) #>/dev/null)
-    fi
-
-    echo $xml_blob | while IFS= read -r line; do
-        # Remove the <name> and </name> tags from the line and trailing spaces
-        line="${${line#*<name>}%</name>*}"
-        line=$(echo $line | sed 's/[[:space:]]*$//')
-        create_listitem_message_body "$line" "" "pending" "Pending..."
-    done
-    create_listitem_message_body "" "" "" "" "last"
-    update_display_list "Create"
-}
-
 function extract_xml_data ()
 {
-    # PURPOSE: extract an XML strng from the passed string
+    declare -a retval
+    # PURPOSE: extract an XML string from the passed string
     # RETURN: parsed XML string
     # PARAMETERS: $1 - XML "blob"
     #             $2 - String to extract
     # EXPECTED: None
-    echo $(echo "$1" | xmllint --xpath 'string(//'${2}')' - 2>/dev/null)
+    retval=$(echo "$1" | xmllint --xpath "//$2/text()" - 2>/dev/null)
+    echo $retval
 }
 
 function make_apfs_safe ()
@@ -347,6 +414,25 @@ function make_apfs_safe ()
     # PARAMETERS: $1 - string to format
     # EXPECTED: None
     echo $(echo "$1" | sed -e 's/:/_/g' -e 's/\//-/g' -e 's/|/-/g')
+}
+
+function convert_to_hex ()
+{
+    local input="$1"
+    local length="${#input}"
+    local result=""
+
+    for (( i = 0; i <= length; i++ )); do
+        local char="${input[i]}"
+        if [[ "$char" =~ [^a-zA-Z0-9] ]]; then
+            hex=$(printf '%x' "'$char")
+            result+="%$hex"
+        else
+            result+="$char"
+        fi
+    done
+
+    echo "$result"
 }
 
 ###########################
@@ -522,7 +608,6 @@ function JAMF_clear_failed_mdm_commands()
     logMe "Clear MDM Commands Response: $response"
 }
 
-
 ###############################################
 #
 # Backup Self Service Icons functions
@@ -539,7 +624,7 @@ function backup_ss_icons ()
     # PURPOSE: Backup all of the Self Service icons from JAMF
     logMe "Backing up Self Service icons"
     PolicyList=$(JAMF_get_policy_list)
-    create_display_list "The following Self Service icons are being downloaded from JAMF" "xml" "name" "$PolicyList"
+    create_listitem_list "The following Self Service icons are being downloaded from JAMF" "xml" "name" "$PolicyList"
 
     PolicyIDList=$(echo $PolicyList | xmllint --xpath '//id' - 2>/dev/null)
     PolicyIDs=($(echo "$PolicyIDList" | grep -Eo "[0-9]+"))
@@ -569,6 +654,7 @@ function extract_ss_policy_icons ()
     # EXPECTED: xmlBlob should be globally defined
     # This function will extract the Self Service icon from the policy and download it to the SSIcons folder
     # EXPECTED: menu_storageLocation should be defined
+
     declare id="${1}"
     declare PolicyName
     declare ss_policy_check
@@ -577,7 +663,8 @@ function extract_ss_policy_icons ()
     declare ss_iconURI
 
     JAMF_retrieve_data_details "JSSResource/policies/id/$1" "xml"
-    PolicyName=$(extract_xml_data $xmlBlob "name")
+    # Extract the policy name, icon ID, icon filename, and icon URI from the XML blob
+    PolicyName=$(extract_xml_data $xmlBlob "name" | head -n 1)
     ss_icon=$(extract_xml_data $xmlBlob "self_service_icon/id")
     ss_iconName=$(extract_xml_data $xmlBlob "self_service_icon/filename")
     ss_iconURI=$(extract_xml_data $xmlBlob "self_service_icon/uri")
@@ -592,10 +679,10 @@ function extract_ss_policy_icons ()
         update_display_list "Update" "" "${PolicyName}" "" "wait" "Working..."
 
         # Retrieve the icon and store it in the dest folder
-        ss_icon_filepath="${formatted_ss_policy_name}"-"${id}"-"${ss_iconName}"
-        logMe "${ss_icon_filepath} to ${menu_storageLocation}"
-
-        curl -s ${ss_iconURI} -X GET > "$location_SSIcons/${ss_icon_filepath}"
+        exported_filename="${location_SSIcons}/${formatted_ss_policy_name}"-"${id}"-"${ss_iconName}"
+        logMe "${ss_iconName} to ${exported_filename}"
+        # Use curl to download the icon from the JAMF server
+        curl -s ${ss_iconURI} -X GET > "${exported_filename}"
         update_display_list "Update" "" "${PolicyName}" "" "success" "Finished"
     else
         update_display_list "Update" "" "${PolicyName}" "" "error" "No Icon"
@@ -607,6 +694,37 @@ function extract_ss_policy_icons ()
 # export failed MDM devices functions
 #
 ###############################################
+
+function export_failed_mdm_commands_menu ()
+{
+
+    message="**Export Failed MDM Commands**<br><br>You have selected to export the failed MDM commnds.<br><br>There are some additional items to select:"
+    MainDialogBody=(
+        --message "$message"
+        --titlefont shadow=1
+        --ontop
+        --icon "${SD_ICON_FILE}"
+        --overlayicon "${OVERLAY_ICON}"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --checkbox "Clear failed items while exporting",name=ClearFailedMDMCommands
+        --width 800
+        --height 460
+        --ignorednd
+        --quitkey 0
+        --json
+        --button1text "OK"
+        --button2text "Cancel"
+    )
+
+    temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
+    returnCode=$?
+    [[ "$returnCode" == "2" ]] && cleanup_and_exit
+
+    menu_clearFailedMDM=$( echo $temp | jq -r '.ClearFailedMDMCommands' )
+}
+
 function export_failed_mdm_devices ()
 {
 
@@ -616,7 +734,7 @@ function export_failed_mdm_devices ()
     # PURPOSE: Export all of the failed MDM devices from JAMF
     logMe "Exporting failed MDM devices"
     DeviceList=$(JAMF_retrieve_data_summary "/api/v1/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc" "json")
-    create_display_list "The following failed MDM devices are being exported from JAMF" "json" ".general.name" "$DeviceList"
+    create_listitem_list "The following failed MDM devices are being exported from JAMF" "json" ".general.name" "$DeviceList"
     
     DeviceIDs=($(echo $DeviceList | jq -r '.results[].general.name'))
     deviceCount=${#DeviceIDs[@]}
@@ -649,12 +767,18 @@ function export_failed_mdm_details ()
     declare deviceOSVersion
     declare formatted_deviceName
     declare exported_filename
+    declare -a MDMfailures && MDMfailures=()
 
     JAMF_retrieve_data_details "JSSResource/computerhistory/name/$id" "xml"
-    deviceName=$(extract_xml_data $xmlBlob "name")
-    deviceID=$(extract_xml_data $xmlBlob "id")
+    deviceName=$(extract_xml_data $xmlBlob "name" | head -n 1)
+    deviceID=$(extract_xml_data $xmlBlob "id" | head -n 1)
 
     devicefailedMDM=$(extract_xml_data $xmlBlob "failed")
+    devicefailedMDM=("${(@f)devicefailedMDM}")
+    devicefailedStatus=$(extract_xml_data $xmlBlob "//failed//status")
+    devicefailedStatus=("${(@f)devicefailedStatus}")
+    devicefailedName=$(extract_xml_data $xmlBlob "//failed//name")
+    devicefailedName=("${(@f)devicefailedName}")
     # Remove any special characters that might mess with APFS
     formatted_deviceName=$(make_apfs_safe $deviceName)
 
@@ -668,7 +792,12 @@ function export_failed_mdm_details ()
     # Store the script in the destination folder
     exported_filename="$location_FailedMDM/${formatted_deviceName}.txt"
     logMe "Exporting failed MDM device ${deviceName} to ${exported_filename}"
-    echo "Computer ID:${id} ($deviceID)\n${devicefailedMDM}" > "${exported_filename}"
+
+    # Write out each failed MDM command to the file
+    for ((i=1; i<=${#devicefailedMDM[@]}; i++)); do
+        MDMfailures+="$devicefailedName[i] ($devicefailedStatus[i]) @ $devicefailedMDM[i]\n" # Add the failed MDM command to the list
+    done
+    echo "Computer ID:${id} ($deviceID)\n${MDMfailures}" > "${exported_filename}"
 
     if [[ $menu_clearFailedMDM == "true" ]]; then
         if [[ -z $deviceID ]]; then
@@ -700,7 +829,7 @@ function backup_jamf_scripts ()
     # PURPOSE: Backup all of the JAMF scripts from JAMF
     logMe "Backing up JAMF scripts"
     ScriptList=$(JAMF_retrieve_data_summary "JSSResource/scripts" "xml")
-    create_display_list "The following JAMF scripts are being downloaded from JAMF" "xml" "name" "$ScriptList"
+    create_listitem_list "The following JAMF scripts are being downloaded from JAMF" "xml" "name" "$ScriptList"
 
     ScriptIDs=$(echo $ScriptList | xmllint --xpath '//id' - 2>/dev/null)
     ScriptIDs=($(echo "$ScriptIDs" | grep -Eo "[0-9]+"))
@@ -788,7 +917,7 @@ function  backup_computer_extensions ()
     logMe "Backing up computer extensions"
 
     ExtensionList=$(JAMF_retrieve_data_summary "JSSResource/computerextensionattributes" "xml")
-    create_display_list "The following Computer EAs are being downloaded from JAMF" "xml" "name" "$ExtensionList"
+    create_listitem_list "The following Computer EAs are being downloaded from JAMF" "xml" "name" "$ExtensionList"
 
     ExtensionIDs=$(echo $ExtensionList | xmllint --xpath '//id' - 2>/dev/null)
     ExtensionIDs=($(echo "$ExtensionIDs" | grep -Eo "[0-9]+"))
@@ -861,7 +990,7 @@ function backup_configuration_profiles ()
     # PURPOSE: Backup all of the configuration profiles from JAMF
     logMe "Backing up configuration profiles"
     ProfileList=$(JAMF_retrieve_data_summary "JSSResource/osxconfigurationprofiles" "xml")
-    create_display_list "The following configuration profiles are being downloaded from JAMF" "xml" "name" "$ProfileList"
+    create_listitem_list "The following configuration profiles are being downloaded from JAMF" "xml" "name" "$ProfileList"
 
     ProfileIDs=$(echo $ProfileList | xmllint --xpath '//id' - 2>/dev/null)
     ProfileIDs=($(echo "$ProfileIDs" | grep -Eo "[0-9]+"))
@@ -898,7 +1027,7 @@ function extract_profile_details ()
 
     JAMF_retrieve_data_details "JSSResource/osxconfigurationprofiles/id/$1" "xml"
 
-    profileName=$(extract_xml_data $xmlBlob "name")
+    profileName=$(extract_xml_data $xmlBlob "name" | head -n 1)
     profileUUID=$(extract_xml_data $xmlBlob "uuid")
     profileFileName=$(extract_xml_data $xmlBlob "filename")
     profileContents=$(echo "$xmlBlob" | xmllint --xpath 'string(//payloads)' - 2>/dev/null)
@@ -928,6 +1057,40 @@ function extract_profile_details ()
 #
 ###############################################
 
+function create_vcf_cards_menu ()
+{
+    # PURPOSE: Create the VCF Cards menu
+    # RETURN: None
+    # EXPECTED: None
+
+    message="**Create VCF Cards**<br><br>You have selected to create VCF cards from the JAMF users.<br><br>There are some additional items to select:"
+    MainDialogBody=(
+        --message "$message"
+        --titlefont shadow=1
+        --ontop
+        --icon "${SD_ICON_FILE}"
+        --overlayicon "${OVERLAY_ICON}"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --checkbox "Export only managed users",name=OnlyManagedUsers
+        --width 800
+        --height 460
+        --ignorednd
+        --json
+        --quitkey 0
+        --button1text "OK"
+        --button2text "Cancel"
+    )
+
+    temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
+    returnCode=$?
+    [[ "$returnCode" == "2" ]] && cleanup_and_exit
+
+    menu_onlyManagedUsers=$( echo $temp | jq -r '.OnlyManagedUsers' )
+
+}
+
 function create_vcf_cards ()
 {
     declare processed_tasks=0
@@ -936,7 +1099,7 @@ function create_vcf_cards ()
     # PURPOSE: Create VCF cards from the JAMF users
     logMe "Creating VCF Cards from JAMF users"
     UserList=$(JAMF_retrieve_data_summary "JSSResource/users" "xml")
-    create_display_list "The following VCF Cards are being created from the JAMF server" "xml" "name" $UserList
+    create_listitem_list "The following VCF Cards are being created from the JAMF server" "xml" "name" $UserList
     UserIDs=$(echo $UserList | xmllint --xpath '//id' - 2>/dev/null)
     UserIDs=($(echo "$UserIDs" | grep -Eo "[0-9]+"))
     userCount=${#UserIDs[@]}
@@ -967,7 +1130,7 @@ function extract_user_details ()
 
     JAMF_retrieve_data_details "JSSResource/users/id/$1" "xml"
 
-    userShortName=$(extract_xml_data $xmlBlob "name")
+    userShortName=$(extract_xml_data $xmlBlob "name" | head -n 1)
     userFullName=$(extract_xml_data $xmlBlob  "full_name")
     userEmail=$(extract_xml_data $xmlBlob "email_address")
     userPosition=$(extract_xml_data $xmlBlob "position")
@@ -981,7 +1144,7 @@ function extract_user_details ()
         echo "errors found: $userShortName"
     else
         update_display_list "Update" "" "${userShortName}" "" "wait" "Working..."
-        logMe "Exporting user ${userShortName} (${userFullName}) to VCF file"
+
 
         if [[ $menu_onlyManagedUsers == "true" ]]; then
             # if they choose to include non-managed users, then we will not check for managed systems
@@ -994,7 +1157,9 @@ function extract_user_details ()
         else
             #export the VCF file
             userVCFBlob=$(export_vcf_file $userFullName $userEmail $userPosition)
-            echo "${userVCFBlob}" > "$location_Contacts/${userShortName}.vcf"
+            exported_filename="${location_Contacts}/${userShortName}.vcf"
+            logMe "Exporting user ${userShortName} (${userFullName}) to ${exported_filename}"     
+            echo "${userVCFBlob}" > "${exported_filename}"
             update_display_list "Update" "" "${userShortName}" "" "success" "Finished"
         fi
     fi
@@ -1034,6 +1199,166 @@ function extract_assigned_systems ()
 
 ###############################################
 #
+# Create Smart Groups functions
+#
+###############################################
+
+function create_smart_groups_menu ()
+{
+    # PURPOSE: Create the VCF Cards menu
+    # RETURN: None
+    # EXPECTED: None
+
+    message="**Create VCF Cards**<br><br>You have selected to create VCF cards from the JAMF users.<br><br>There are some additional items to select:"
+    MainDialogBody=(
+        --message "$message"
+        --titlefont shadow=1
+        --ontop
+        --icon "${SD_ICON_FILE}"
+        --overlayicon "${OVERLAY_ICON}"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --checkbox "Export only managed users",name=OnlyManagedUsers
+        --width 800
+        --height 460
+        --ignorednd
+        --json
+        --quitkey 0
+        --button1text "OK"
+        --button2text "Cancel"
+    )
+
+    temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
+    returnCode=$?
+    [[ "$returnCode" == "2" ]] && cleanup_and_exit
+
+    menu_onlyManagedUsers=$( echo $temp | jq -r '.OnlyManagedUsers' )
+
+}
+
+function export_computer_groups ()
+{
+    declare processed_tasks=0
+    declare tasks=()
+    declare logMsg
+    # PURPOSE: Export all of the computer groups from JAMF
+    logMe "Export computer groups from JAMF"
+    GroupList=$(JAMF_retrieve_data_summary "JSSResource/computergroups" "xml")
+    
+    create_listitem_list "The following Smart / Static groups are being exported from the JAMF server" "xml" "name" $GroupList
+    GroupIDs=$(echo $GroupList | xmllint --xpath '//id' - 2>/dev/null)
+    GroupIDs=($(echo "$GroupIDs" | grep -Eo "[0-9]+"))
+
+    groupCount=${#GroupIDs[@]}
+
+    for item in ${GroupIDs[@]}; do
+        tasks+=("export_computer_group_details $item")
+    done
+    execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
+
+   # Display how many Static/Smart groups files were downloaded.
+    DirectoryCount=$(ls -R $location_backupSmartGroups | wc -l | xargs)
+    logMsg="$DirectoryCount Static/Smart groups were downloaded to $location_backupSmartGroups"
+    logMe $logMsg 
+    update_display_list "progress" "" "" "" "$logMsg" 100
+    update_display_list "buttonenable"
+    wait
+}
+
+function export_computer_group_details ()
+{
+    # PURPOSE: extract the XNL string from the JAMF ID and create a list of found items
+    # RETURN: None
+    # PARAMETERS: $1 - API substrint to call from JAMF
+    # EXPECTED: xmlBlob should be globally defined
+    declare managed && managed=true
+    declare groupName
+    declare groupid=$1
+
+    JAMF_retrieve_data_details "JSSResource/computergroups/id/$groupid" "xml"
+
+    groupName=$(extract_xml_data $xmlBlob "name" | head -n 1)
+    # Parse the XML to get the group details
+    # get the group name and see if it is a smart group or a static group
+    # this section will store every condition into an array, so that we can display it later
+    
+    groupIsSmart=$(extract_xml_data $xmlBlob "is_smart")
+
+    [[ $groupIsSmart == "true" ]] && groupIsSmart="Smart" || groupIsSmart="Static"
+
+    # extract the group criteria
+    # opening and closing parentheses
+    groupOpenParen=$(extract_xml_data $xmlBlob  "opening_paren")
+    groupOpenParen=("${(@f)groupOpenParen}") # Convert to array
+    
+    groupCloseParen=$(extract_xml_data $xmlBlob "closing_paren")
+    groupCloseParen=("${(@f)groupCloseParen}") # Convert to array
+    
+    groupAndOr=$(extract_xml_data $xmlBlob "and_or")
+    groupAndOr=("${(@f)groupAndOr}") # Convert to array
+    groupAndOr=("${(U)groupAndOr[@]}") # Convert to uppercase
+    groupAndOr=("${groupAndOr[@]:1}") # Remove the first element, which is not needed
+    
+    # extract the group criteria, search type and value
+    groupCriteria=$(extract_xml_data $xmlBlob "criteria//name")
+    groupCriteria=("${(@f)groupCriteria}") # Convert to array    
+
+    groupSearchType=$(extract_xml_data $xmlBlob "criteria//search_type")
+    groupSearchType=("${(@f)groupSearchType}") # Convert to array
+
+    groupValue=$(extract_xml_data $xmlBlob "criteria//value")
+    groupValue=("${(@f)groupValue}") # Convert to array
+ 
+    if [[ $groupIsSmart == "Smart" ]]; then
+        # If the group is a smart group, then we will create the conditions
+        groupCondition="$groupIsSmart group ($groupid)\n\nConditions:\n\n"
+        for ((i=0; i<=${#groupCriteria[@]}; i++)); do
+            # Check if the groupCriteria is empty, if so, skip it
+            [[ -z "${groupCriteria[i]}" ]] && continue
+            [[ $groupOpenParen[i] == "true" ]] && OpenParen="(" || OpenParen="" #Determine if we need to add an opening parenthesis
+            [[ $groupCloseParen[i] == "true" ]] && CloseParen=")" || CloseParen="" #Determine if we need to add a closing parenthesis
+            groupCondition+="${OpenParen}'${groupCriteria[i]}' ${groupSearchType[i]} '${groupValue[i]}'${CloseParen} ${groupAndOr[i]}\n"
+        done
+    else
+        # If the group is a static group, then we will just list the members
+        groupCondition="$groupIsSmart group ($groupid)\n\nMembers:\n\n"
+        memberID=$(extract_xml_data $xmlBlob  "computers//name")
+        groupCondition+="$(echo "${memberID[@]}" | sed 's/ /\n/g')\n"
+    fi
+    # if the script shows as empty (probably due to import issues), then show as a failure and report it
+    if [[ -z $groupName ]]; then
+        update_display_list "Update" "" "${groupName}" "" "fail" "Not exported"
+        logMe "Group ${groupName} not exported due to empty group name"
+        failedItems+=("${groupName}")
+        echo "errors found: $groupName"
+    else
+        update_display_list "Update" "" "${groupName}" "" "wait" "Working..."
+        logMe "Exporting group ${groupName} to text file"
+        echo "${groupCondition}" > "$location_backupSmartGroups/${groupIsSmart}/${groupName}.txt"
+        update_display_list "Update" "" "${groupName}" "" "success" "Finished"
+    fi
+}
+
+function extract_assigned_systems ()
+{
+    # PURPOSE: Extract the assigned systems from the XML string
+    # RETURN: None
+    # PARAMETERS: $1 - XML string to parse
+    # EXPECTED: None
+    declare managed && managed=false
+    computer_ids=($(echo "$1" | xmllint --xpath "//computer/id/text()" - )) #2>/dev/null)
+ 
+    # Loop through and evaluate each computer ID
+    for id in "${computer_ids[@]}"; do
+        inventory_data=$(JAMF_get_inventory_record $id "GENERAL")
+        # Check if the managed field is true
+        [[ $(echo $inventory_data | jq -r '.general.remoteManagement.managed') == "true" ]] && managed=true
+    done
+    echo $managed
+}
+###############################################
+#
 # Application functions
 #
 ###############################################
@@ -1067,10 +1392,10 @@ function execute_in_parallel ()
     for pid in "${pids[@]}"; do wait $pid; done
 }
 
-function welcomemsg ()
+function display_welcome_msg ()
 {
     # PURPOSE: Display the welcome message to the user
-    message="This set of utilities is designed to backup various items from your JAMF server. <br><br>Please select a destination folder location below:"
+    message="This set of utilities is designed to backup various items from your JAMF server.<br><br>Please select a destination folder location below:<br><br>##### _* Additional screens will appear for the selected options, if choosen._"
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
@@ -1082,7 +1407,7 @@ function welcomemsg ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --width 800
-        --height 660
+        --height 670
         --ignorednd
         --json
         --moveable
@@ -1094,13 +1419,12 @@ function welcomemsg ()
         --helpmessage "This script will backup various items from your JAMF server.  Please select the items you wish to backup and the location to store them."
         --textfield "Select a storage location",fileselect,filetype=folder,required,name=StorageLocation
         --checkbox "Backup Self Service Icons (*.png)",checked,name=BackupSSIcons
-        --checkbox "Exported failed MDM commands (*.txt)",checked,name=BackupFailedMDMCommands
-        --checkbox "↳ (Failed MDM): Optionally clear failed items",name=ClearFailedMDMCommands
+        --checkbox "* Exported failed MDM commands (*.txt)",checked,name=BackupFailedMDMCommands
         --checkbox "Backup System Scripts (*.sh)",checked,name=BackupJAMFScripts
         --checkbox "Backup Computer Extension Attributes (*.sh)",checked,name=BackupComputerExtensions
         --checkbox "Backup Configuration Profiles (*.mobileconfig)",checked,name=BackupConfigurationProfiles
-        --checkbox "Create VCF cards from email address (*.vcf)",checked,name=createVCFcards
-        --checkbox " ↳ (VCF Option): Export only users with managed systems",name=OnlyManagedUsers
+        --checkbox "* Backup Smart Groups & Static Groups",checked,name=BackupSmartGroups
+        --checkbox "* Create VCF cards from email address (*.vcf)",checked,name=createVCFcards
     )
 	
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
@@ -1112,10 +1436,13 @@ function welcomemsg ()
     menu_createVCFcards=$( echo $temp | jq -r '.createVCFcards' )
     menu_storageLocation=$( echo $temp | jq -r '.StorageLocation' )
     menu_computerea=$( echo $temp | jq -r '.BackupComputerExtensions' )
-    menu_onlyManagedUsers=$( echo $temp | jq -r '.OnlyManagedUsers')
     menu_configurationProfiles=$( echo $temp | jq -r '.BackupConfigurationProfiles')
     menu_backupFailedMDM=$( echo $temp | jq -r '.BackupFailedMDMCommands' )
-    menu_clearFailedMDM=$( echo $temp | jq -r '.ClearFailedMDMCommands' )
+    menu_backupSmartGroups=$( echo $temp | jq -r '.BackupSmartGroups' )
+    
+    [[ $menu_backupFailedMDM == "true" ]] && export_failed_mdm_commands_menu
+    [[ $menu_createVCFcards == "true" ]] && create_vcf_cards_menu
+    [[ $menu_backupSmartGroups == "true" ]] && backup_smart_groups_menu
 }
 
 function show_backup_errors ()
@@ -1154,11 +1481,12 @@ function check_directories ()
     # PARMS: None
 
     location_SSIcons="${menu_storageLocation}/SSIcons"
-    location_JAMFScripts="${menu_storageLocation}/JAMFScripts"
+    location_JAMFScripts="${menu_storageLocation}/SystemScripts"
     location_ComputerEA="${menu_storageLocation}/ComputerEA"
     location_Contacts="${menu_storageLocation}/Contacts"
     location_ConfigurationProfiles="${menu_storageLocation}/ConfigurationProfiles"
     location_FailedMDM="${menu_storageLocation}/FailedMDM"
+    location_backupSmartGroups="${menu_storageLocation}/ComputerGroups"
 
     [[ ! -d "${menu_storageLocation}" ]] && /bin/mkdir -p "${menu_storageLocation}"
     [[ ! -d "$location_SSIcons" ]] && /bin/mkdir -p "$location_SSIcons"
@@ -1167,6 +1495,9 @@ function check_directories ()
     [[ ! -d "$location_Contacts" ]] && /bin/mkdir -p "${location_Contacts}"
     [[ ! -d "$location_ConfigurationProfiles" ]] && /bin/mkdir -p "${location_ConfigurationProfiles}"
     [[ ! -d "$location_FailedMDM" ]] && /bin/mkdir -p "${location_FailedMDM}"
+    [[ ! -d "$location_backupSmartGroups" ]] && /bin/mkdir -p "${location_backupSmartGroups}"
+    [[ ! -d "$location_backupSmartGroups/Smart" ]] && /bin/mkdir -p "${location_backupSmartGroups}/Smart"
+    [[ ! -d "$location_backupSmartGroups/Static" ]] && /bin/mkdir -p "${location_backupSmartGroups}/Static"
     chmod -R 755 "${menu_storageLocation}"
     chown -R "${LOGGED_IN_USER}" "${menu_storageLocation}"
 }
@@ -1220,12 +1551,13 @@ declare location_Contacts
 declare location_ConfigurationProfiles
 declare location_FailedMDM
 declare jamfpro_version
+declare menuy_backupSmartGroups
 
 create_log_directory
 check_swift_dialog_install
 check_support_files
 create_infobox_message
-welcomemsg
+display_welcome_msg
 
 JAMF_check_connection
 JAMF_get_server
@@ -1238,6 +1570,7 @@ check_directories
 [[ "${menu_computerea}" == "true" ]] && backup_computer_extensions
 [[ "${menu_configurationProfiles}" == "true" ]] && backup_configuration_profiles
 [[ "${menu_createVCFcards}" == "true" ]] && create_vcf_cards
+[[ "${menu_backupSmartGroups}" == "true" ]] && export_computer_groups
 
 JAMF_invalidate_token
 
