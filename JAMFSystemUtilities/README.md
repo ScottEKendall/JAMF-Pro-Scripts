@@ -18,6 +18,7 @@ The following items are available to be backed up:
    - Smart Computer Groups will export the paramaters and criteria to a .txt file
    - Static Computer Groups will export the members to a .txt file
 8.  Export VCF cards of the members of a Smart / Static Computer Group.
+9.  Compose an email to the members of a Smart / Static Computer Group.
 
 
 This script is fully multitasked, so will execute each task pretty quickly.  It will create the folder structure for you and then download the items to the appropriate folders. 

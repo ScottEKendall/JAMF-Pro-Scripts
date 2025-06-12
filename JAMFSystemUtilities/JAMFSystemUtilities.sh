@@ -343,7 +343,7 @@ function create_listitem_list ()
     construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
     create_listitem_message_body "" "" "" "" "first"
 
-    # Parse the XML data and create list items
+    # Parse the XML or JSON data and create list items
     
     if [[ "$2:l" == "json" ]]; then
         # If the second parameter is XML, then parse the XML data
@@ -404,7 +404,7 @@ function create_dropdown_list ()
     construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
     create_dropdown_message_body "" "" "first"
 
-    # Parse the XML data and create list items
+    # Parse the XML or JSON data and create list items
     
     if [[ "$2:l" == "json" ]]; then
         # If the second parameter is XML, then parse the XML data
@@ -514,6 +514,12 @@ function JAMF_get_classic_api_token ()
     # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
 
      api_token=$(/usr/bin/curl -X POST --silent -u "${CLIENT_ID}:${CLIENT_SECRET}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
+     if [[ "$api_token" == *"Could not extract value"* ]]; then
+         logMe "Error: Unable to obtain API token. Check your credentials and JAMF Pro URL."
+         exit 1
+     else 
+        logMe "Classic API token successfully obtained."
+    fi
 
 }
 
@@ -545,6 +551,8 @@ function JAMF_get_access_token ()
     elif [[ "$returnval" == '{"error":"invalid_client"}' ]]; then
         logMe "Check the API Client credentials and permissions"
         exit 1
+    else
+        logMe "API token successfully obtained."
     fi
     
     api_token=$(echo "$returnval" | plutil -extract access_token raw -)
@@ -653,6 +661,11 @@ function JAMF_get_inventory_record_byID ()
 
 function JAMF_get_policy_list ()
 {
+    # PURPOSE: Get the list of policies from JAMF Pro
+    # RETURN: XML contents of command
+    # EXPECTED: api_token, jamfpro_url
+    # PARMS: None
+
     echo $(curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/policies")
 
 }
@@ -1130,6 +1143,8 @@ function create_vcf_cards_menu ()
     construct_header_settings "$message" > "${JSON_DIALOG_BLOB}"
     create_checkbox_message_body "" "" "" "" "first"
     create_checkbox_message_body "Only users with managed systems" "" "true" "false"
+    create_checkbox_message_body "Create CSV file with emails" "" "true" "false"
+    create_checkbox_message_body "Compose Email after completion" "" "true" "false"
     create_checkbox_message_body "" "" "" "" "last"
     echo "," >> "${JSON_DIALOG_BLOB}"
 
@@ -1156,6 +1171,8 @@ function create_vcf_cards_menu ()
     [[ "$returnCode" == "2" ]] && cleanup_and_exit
 
     menu_onlyManagedUsers=$( echo $temp | grep "Only Managed Users" | awk -F ":" '{print $2}' | tr -d "," | xargs )
+    menu_createCSV=$( echo $temp | grep "Create CSV file with emails" | awk -F ":" '{print $2}' | tr -d "," | xargs )
+    menu_composeEmail=$( echo $temp | grep "Compose Email after completion" | awk -F ":" '{print $2}' | tr -d "," | xargs )
     menu_groupVCFExport=$( echo $temp  | jq -r '.SelectedOption')
 }
 
@@ -1168,6 +1185,10 @@ function create_vcf_cards ()
     declare processed_tasks=0
     declare tasks=()
     declare -i i
+
+    if [[ $menu_composeEmail == "true" ]]; then
+        [[ -e ${location_Contacts}/contacts.txt ]] && rm -f ${location_Contacts}/contacts.txt
+    fi
 
     # If the user selected to create VCF cards from a specific group, then we will retrieve the group members and create a list of user IDs
     menu_groupVCFExport=$(echo $menu_groupVCFExport | xargs)
@@ -1247,6 +1268,12 @@ function create_vcf_cards ()
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
     wait
+    if [[ $menu_composeEmail == "true" ]]; then
+        email_address=$(cat ${location_Contacts}/contacts.txt)
+        # Create a mailto link to open in Outlook with the email addresses
+        email_clean=$(echo "$email_address" | tr -d '\r' | tr -d '\n')
+        /usr/bin/open -b com.microsoft.outlook 'mailto:'${email_clean}'?subject=Subject'
+    fi
 }
 
 function extract_user_details ()
@@ -1288,6 +1315,11 @@ function extract_user_details ()
             exported_filename="${location_Contacts}/${userShortName}.vcf"
             logMe "Exporting user ${userShortName} (${userFullName}) to ${exported_filename}"     
             echo "${userVCFBlob}" > "${exported_filename}"
+            if [[ $menu_composeEmail == "true" || $menu_createCSV == "true" ]]; then
+                # If the user selected to compose an email with emails, then we will append the email to the txt file
+                # This is designed for simple import into outlook
+                echo "${userEmail};" >> "${location_Contacts}/contacts.txt"
+            fi
             update_display_list "Update" "" "${userShortName}" "" "success" "Finished"
         fi
     fi
@@ -1479,7 +1511,7 @@ function construct_header_settings ()
     "quitkey" : "0",
     "ontop" : "true",
     "width" : 800,
-    "height" : 460,
+    "height" : 540,
     "json" : "true",
     "quitkey" : "0",
     "messagefont" : "shadow=1",
@@ -1565,7 +1597,6 @@ function display_welcome_msg ()
     
     [[ $menu_backupFailedMDM == "true" ]] && export_failed_mdm_commands_menu
     [[ $menu_createVCFcards == "true" ]] && create_vcf_cards_menu
-    [[ $menu_backupSmartGroups == "true" ]] && backup_smart_groups_menu
 }
 
 function show_backup_errors ()
@@ -1676,6 +1707,8 @@ declare location_FailedMDM
 declare jamfpro_version
 declare menuy_backupSmartGroups
 declare menu_groupVCFExport
+declare menu_createCSV
+declare menu_composeEmail
 
 create_log_directory
 check_swift_dialog_install
@@ -1683,18 +1716,26 @@ check_support_files
 create_infobox_message
 JAMF_check_connection
 JAMF_get_server
-JAMF_get_classic_api_token
+# Check if the JAMF Pro server is using the new API or the classic API
+# If the client ID is longer than 30 characters, then it is using the new API
+if [[ ${#CLIENT_ID} -gt 30 ]]; then
+    JAMF_token="new"
+    JAMF_get_access_token
+else
+    JAMF_token="classic"
+    JAMF_get_classic_api_token    
+fi
 display_welcome_msg
 
 check_directories
 
-[[ "${menu_backupSSIcons}" == "true" ]] && backup_ss_icons
-[[ "${menu_backupFailedMDM}" == "true" ]] && export_failed_mdm_devices
-[[ "${menu_backupJAMFScripts}" == "true" ]] && backup_jamf_scripts
-[[ "${menu_computerea}" == "true" ]] && backup_computer_extensions
-[[ "${menu_configurationProfiles}" == "true" ]] && backup_configuration_profiles
-[[ "${menu_backupSmartGroups}" == "true" ]] && export_computer_groups
-[[ "${menu_createVCFcards}" == "true" ]] && create_vcf_cards
+[[ "${menu_backupSSIcons}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; backup_ss_icons;}
+[[ "${menu_backupFailedMDM}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; export_failed_mdm_devices;}
+[[ "${menu_backupJAMFScripts}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; backup_jamf_scripts;}
+[[ "${menu_computerea}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; backup_computer_extensions;}
+[[ "${menu_configurationProfiles}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; backup_configuration_profiles;}
+[[ "${menu_backupSmartGroups}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; export_computer_groups;}
+[[ "${menu_createVCFcards}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; create_vcf_cards;}
 
 JAMF_invalidate_token
 
