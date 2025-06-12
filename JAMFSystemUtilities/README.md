@@ -14,6 +14,11 @@ The following items are available to be backed up:
 4.  Computer Extension Attributes - Export all of the computer extension attributes
 5.  Configuration Profiles - Export all of the configuration profiles to .mobileconfig files
 6.  Export Emails to VCF - Export all of the email addresses to a VCF file, which can be imported into Contacts.app or other applications.
+7.  Smart / Static Computer Groups - Export all of the smart and static computer groups:
+   - Smart Computer Groups will export the paramaters and criteria to a .txt file
+   - Static Computer Groups will export the members to a .txt file
+8.  Export VCF cards of the members of a Smart / Static Computer Group.
+
 
 This script is fully multitasked, so will execute each task pretty quickly.  It will create the folder structure for you and then download the items to the appropriate folders. 
 
@@ -24,6 +29,7 @@ This script is fully multitasked, so will execute each task pretty quickly.  It 
 3. Computer Extension Attributes have a .sh extension.
 4. Configuration Profiles have a .mobileconfig extension.
 5. Emails have a .vcf extension.
+6. Smart / Static Computer Groups have a .txt extension.
 
 **Folder Structure**
 
@@ -48,6 +54,10 @@ Backup Computer Extension Attributes Process
 
 Backup Configuration Profiles Process
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-Profiles.png)
+
+VCF (Emails) options
+
+![](/JAMFSystemUtilities/JAMFSystemUtilities-VCFOptions.png)
 
 Export Emails Process
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-Contacts.png)

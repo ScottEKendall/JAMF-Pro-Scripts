@@ -198,54 +198,65 @@ function update_display_list ()
 
 	case "$1:l" in
 
-	"create" )
-
-		#
-		# Create the progress bar
-		#
-
-		${SW_DIALOG} \
-			--progress \
-			--jsonfile "${JSON_DIALOG_BLOB}" \
-			--commandfile ${DIALOG_CMD_FILE} \
-			--height 800 \
-			--width 920 & /bin/sleep .2
-		;;
-        "buttonenable" )
-
-            # Enable button 1
-            /bin/echo "button1: enable" >> "${DIALOG_CMD_FILE}"
+        "add" )
+  
+            # Add an item to the list
+            #
+            # $2 name of item
+            # $3 Icon status "wait, success, fail, error, pending or progress"
+            # $4 Optional status text
+  
+            /bin/echo "listitem: add, title: ${2}, status: ${3}, statustext: ${4}" >> "${DIALOG_CMD_FILE}"
             ;;
 
-	"destroy" )
-	
-		#
-		# Kill the progress bar and clean up
-		#
-		echo "quit:" >> "${DIALOG_CMD_FILE}"
-		;;
+        "create" )
 
-	"update" | "change" )
+            #
+            # Create the progress bar
+            #
 
-		#
-		# Increment the progress bar by ${2} amount
-		#
+            ${SW_DIALOG} \
+                --progress \
+                --jsonfile "${JSON_DIALOG_BLOB}" \
+                --commandfile ${DIALOG_CMD_FILE} \
+                --height 800 \
+                --width 920 & /bin/sleep .2
+            ;;
+            "buttonenable" )
 
-		# change the list item status and increment the progress bar
-		/bin/echo "listitem: title: "$3", status: $5, statustext: $6" >> "${DIALOG_CMD_FILE}"
-		/bin/echo "progress: $2" >> "${DIALOG_CMD_FILE}"
+                # Enable button 1
+                /bin/echo "button1: enable" >> "${DIALOG_CMD_FILE}"
+                ;;
 
-		/bin/sleep .5
-		;;
+        "destroy" )
+        
+            #
+            # Kill the progress bar and clean up
+            #
+            echo "quit:" >> "${DIALOG_CMD_FILE}"
+            ;;
 
-    "progress" )
+        "update" | "change" )
 
-        # Increment the progress bar by static amount ($6)
-        # Display the progress bar text ($5)
-        /bin/echo "progress: ${6}" >> "${DIALOG_CMD_FILE}"
-        /bin/echo "progresstext: ${5}" >> "${DIALOG_CMD_FILE}"
-        ;;
-		
+            #
+            # Increment the progress bar by ${2} amount
+            #
+
+            # change the list item status and increment the progress bar
+            /bin/echo "listitem: title: "$3", status: $5, statustext: $6" >> "${DIALOG_CMD_FILE}"
+            /bin/echo "progress: $2" >> "${DIALOG_CMD_FILE}"
+
+            /bin/sleep .5
+            ;;
+
+        "progress" )
+
+            # Increment the progress bar by static amount ($6)
+            # Display the progress bar text ($5)
+            /bin/echo "progress: ${6}" >> "${DIALOG_CMD_FILE}"
+            /bin/echo "progresstext: ${5}" >> "${DIALOG_CMD_FILE}"
+            ;;
+            
 	esac
 }
 
@@ -459,7 +470,7 @@ function create_checkbox_message_body ()
     if [[ "$5:l" == "first" ]]; then
         line='"checkbox" : ['
     elif [[ "$5:l" == "last" ]]; then
-        line='], "checkboxstyle" : {"style" : "switch", "size"  : "small"}'
+        line=']' # ,"checkboxstyle" : {"style" : "switch", "size"  : "small"}'
     else
         line='{"label" : "'$1'", "icon" : "'$2'", "checked" : "'$3'", "disabled" : "'$4'"},'
     fi
@@ -1115,10 +1126,10 @@ function create_vcf_cards_menu ()
     declare xml_blob
     declare -a array
 
-    message="**Create VCF Cards Additional Options**<br><br>You have selected to create VCF cards from the JAMF server.<br><br>There are some additional items to select:"
-    construct_vcf_header_settings "$message" > "${JSON_DIALOG_BLOB}"
+    message="**Create VCF Cards Additional Options**<br><br>You have selected to create VCF cards from the JAMF server.  If you select a group, it will create a subfolder under the main contacts folder with all of the entries.<br><br>There are some additional items to select:"
+    construct_header_settings "$message" > "${JSON_DIALOG_BLOB}"
     create_checkbox_message_body "" "" "" "" "first"
-    create_checkbox_message_body "Only Managed Users" "" "true" "false"
+    create_checkbox_message_body "Only users with managed systems" "" "true" "false"
     create_checkbox_message_body "" "" "" "" "last"
     echo "," >> "${JSON_DIALOG_BLOB}"
 
@@ -1145,35 +1156,7 @@ function create_vcf_cards_menu ()
     [[ "$returnCode" == "2" ]] && cleanup_and_exit
 
     menu_onlyManagedUsers=$( echo $temp | grep "Only Managed Users" | awk -F ":" '{print $2}' | tr -d "," | xargs )
-    menu_groupVCFExport=$( echo $temp  | jq -r '.SelectedOption')  # awk -F "-" '{print $1}' )
-}
-
-function construct_vcf_header_settings ()
-{
-    # Construct the basic Switft Dialog screen info that is used on all messages
-    #
-    # RETURN: None
-	# VARIABLES expected: All of the Widow variables should be set
-	# PARMS Passed: $1 is message to be displayed on the window
-
-	echo '{
-    "icon" : "'${SD_ICON_FILE}'",
-    "message" : "'$1'",
-    "bannerimage" : "'${SD_BANNER_IMAGE}'",
-    "bannertitle" : "'${SD_WINDOW_TITLE}'",
-    "infobox" : "'${SD_INFO_BOX_MSG}'",
-    "titlefont" : "shadow=1",
-    "button1text" : "OK",
-    "button2text" : "Cancel",
-    "moveable" : "true",
-    "quitkey" : "0",
-    "ontop" : "true",
-    "width" : 800,
-    "height" : 460,
-    "json" : "true",
-    "quitkey" : "0",
-    "messagefont" : "shadow=1",
-    "messageposition" : "top",'
+    menu_groupVCFExport=$( echo $temp  | jq -r '.SelectedOption')
 }
 
 function create_vcf_cards ()
@@ -1184,6 +1167,7 @@ function create_vcf_cards ()
 
     declare processed_tasks=0
     declare tasks=()
+    declare -i i
 
     # If the user selected to create VCF cards from a specific group, then we will retrieve the group members and create a list of user IDs
     menu_groupVCFExport=$(echo $menu_groupVCFExport | xargs)
@@ -1206,30 +1190,42 @@ function create_vcf_cards ()
         fi
         # Retrieve the group members and create a list of computer IDs
         computerList=$(JAMF_retrieve_data_summary "JSSResource/computergroups/id/$GroupID" "xml")
+
+        # do a quick check to see if the group has members in it
+        if [[ $(echo $computerList | xmllint --xpath '//computers//size' -) == "<size>0</size>" ]]; then
+            logMe "Group $GroupName has no members, skipping VCF card creation"
+            ${SW_DIALOG} --title "No Members in Group" --message "The group $GroupName has no members, so no VCF cards will be created." --button1text "OK" --quitkey 0 --icon "${SD_ICON_FILE}"
+            return 1
+        fi
         ComputerIDs=($(echo $computerList | xmllint --xpath '//computers//id' - 2>/dev/null))
 
         # If the user selected to only create VCF cards for managed users, then we will filter the computer IDs to only include those that are managed
-        # Construct the dialog header settings
-        construct_dialog_header_settings "The following VCF Cards are being created from the JAMF group: $GroupName" > "${JSON_DIALOG_BLOB}"
-        create_listitem_message_body "" "" "" "" "first"
-
+        i=0
         for item in ${ComputerIDs[@]}; do
             item=$(echo $item | awk -F '<id>|</id>' '{print $2}'| xargs)
             # We need to find the users ID, but the group record does not have the user ID, so we need to get the inventory record for their computer, and then find the users by their computer ID to get their email
             # Get the inventory record for each computer and extract the their email
             inventory_data=$(JAMF_get_inventory_record "USER_AND_LOCATION" "id=='$item'")
             userEmail=$(echo $inventory_data | jq -r '.results[].userAndLocation.email')
-
-            create_listitem_message_body "$userEmail" "" "pending" "Pending..."
-
+            if [[ $i -eq 0 ]]; then
+                # Show a message that we are creating VCF cards from the group (this is the first item)
+                construct_dialog_header_settings "The following VCF Cards are being created from the JAMF group:<br><br>** $GroupName" > "${JSON_DIALOG_BLOB}"
+                create_listitem_message_body "" "" "" "" "first"
+                create_listitem_message_body "$userEmail" "" "Adding User..." "pending"
+                create_listitem_message_body "" "" "" "" "last"
+                update_display_list "Create"
+            else
+                # Check to see if the user is already in the list, if so, then skip adding them
+                if [[ -z $(cat ${DIALOG_CMD_FILE} | grep -w "$userEmail") ]]; then
+                    update_display_list "add" "$userEmail" "pending" "Adding User..."
+                fi
+            fi
             # Look up the user by their email address and retrieve their user ID
             userEmail=$(convert_to_hex "$userEmail")
             inventory_data=$(JAMF_retrieve_data_summary "JSSResource/users/email/$userEmail" "json")
             UserIDs+=($(echo $inventory_data | jq -r '.users[].id'))
+            ((i++))
         done
-
-        create_listitem_message_body "" "" "" "" "last"
-        update_display_list "Create"
     else
         logMe "Creating VCF Cards from JAMF users"
         UserList=$(JAMF_retrieve_data_summary "JSSResource/users" "xml")
@@ -1240,7 +1236,7 @@ function create_vcf_cards ()
     userCount=${#UserIDs[@]}
 
     for item in ${UserIDs[@]}; do
-        tasks+=("extract_user_details $item" $menu_groupVCFExport)
+        tasks+=("extract_user_details $item")
     done
     execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
 
@@ -1264,7 +1260,6 @@ function extract_user_details ()
 	[[ -z "${1}" ]] && return 0
 
     JAMF_retrieve_data_details "JSSResource/users/id/$1" "xml"
-    echo "User XML Blob: $xmlBlob"
     userShortName=$(extract_xml_data $xmlBlob "name" | head -n 1)
     userFullName=$(extract_xml_data $xmlBlob  "full_name")
     userEmail=$(extract_xml_data $xmlBlob "email_address")
@@ -1462,6 +1457,34 @@ function extract_assigned_systems ()
 # Application functions
 #
 ###############################################
+
+function construct_header_settings ()
+{
+    # Construct the basic Switft Dialog screen info that is used on all messages
+    #
+    # RETURN: None
+	# VARIABLES expected: All of the Widow variables should be set
+	# PARMS Passed: $1 is message to be displayed on the window
+
+	echo '{
+    "icon" : "'${SD_ICON_FILE}'",
+    "message" : "'$1'",
+    "bannerimage" : "'${SD_BANNER_IMAGE}'",
+    "bannertitle" : "'${SD_WINDOW_TITLE}'",
+    "infobox" : "'${SD_INFO_BOX_MSG}'",
+    "titlefont" : "shadow=1",
+    "button1text" : "OK",
+    "button2text" : "Cancel",
+    "moveable" : "true",
+    "quitkey" : "0",
+    "ontop" : "true",
+    "width" : 800,
+    "height" : 460,
+    "json" : "true",
+    "quitkey" : "0",
+    "messagefont" : "shadow=1",
+    "messageposition" : "top",'
+}
 
 function execute_in_parallel ()
 {
