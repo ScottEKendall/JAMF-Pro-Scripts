@@ -178,6 +178,123 @@ function cleanup_and_exit ()
 	exit 0
 }
 
+function update_display_list ()
+{
+	# Function to handle various aspects of the Swift Dialog behaviour
+    #
+    # RETURN: None
+	# VARIABLES expected: JSON_DIALOG_BLOB & Window variables should be set
+	# PARMS List
+	#
+	# #1 - Action to be done ("Create, Destroy, "Update", "change")
+	# #2 - Progress bar % (pass as integer)
+	# #3 - Application Title (must match the name in the dialog list entry)
+	# #4 - Progress Text (text to be display on bottom on window)
+	# #5 - Progress indicator (wait, success, fail, pending)
+	# #6 - List Item Text (text to be displayed while updating list entry)
+
+	## i.e. update_display_list "Update" "8" "Google Chrome" "Calculating Chrome" "pending" "Working..."
+	## i.e.	update_display_list "Update" "8" "Google Chrome" "" "success" "Done"
+
+	case "$1:l" in
+
+	"create" )
+
+		#
+		# Create the progress bar
+		#
+
+		${SW_DIALOG} \
+			--progress \
+			--jsonfile "${JSON_DIALOG_BLOB}" \
+			--commandfile ${DIALOG_CMD_FILE} \
+			--height 800 \
+			--width 920 & /bin/sleep .2
+		;;
+        "buttonenable" )
+
+            # Enable button 1
+            /bin/echo "button1: enable" >> "${DIALOG_CMD_FILE}"
+            ;;
+
+	"destroy" )
+	
+		#
+		# Kill the progress bar and clean up
+		#
+		echo "quit:" >> "${DIALOG_CMD_FILE}"
+		;;
+
+	"update" | "change" )
+
+		#
+		# Increment the progress bar by ${2} amount
+		#
+
+		# change the list item status and increment the progress bar
+		/bin/echo "listitem: title: "$3", status: $5, statustext: $6" >> "${DIALOG_CMD_FILE}"
+		/bin/echo "progress: $2" >> "${DIALOG_CMD_FILE}"
+
+		/bin/sleep .5
+		;;
+
+    "progress" )
+
+        # Increment the progress bar by static amount ($6)
+        # Display the progress bar text ($5)
+        /bin/echo "progress: ${6}" >> "${DIALOG_CMD_FILE}"
+        /bin/echo "progresstext: ${5}" >> "${DIALOG_CMD_FILE}"
+        ;;
+		
+	esac
+}
+
+function extract_xml_data ()
+{
+    declare -a retval
+    # PURPOSE: extract an XML string from the passed string
+    # RETURN: parsed XML string
+    # PARAMETERS: $1 - XML "blob"
+    #             $2 - String to extract
+    # EXPECTED: None
+    retval=$(echo "$1" | xmllint --xpath "//$2/text()" - 2>/dev/null)
+    echo $retval
+}
+
+function make_apfs_safe ()
+{
+    # PURPOSE: Remove any "illegal" APFS macOS characters from filename
+    # RETURN: ADFS safe filename
+    # PARAMETERS: $1 - string to format
+    # EXPECTED: None
+    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/\//-/g' -e 's/|/-/g')
+}
+
+function convert_to_hex ()
+{
+    local input="$1"
+    local length="${#input}"
+    local result=""
+
+    for (( i = 0; i <= length; i++ )); do
+        local char="${input[i]}"
+        if [[ "$char" =~ [^a-zA-Z0-9.] ]]; then
+            hex=$(printf '%x' "'$char")
+            result+="%$hex"
+        else
+            result+="$char"
+        fi
+    done
+
+    echo "$result"
+}
+
+#######################################################################################################
+# 
+# Functions to create listitems, checkboxes & dropdown lists
+#
+#######################################################################################################
+
 function construct_dialog_header_settings ()
 {
     # Construct the basic Switft Dialog screen info that is used on all messages
@@ -317,122 +434,36 @@ function create_dropdown_message_body ()
     if [[ "$3:l" == "first" ]]; then
         line=' "selectitems" : ['
     elif [[ "$3:l" == "last" ]]; then
-        line=']}'
+        line=']'
     else
         line='{"title" : "'$1'", "values" : ['$2']},'
     fi
     echo $line >> ${JSON_DIALOG_BLOB}
 }
 
-function update_display_list ()
+function create_checkbox_message_body ()
 {
-	# Function to handle various aspects of the Swift Dialog behaviour
-    #
+    # PURPOSE: Construct a checkbox style body of the dialog box
+    #"checkbox" : [
+	#			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+
     # RETURN: None
-	# VARIABLES expected: JSON_DIALOG_BLOB & Window variables should be set
-	# PARMS List
-	#
-	# #1 - Action to be done ("Create, Destroy, "Update", "change")
-	# #2 - Progress bar % (pass as integer)
-	# #3 - Application Title (must match the name in the dialog list entry)
-	# #4 - Progress Text (text to be display on bottom on window)
-	# #5 - Progress indicator (wait, success, fail, pending)
-	# #6 - List Item Text (text to be displayed while updating list entry)
+    # EXPECTED: message
+    # PARMS: $1 - title 
+    #        $2 - icon
+    #        $3 - Default Checked (true/false)
+    #        $4 - disabled (true/false)
+    #        $5 - first or last - construct appropriate listitem heders / footers
 
-	## i.e. update_display_list "Update" "8" "Google Chrome" "Calculating Chrome" "pending" "Working..."
-	## i.e.	update_display_list "Update" "8" "Google Chrome" "" "success" "Done"
-
-	case "$1:l" in
-
-	"create" )
-
-		#
-		# Create the progress bar
-		#
-
-		${SW_DIALOG} \
-			--progress \
-			--jsonfile "${JSON_DIALOG_BLOB}" \
-			--commandfile ${DIALOG_CMD_FILE} \
-			--height 800 \
-			--width 920 & /bin/sleep .2
-		;;
-        "buttonenable" )
-
-            # Enable button 1
-            /bin/echo "button1: enable" >> "${DIALOG_CMD_FILE}"
-            ;;
-
-	"destroy" )
-	
-		#
-		# Kill the progress bar and clean up
-		#
-		echo "quit:" >> "${DIALOG_CMD_FILE}"
-		;;
-
-	"update" | "change" )
-
-		#
-		# Increment the progress bar by ${2} amount
-		#
-
-		# change the list item status and increment the progress bar
-		/bin/echo "listitem: title: "$3", status: $5, statustext: $6" >> "${DIALOG_CMD_FILE}"
-		/bin/echo "progress: $2" >> "${DIALOG_CMD_FILE}"
-
-		/bin/sleep .5
-		;;
-
-    "progress" )
-
-        # Increment the progress bar by static amount ($6)
-        # Display the progress bar text ($5)
-        /bin/echo "progress: ${6}" >> "${DIALOG_CMD_FILE}"
-        /bin/echo "progresstext: ${5}" >> "${DIALOG_CMD_FILE}"
-        ;;
-		
-	esac
-}
-
-function extract_xml_data ()
-{
-    declare -a retval
-    # PURPOSE: extract an XML string from the passed string
-    # RETURN: parsed XML string
-    # PARAMETERS: $1 - XML "blob"
-    #             $2 - String to extract
-    # EXPECTED: None
-    retval=$(echo "$1" | xmllint --xpath "//$2/text()" - 2>/dev/null)
-    echo $retval
-}
-
-function make_apfs_safe ()
-{
-    # PURPOSE: Remove any "illegal" APFS macOS characters from filename
-    # RETURN: ADFS safe filename
-    # PARAMETERS: $1 - string to format
-    # EXPECTED: None
-    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/\//-/g' -e 's/|/-/g')
-}
-
-function convert_to_hex ()
-{
-    local input="$1"
-    local length="${#input}"
-    local result=""
-
-    for (( i = 0; i <= length; i++ )); do
-        local char="${input[i]}"
-        if [[ "$char" =~ [^a-zA-Z0-9] ]]; then
-            hex=$(printf '%x' "'$char")
-            result+="%$hex"
-        else
-            result+="$char"
-        fi
-    done
-
-    echo "$result"
+    declare line && line=""
+    if [[ "$5:l" == "first" ]]; then
+        line='"checkbox" : ['
+    elif [[ "$5:l" == "last" ]]; then
+        line='], "checkboxstyle" : {"style" : "switch", "size"  : "small"}'
+    else
+        line='{"label" : "'$1'", "icon" : "'$2'", "checked" : "'$3'", "disabled" : "'$4'"},'
+    fi
+    echo $line >> ${JSON_DIALOG_BLOB}
 }
 
 ###########################
@@ -581,13 +612,30 @@ function JAMF_retrieve_data_details ()
     xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}")
 }
 
-function JAMF_get_inventory_record ()
+function JAMF_get_inventory_record()
 {
     # PURPOSE: Uses the JAMF 
     # RETURN: the device ID (UDID) for the device in question.
-    # PARMS: $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
+    # PARMS:  $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
     #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
     #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
+    #        $2 - Filter condition to use for search
+
+    filter=$(convert_to_hex $2)
+    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory?section=$1&filter=$filter" 2>/dev/null)
+    echo $retval | tr -d '\n'
+}
+
+function JAMF_get_inventory_record_byID ()
+{
+    # PURPOSE: Uses the JAMF 
+    # RETURN: the device ID (UDID) for the device in question.
+    # PARMS: $1 - The JAMF ID of the device to retrieve
+    #        $2 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
+    #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
+    #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
+    #        $3 - Filter to use for search
+
     retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$1?section=$2" 2>/dev/null)
     echo $retval | tr -d '\n'
 }
@@ -982,6 +1030,7 @@ function extract_extension_details ()
 # Backup Configuration Profiles functions
 #
 ###############################################
+
 function backup_configuration_profiles ()
 {
     declare processed_tasks=0
@@ -1062,54 +1111,140 @@ function create_vcf_cards_menu ()
     # PURPOSE: Create the VCF Cards menu
     # RETURN: None
     # EXPECTED: None
+    declare GroupList
+    declare xml_blob
+    declare -a array
 
-    message="**Create VCF Cards**<br><br>You have selected to create VCF cards from the JAMF users.<br><br>There are some additional items to select:"
-    MainDialogBody=(
-        --message "$message"
-        --titlefont shadow=1
-        --ontop
-        --icon "${SD_ICON_FILE}"
-        --overlayicon "${OVERLAY_ICON}"
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --infobox "${SD_INFO_BOX_MSG}"
-        --checkbox "Export only managed users",name=OnlyManagedUsers
-        --width 800
-        --height 460
-        --ignorednd
-        --json
-        --quitkey 0
-        --button1text "OK"
-        --button2text "Cancel"
-    )
+    message="**Create VCF Cards Additional Options**<br><br>You have selected to create VCF cards from the JAMF server.<br><br>There are some additional items to select:"
+    construct_vcf_header_settings "$message" > "${JSON_DIALOG_BLOB}"
+    create_checkbox_message_body "" "" "" "" "first"
+    create_checkbox_message_body "Only Managed Users" "" "true" "false"
+    create_checkbox_message_body "" "" "" "" "last"
+    echo "," >> "${JSON_DIALOG_BLOB}"
 
-    temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
+    create_dropdown_message_body "" "" "first"
+    # Read in the JAMF groups and create a dropdown list of them
+    # create_listitem_list "The following Smart / Static groups are being exported from the JAMF server" "xml" "name" $GroupList
+    GroupList=$(JAMF_retrieve_data_summary "JSSResource/computergroups" "json")
+    # Extract the group names from the XML blob and create an array
+    xml_blob=$(echo $GroupList |jq -r '.computer_groups[] | "\(.id) - \(.name)"')
+    echo $xml_blob | while IFS= read -r line; do
+        # Remove the <name> and </name> tags from the line and trailing spaces
+        line="${${line#*<name>}%</name>*}"
+        line=$(echo $line | sed 's/[[:space:]]*$//')
+        array+='"'$line'",'
+    done
+    # Remove the trailing comma from the array
+    array="${array%,}"
+    create_dropdown_message_body "Select Groups:" "$array"
+    create_dropdown_message_body "" "" "last"
+	echo '}' >> "${JSON_DIALOG_BLOB}"
+
+	temp=$(${SW_DIALOG} --jsonfile "${JSON_DIALOG_BLOB}") 2>/dev/null
     returnCode=$?
     [[ "$returnCode" == "2" ]] && cleanup_and_exit
 
-    menu_onlyManagedUsers=$( echo $temp | jq -r '.OnlyManagedUsers' )
+    menu_onlyManagedUsers=$( echo $temp | grep "Only Managed Users" | awk -F ":" '{print $2}' | tr -d "," | xargs )
+    menu_groupVCFExport=$( echo $temp  | jq -r '.SelectedOption')  # awk -F "-" '{print $1}' )
+}
 
+function construct_vcf_header_settings ()
+{
+    # Construct the basic Switft Dialog screen info that is used on all messages
+    #
+    # RETURN: None
+	# VARIABLES expected: All of the Widow variables should be set
+	# PARMS Passed: $1 is message to be displayed on the window
+
+	echo '{
+    "icon" : "'${SD_ICON_FILE}'",
+    "message" : "'$1'",
+    "bannerimage" : "'${SD_BANNER_IMAGE}'",
+    "bannertitle" : "'${SD_WINDOW_TITLE}'",
+    "infobox" : "'${SD_INFO_BOX_MSG}'",
+    "titlefont" : "shadow=1",
+    "button1text" : "OK",
+    "button2text" : "Cancel",
+    "moveable" : "true",
+    "quitkey" : "0",
+    "ontop" : "true",
+    "width" : 800,
+    "height" : 460,
+    "json" : "true",
+    "quitkey" : "0",
+    "messagefont" : "shadow=1",
+    "messageposition" : "top",'
 }
 
 function create_vcf_cards ()
 {
+    # PURPOSE: Create VCF cards from the JAMF users
+    # RETURN: None
+    # EXPECTED: None
+
     declare processed_tasks=0
     declare tasks=()
-    declare logMsg
-    # PURPOSE: Create VCF cards from the JAMF users
-    logMe "Creating VCF Cards from JAMF users"
-    UserList=$(JAMF_retrieve_data_summary "JSSResource/users" "xml")
-    create_listitem_list "The following VCF Cards are being created from the JAMF server" "xml" "name" $UserList
-    UserIDs=$(echo $UserList | xmllint --xpath '//id' - 2>/dev/null)
-    UserIDs=($(echo "$UserIDs" | grep -Eo "[0-9]+"))
+
+    # If the user selected to create VCF cards from a specific group, then we will retrieve the group members and create a list of user IDs
+    menu_groupVCFExport=$(echo $menu_groupVCFExport | xargs)
+    if [[ ! -z $menu_groupVCFExport ]]; then
+        UserIDs=()
+        UserList=()
+
+        logMe "Creating VCF Cards from JAMF users in group: $menu_groupVCFExport"
+        # Split the group name into ID and Name (this came from the dropdown list)
+        GroupID=$(echo $menu_groupVCFExport | awk -F "-" '{print $1}' | xargs)
+        GroupName=$(echo $menu_groupVCFExport | awk -F "-" '{print $2}' | xargs)
+
+        # If they chose to export a specific group, then we will append that group name to create the VCF file
+        location_Contacts+="/${GroupName}"
+        make_apfs_safe "${location_Contacts}"
+        # Create the directory if it does not exist
+        if [[ ! -d "${location_Contacts}" ]]; then
+            mkdir -p "${location_Contacts}"
+            logMe "Created directory ${location_Contacts}"
+        fi
+        # Retrieve the group members and create a list of computer IDs
+        computerList=$(JAMF_retrieve_data_summary "JSSResource/computergroups/id/$GroupID" "xml")
+        ComputerIDs=($(echo $computerList | xmllint --xpath '//computers//id' - 2>/dev/null))
+
+        # If the user selected to only create VCF cards for managed users, then we will filter the computer IDs to only include those that are managed
+        # Construct the dialog header settings
+        construct_dialog_header_settings "The following VCF Cards are being created from the JAMF group: $GroupName" > "${JSON_DIALOG_BLOB}"
+        create_listitem_message_body "" "" "" "" "first"
+
+        for item in ${ComputerIDs[@]}; do
+            item=$(echo $item | awk -F '<id>|</id>' '{print $2}'| xargs)
+            # We need to find the users ID, but the group record does not have the user ID, so we need to get the inventory record for their computer, and then find the users by their computer ID to get their email
+            # Get the inventory record for each computer and extract the their email
+            inventory_data=$(JAMF_get_inventory_record "USER_AND_LOCATION" "id=='$item'")
+            userEmail=$(echo $inventory_data | jq -r '.results[].userAndLocation.email')
+
+            create_listitem_message_body "$userEmail" "" "pending" "Pending..."
+
+            # Look up the user by their email address and retrieve their user ID
+            userEmail=$(convert_to_hex "$userEmail")
+            inventory_data=$(JAMF_retrieve_data_summary "JSSResource/users/email/$userEmail" "json")
+            UserIDs+=($(echo $inventory_data | jq -r '.users[].id'))
+        done
+
+        create_listitem_message_body "" "" "" "" "last"
+        update_display_list "Create"
+    else
+        logMe "Creating VCF Cards from JAMF users"
+        UserList=$(JAMF_retrieve_data_summary "JSSResource/users" "xml")
+        create_listitem_list "The following VCF Cards are being created from the JAMF server" "xml" "name" $UserList
+        UserIDs=$(echo $UserList | xmllint --xpath '//id' - 2>/dev/null)
+    fi
+    UserIDs=($(echo "$UserIDs" | grep -Eo "[0-9]+" | xargs))
     userCount=${#UserIDs[@]}
 
     for item in ${UserIDs[@]}; do
-        tasks+=("extract_user_details $item")
+        tasks+=("extract_user_details $item" $menu_groupVCFExport)
     done
     execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
 
-   # Display how many Failed MDM command files were downloaded.
+    # Display how many VCF files were downloaded.
     DirectoryCount=$(ls $location_Contacts | wc -l | xargs )
     logMsg="$DirectoryCount Contacts were downloaded to $location_Contacts."
     logMe $logMsg 
@@ -1129,7 +1264,7 @@ function extract_user_details ()
 	[[ -z "${1}" ]] && return 0
 
     JAMF_retrieve_data_details "JSSResource/users/id/$1" "xml"
-
+    echo "User XML Blob: $xmlBlob"
     userShortName=$(extract_xml_data $xmlBlob "name" | head -n 1)
     userFullName=$(extract_xml_data $xmlBlob  "full_name")
     userEmail=$(extract_xml_data $xmlBlob "email_address")
@@ -1145,13 +1280,11 @@ function extract_user_details ()
     else
         update_display_list "Update" "" "${userShortName}" "" "wait" "Working..."
 
-
         if [[ $menu_onlyManagedUsers == "true" ]]; then
-            # if they choose to include non-managed users, then we will not check for managed systems
+            # if they choose to include only managed users, then we will check for managed systems
             managed=$(extract_assigned_systems ${xmlBlob})
         fi
 
-        # if they choose to show managed users only, then check if the user has any managed systems
         if [[ $managed == "false" ]]; then
             update_display_list "Update" "" "${userShortName}" "" "fail" "No managed systems"
         else
@@ -1190,7 +1323,7 @@ function extract_assigned_systems ()
  
     # Loop through and evaluate each computer ID
     for id in "${computer_ids[@]}"; do
-        inventory_data=$(JAMF_get_inventory_record $id "GENERAL")
+        inventory_data=$(JAMF_get_inventory_record_byID $id "GENERAL")
         # Check if the managed field is true
         [[ $(echo $inventory_data | jq -r '.general.remoteManagement.managed') == "true" ]] && managed=true
     done
@@ -1203,39 +1336,6 @@ function extract_assigned_systems ()
 #
 ###############################################
 
-function create_smart_groups_menu ()
-{
-    # PURPOSE: Create the VCF Cards menu
-    # RETURN: None
-    # EXPECTED: None
-
-    message="**Create VCF Cards**<br><br>You have selected to create VCF cards from the JAMF users.<br><br>There are some additional items to select:"
-    MainDialogBody=(
-        --message "$message"
-        --titlefont shadow=1
-        --ontop
-        --icon "${SD_ICON_FILE}"
-        --overlayicon "${OVERLAY_ICON}"
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --infobox "${SD_INFO_BOX_MSG}"
-        --checkbox "Export only managed users",name=OnlyManagedUsers
-        --width 800
-        --height 460
-        --ignorednd
-        --json
-        --quitkey 0
-        --button1text "OK"
-        --button2text "Cancel"
-    )
-
-    temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
-    returnCode=$?
-    [[ "$returnCode" == "2" ]] && cleanup_and_exit
-
-    menu_onlyManagedUsers=$( echo $temp | jq -r '.OnlyManagedUsers' )
-
-}
 
 function export_computer_groups ()
 {
@@ -1351,7 +1451,7 @@ function extract_assigned_systems ()
  
     # Loop through and evaluate each computer ID
     for id in "${computer_ids[@]}"; do
-        inventory_data=$(JAMF_get_inventory_record $id "GENERAL")
+        inventory_data=$(JAMF_get_inventory_record_byID $id "GENERAL")
         # Check if the managed field is true
         [[ $(echo $inventory_data | jq -r '.general.remoteManagement.managed') == "true" ]] && managed=true
     done
@@ -1395,7 +1495,7 @@ function execute_in_parallel ()
 function display_welcome_msg ()
 {
     # PURPOSE: Display the welcome message to the user
-    message="This set of utilities is designed to backup various items from your JAMF server.<br><br>Please select a destination folder location below:<br><br>##### _* Additional screens will appear for the selected options, if choosen._"
+    message="This set of utilities is designed to backup various items from your JAMF server.<br><br>Please select a destination folder location below:<br><br>##### + If choosen, additional screens will appear for the selected option."
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
@@ -1419,12 +1519,12 @@ function display_welcome_msg ()
         --helpmessage "This script will backup various items from your JAMF server.  Please select the items you wish to backup and the location to store them."
         --textfield "Select a storage location",fileselect,filetype=folder,required,name=StorageLocation
         --checkbox "Backup Self Service Icons (*.png)",checked,name=BackupSSIcons
-        --checkbox "* Exported failed MDM commands (*.txt)",checked,name=BackupFailedMDMCommands
+        --checkbox "+ Exported failed MDM commands (*.txt)",checked,name=BackupFailedMDMCommands
         --checkbox "Backup System Scripts (*.sh)",checked,name=BackupJAMFScripts
         --checkbox "Backup Computer Extension Attributes (*.sh)",checked,name=BackupComputerExtensions
         --checkbox "Backup Configuration Profiles (*.mobileconfig)",checked,name=BackupConfigurationProfiles
-        --checkbox "* Backup Smart Groups & Static Groups",checked,name=BackupSmartGroups
-        --checkbox "* Create VCF cards from email address (*.vcf)",checked,name=createVCFcards
+        --checkbox "Backup Smart Groups & Static Groups (*.txt)",checked,name=BackupSmartGroups
+        --checkbox "+ Create VCF cards from email address or Smart Groups (*.vcf)",checked,name=createVCFcards
     )
 	
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
@@ -1552,16 +1652,17 @@ declare location_ConfigurationProfiles
 declare location_FailedMDM
 declare jamfpro_version
 declare menuy_backupSmartGroups
+declare menu_groupVCFExport
 
 create_log_directory
 check_swift_dialog_install
 check_support_files
 create_infobox_message
-display_welcome_msg
-
 JAMF_check_connection
 JAMF_get_server
 JAMF_get_classic_api_token
+display_welcome_msg
+
 check_directories
 
 [[ "${menu_backupSSIcons}" == "true" ]] && backup_ss_icons
