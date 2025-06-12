@@ -21,7 +21,7 @@ The following items are available to be backed up:
 9.  Compose an email to the members of a Smart / Static Computer Group.
 
 
-This script is fully multitasked, so will execute each task pretty quickly.  It will create the folder structure for you and then download the items to the appropriate folders. 
+This script is fully multitasking, so will execute each task pretty quickly.  It will create the folder structure for you and then download the items to the appropriate folders. 
 
 **File Formats**
 
@@ -35,6 +35,22 @@ This script is fully multitasked, so will execute each task pretty quickly.  It 
 **Folder Structure**
 
 The subfolder locations can be customized by editing the ```function check_directories```
+
+** JAMF Pro OAuth API Support**
+
+When creating the roles, you can now use the OAuth API to create the roles.  This is useful if you are using JAMF Pro 10.32 or later, and have enabled OAuth API access.  You need to have at least these permissions:
+
+- Read access to Computer Inventory Collection
+- View MDM Profile command information in Jamf Pro API
+- Read access to Computers
+- Read access to Smart Computer Groups
+- Read access to Static Computer Groups
+- Read access to Scripts
+- Read access to User
+- Read access to Computer Extension Attributes
+- Read access to Policies
+- Read access to macOS Configuration Profiles
+- Send MDM command information in Jamf Pro API
 
 ------------------------------------
 
@@ -63,4 +79,12 @@ VCF (Emails) options
 Export Emails Process
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-Contacts.png)
 
+JAMF Roles
+![](/JAMFSystemUtilities/JAMFSystemUtilities-API_Roles.png
+)
+
 ##### _v1.0 - Initial Commit_
+##### 2.0 - Added options to export Smart /Static groups, 
+#####      export VCF cards for specific groups
+#####      send email to specific groups
+#####      added support for JAMF Pro OAuth API
