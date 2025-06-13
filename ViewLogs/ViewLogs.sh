@@ -5,10 +5,11 @@
 #
 # Created by: Scott Kendall
 # Created on: 01/29/25
-# Last Modified: 05/28/2025
+# Last Modified: 06/13/2025
 # 
 # 1.0 - Initial Commit
 # 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.2 - Made the variable EMAIL_APP to choose while mail app you want to use and automatically pasted the log contents into the body
 # 
 # Expected Parmaters
 #
@@ -56,7 +57,7 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}" 
 
 LOG_TO_VIEW=${4:-"/var/log/system.log"}
@@ -78,6 +79,8 @@ LOG_FILE="${LOG_DIR}/ViewLogFile.log"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 OVERLAY_ICON="${ICON_FILES}FileVaultIcon.icns"
 MAIL_ICON="${ICON_FILES}InternetLocation.icns"
+# Use the bundle identifier of your email app. you can find it by this command "osascript -e 'id of app "<appname>"' "
+EMAIL_APP='com.microsoft.outlook'
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
@@ -173,22 +176,23 @@ function import_log_contents ()
 {
     tail -${LOG_LENGTH} "${LOG_TO_VIEW}" > "${TMP_FILE_STORAGE}"
 
-    tempmsg=""
+    log_body=""
     while IFS= read -r item; do
-        tempmsg+="$item<br>"
+        log_body+="$item<br>"
     done < "${TMP_FILE_STORAGE}"
 }
 
 function mail_logs ()
 {
 	MainDialogBody=(
-        --message "The contents of the log file have been put on the clipboard.  Once the new message is composed, be sure to paste the log (Option-V or Edit > Paste) into the body of the mail message."
+        --message "Please enter the email address you want to send this to.  The contents of the log file will be put into the message body.  "
         --messagefont "size=16"
 		--ontop
 		--icon "${MAIL_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
 		--quitkey 0
+        --titlefont shadow=1
         --json
         --textfield "Email Address:",value="<username>@company.com"
 		--button1text "Send"
@@ -200,26 +204,25 @@ function mail_logs ()
     buttonpress=$?
     [[ ${buttonpress} -eq 2 ]] && return 0
 
-    cat ${TMP_FILE_STORAGE} | pbcopy
+    log_body=$(cat ${TMP_FILE_STORAGE})
     email_address=$(echo $output | awk '{print $NF}'| grep @ | xargs )
     
-    # Use outlook to send the email message
-
-    /usr/bin/open -b com.microsoft.outlook 'mailto:'${email_address}'?subject='${LOG_WINDOW_TITLE}' from '${MAC_SERIAL_NUMBER}
+    /usr/bin/open -b ${EMAIL_APP} 'mailto:'${email_address}'?subject='${LOG_WINDOW_TITLE}' from '${MAC_SERIAL_NUMBER}'&body='${log_body}
 
 }
 
 function welcomemsg ()
 {
 	MainDialogBody=(
-        --message "${tempmsg}"
+        --message "${log_body}"
         --messagefont "size=12"
 		--ontop
 		--icon "${OVERLAY_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
-		--width 1120
+        --titlefont shadow=1
+		--width 1000
         --height 600
 		--quitkey 0
         --json
@@ -251,6 +254,7 @@ function cleanup_and_exit ()
 autoload 'is-at-least'
 
 declare email_address
+declare log_body
 
 check_swift_dialog_install
 create_infobox_message
