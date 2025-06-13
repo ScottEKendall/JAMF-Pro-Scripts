@@ -10,6 +10,10 @@
 # Script Purpose: This script will extract all of the email addresses from your JAMF server and store them in local folder in a VCF format.
 #
 # 1.0 - Initial
+# 2.0 - Added options to export Smart /Static groups, 
+#       export VCF cards for specific groups
+#       send email to specific groups
+#       added support for JAMF Pro OAuth API
 
 ######################################################################################################
 #
@@ -64,6 +68,8 @@ SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_aut
 OVERLAY_ICON="/Applications/Self Service.app"
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
 DIALOG_CMD_FILE=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
+# Use the bundle identifier of your email app. you can find it by this command "osascript -e 'id of app "<appname>"' "
+EMAIL_APP='com.microsoft.outlook'
 /bin/chmod 666 $JSON_DIALOG_BLOB
 /bin/chmod 666 $DIALOG_CMD_FILE
 
@@ -79,6 +85,8 @@ JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID="$4"
 CLIENT_SECRET="$5"
+
+[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
 
 ####################################################################################################
 #
@@ -1272,7 +1280,7 @@ function create_vcf_cards ()
         email_address=$(cat ${location_Contacts}/contacts.txt)
         # Create a mailto link to open in Outlook with the email addresses
         email_clean=$(echo "$email_address" | tr -d '\r' | tr -d '\n')
-        /usr/bin/open -b com.microsoft.outlook 'mailto:'${email_clean}'?subject=Subject'
+        /usr/bin/open -b "${EMAIL_APP}" 'mailto:'${email_clean}'?subject=Subject'
     fi
 }
 
@@ -1718,13 +1726,7 @@ JAMF_check_connection
 JAMF_get_server
 # Check if the JAMF Pro server is using the new API or the classic API
 # If the client ID is longer than 30 characters, then it is using the new API
-if [[ ${#CLIENT_ID} -gt 30 ]]; then
-    JAMF_token="new"
-    JAMF_get_access_token
-else
-    JAMF_token="classic"
-    JAMF_get_classic_api_token    
-fi
+[[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token    
 display_welcome_msg
 
 check_directories
