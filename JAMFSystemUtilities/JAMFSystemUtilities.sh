@@ -14,6 +14,7 @@
 #       export VCF cards for specific groups
 #       send email to specific groups
 #       added support for JAMF Pro OAuth API
+# 2.1 - Added variable EMAIL_APP to allow users to choose which email app to use (have to use the bundle identifier)
 
 ######################################################################################################
 #
@@ -1280,7 +1281,7 @@ function create_vcf_cards ()
         email_address=$(cat ${location_Contacts}/contacts.txt)
         # Create a mailto link to open in Outlook with the email addresses
         email_clean=$(echo "$email_address" | tr -d '\r' | tr -d '\n')
-        /usr/bin/open -b "${EMAIL_APP}" 'mailto:'${email_clean}'?subject=Subject'
+        /usr/bin/open -b "${EMAIL_APP}" 'mailto:'${email_clean}'?subject=Subject&body=Type your message here'
     fi
 }
 
