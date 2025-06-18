@@ -16,6 +16,7 @@
 #       added support for JAMF Pro OAuth API
 # 2.1 - Added variable EMAIL_APP to allow users to choose which email app to use (have to use the bundle identifier)
 # 2.2 - Added option to export Application Usage
+# 2.3 - Fixed error logged and stored the error log in working directory
 
 ######################################################################################################
 #
@@ -68,6 +69,7 @@ SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_aut
 OVERLAY_ICON="/Applications/Self Service.app"
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
 DIALOG_CMD_FILE=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
+
 # Use the bundle identifier of your email app. you can find it by this command "osascript -e 'id of app "<appname>"' "
 EMAIL_APP='com.microsoft.outlook'
 /bin/chmod 666 $JSON_DIALOG_BLOB
@@ -976,8 +978,7 @@ function extract_script_details ()
     if [[ -z $scriptContents ]]; then
         update_display_list "Update" "" "${scriptName}" "" "fail" "Not exported!"
         logMe "Script ${scriptName} not exported due to empty contents"
-        failedItems+=("${scriptName}")
-        echo "errors found: $failedItems"
+        echo "Script Error: "${scriptName} >> $ERROR_LOG_LOCATION
     else
         update_display_list "Update" "" "${scriptName}" "" "wait" "Working..."
         # Store the script in the destination folder
@@ -1052,8 +1053,7 @@ function extract_extension_details ()
     if [[ -z $extensionScript ]]; then
         update_display_list "Update" "" "${extensionName}" "" "fail" "Not exported!"
         logMe "Extension ${extensionName} not exported due to empty contents"
-        failedItems+=("${formatted_extensionName}")
-        echo "errors found: $failedItems"
+        echo "Computer EA: "${formatted_extensionName} >> $ERROR_LOG_LOCATION
     else
         update_display_list "Update" "" "${extensionName}" "" "wait" "Working..."
         # Store the script in the destination folder
@@ -1122,8 +1122,7 @@ function extract_profile_details ()
     if [[ -z $profileContents ]]; then
         update_display_list "Update" "" "${profileName}" "" "fail" "Not exported!"
         logMe "Profile ${profileName} not exported due to empty contents"
-        failedItems+=("${formatted_profileName}")
-        echo "errors found: $profileName"
+        echo "Config Profile error: "${formatted_profileName} >> $ERROR_LOG_LOCATION
     else
         update_display_list "Update" "" "${profileName}" "" "wait" "Working..."
         # Store the script in the destination folder
@@ -1294,8 +1293,7 @@ function extract_user_details ()
     if [[ -z $userFullName ]]; then
         update_display_list "Update" "" "${userShortName}" "" "fail" "Not exported"
         logMe "User ${userShortName} not exported due to empty full name"
-        failedItems+=("${userShortName}")
-        echo "errors found: $userShortName"
+        echo "User VCF Empty :"${userShortName} >> $ERROR_LOG_LOCATION
     else
         update_display_list "Update" "" "${userShortName}" "" "wait" "Working..."
 
@@ -1452,8 +1450,8 @@ function export_computer_group_details ()
     if [[ -z $groupName ]]; then
         update_display_list "Update" "" "${groupName}" "" "fail" "Not exported"
         logMe "Group ${groupName} not exported due to empty group name"
-        failedItems+=("${groupName}")
-        echo "errors found: $groupName"
+        echo "Computer Group export: "${groupName} >> $ERROR_LOG_LOCATION
+
     else
         update_display_list "Update" "" "${groupName}" "" "wait" "Working..."
         logMe "Exporting ${groupIsSmart} group ${groupName} to text file"
@@ -1556,9 +1554,9 @@ function export_usage_details ()
 
     # if the script returns <computer_application_usage/> then there is no data to show
     if [[ ${xmlBlob} == '{"computer_application_usage":[]}' ]]; then
-        update_display_list "Update" "" "${1}" "" "fail" "No Usage Data"
+        update_display_list "Update" "" "${1}" "" "fail" "No usage date for those dates"
         logMe "No computer usage data found for ${1}"
-        failedItems+=("${1}")
+        echo "App Usage no data: "${1} >> $ERROR_LOG_LOCATION
     else
         appDate=($(echo $xmlBlob | jq -r '.computer_application_usage[].date'))
         update_display_list "Update" "" "${1}" "" "wait" "Working..."
@@ -1702,10 +1700,12 @@ function display_welcome_msg ()
 function show_backup_errors ()
 {
     message="$1<br><br>"
-    for item in "${failedItems[@]}"; do
-        message+="* $item<br>"
-    done
-    message+="<br>This might be due to improper formatting in the original script or invalid characters.  You might need to copy these scripts manually out of JAMF."
+     while IFS= read -r line; do
+        # Process each line as needed, for example, print it
+        message+="* $line<br>"
+    done < "${ERROR_LOG_LOCATION}"
+
+    message+="<br>This might be due to improper formatting in a script, or empty data contents.  You will need to investigate each issue manually.<br><br>The error log is located at:<br> ${ERROR_LOG_LOCATION}"
 
 	MainDialogBody=(
         --message "$message"
@@ -1717,8 +1717,8 @@ function show_backup_errors ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --helpmessage ""
-        --width 800
-        --height 460
+        --width 900
+        --height 660
         --ignorednd
         --quitkey 0
         --button1text "OK"
@@ -1757,6 +1757,7 @@ function check_directories ()
 
     chmod -R 755 "${menu_storageLocation}"
     chown -R "${LOGGED_IN_USER}" "${menu_storageLocation}"
+    ERROR_LOG_LOCATION="${menu_storageLocation/Errors}/JAMFErrors.txt"
 }
 
 function fix_import_errors ()
@@ -1772,7 +1773,7 @@ function fix_import_errors ()
     errorMessage=$(echo $1 | head -n 5 | awk -F '<name>|</name>' '{print $2}')
     update_display_list "Update" "" "${errorMessage}" "" "error" "$2"
     logMe "Error in import: $errorMessage $2"
-    failedItems+=("$errorMessage")
+    echo "Problems export Script: "$errorMessage >> $ERROR_LOG_LOCATION
 
 }
 
@@ -1800,7 +1801,7 @@ declare jamfpro_url
 declare ScriptList
 declare UserList
 declare xmlBlob
-declare -a failedItems
+declare -a failedItemsList && failedItemsList=()
 declare menu_backupJAMFScripts
 declare menu_backupSSIcons
 declare menu_createVCFcards
@@ -1836,8 +1837,8 @@ JAMF_get_server
 # Check if the JAMF Pro server is using the new API or the classic API
 # If the client ID is longer than 30 characters, then it is using the new API
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token    
-display_welcome_msg
 
+display_welcome_msg
 check_directories
 
 [[ "${menu_backupSSIcons}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; backup_ss_icons;}
@@ -1853,7 +1854,6 @@ JAMF_invalidate_token
 # If we get here, then we are done with the script
 logMe "JAMF Backup Utilities completed successfully!"
 # Show errors if any failed backups occurred
-echo $failedItems
 
-[[ ! -z $failedItems ]] && show_backup_errors "The following items could not be backed up for some reason!"
+[[ -s "${ERROR_LOG_LOCATION}" ]] && show_backup_errors "The following items could not be backed up or exported for some reason!"
 cleanup_and_exit
