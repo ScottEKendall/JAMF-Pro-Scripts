@@ -14,6 +14,7 @@
 # 1.1 - Changed the get_nic_info logic
 # 1.2 - renamed all JAMF functions to start with JAMF_.....
 # 1.3 - Changed JAMF function names to be more descriptive
+# 1.4 - Added listitem, textbox, checkbox and dropdown functions
 
 ######################################################################################################
 #
