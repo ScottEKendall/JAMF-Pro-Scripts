@@ -274,15 +274,22 @@ function update_display_list ()
 	esac
 }
 
-function extract_xml_data ()
+function extract_data_blob ()
 {
     declare -a retval
     # PURPOSE: extract an XML string from the passed string
     # RETURN: parsed XML string
     # PARAMETERS: $1 - XML "blob"
     #             $2 - String to extract
+    #             $3 - String type to extract (XML or JSON)
     # EXPECTED: None
-    retval=$(echo "$1" | xmllint --xpath "//$2/text()" - 2>/dev/null)
+    declare format=$3
+    [[ -z "${format}" ]] && format="xml"
+    if [[ ${format} == "xml" ]]; then
+        retval=$(echo "$1" | xmllint --xpath "//$2/text()" - 2>/dev/null)
+    else
+        retval=$(echo -E "$1" | jq -r $2)
+    fi
     echo $retval
 }
 
@@ -362,7 +369,7 @@ function create_listitem_list ()
     
     if [[ "$2:l" == "json" ]]; then
         # If the second parameter is XML, then parse the XML data
-        xml_blob=$(echo $4 | jq -r '.results[]'$3)
+        xml_blob=$(echo -E $4 | jq -r '.results[]'$3)
     else
         # If the second parameter is JSON, then parse the JSON data
         xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2) #>/dev/null)
@@ -439,7 +446,7 @@ function create_dropdown_list ()
     
     if [[ "$2:l" == "json" ]]; then
         # If the second parameter is XML, then parse the XML data
-        xml_blob=$(echo $4 | jq -r '.results[]'$3)
+        xml_blob=$(echo -E $4 | jq -r '.results[]'$3)
     else
         # If the second parameter is JSON, then parse the JSON data
         xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2) #>/dev/null)
@@ -487,7 +494,7 @@ function construct_dropdown_list_items ()
     # PARMS: $1 - XML variable to parse 
     declare xml_blob
     declare line
-    xml_blob=$(echo $1 |jq -r '.computer_groups[] | "\(.id) - \(.name)"')
+    xml_blob=$(echo -E $1 |jq -r '.computer_groups[] | "\(.id) - \(.name)"')
     echo $xml_blob | while IFS= read -r line; do
         # Remove the <name> and </name> tags from the line and trailing spaces
         line="${${line#*<name>}%</name>*}"
@@ -660,7 +667,7 @@ function JAMF_retrieve_data_blob ()
 
     declare format=$2
     [[ -z "${format}" ]] && format="xml"
-    echo $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" )
+    echo -E $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" )
 }
 
 function JAMF_retrieve_data_blob_global ()
@@ -769,11 +776,11 @@ function backup_ss_icons_detail ()
 
     JAMF_retrieve_data_blob_global "JSSResource/policies/id/$1" "xml"
     # Extract the policy name, icon ID, icon filename, and icon URI from the XML blob
-    PolicyName=$(extract_xml_data $xmlBlob "name" | head -n 1)
-    ss_icon=$(extract_xml_data $xmlBlob "self_service_icon/id")
-    ss_iconName=$(extract_xml_data $xmlBlob "self_service_icon/filename")
-    ss_iconURI=$(extract_xml_data $xmlBlob "self_service_icon/uri")
-    ss_policy_check=$(extract_xml_data $xmlBlob "self_service/use_for_self_service")
+    PolicyName=$(extract_data_blob $xmlBlob "name" | head -n 1)
+    ss_icon=$(extract_data_blob $xmlBlob "self_service_icon/id")
+    ss_iconName=$(extract_data_blob $xmlBlob "self_service_icon/filename")
+    ss_iconURI=$(extract_data_blob $xmlBlob "self_service_icon/uri")
+    ss_policy_check=$(extract_data_blob $xmlBlob "self_service/use_for_self_service")
 
 
     # Remove any special characters that might mess with APFS
@@ -872,14 +879,14 @@ function export_failed_mdm_details ()
     declare exported_filename
 
     JAMF_retrieve_data_blob_global "JSSResource/computerhistory/name/$id" "xml"
-    deviceName=$(extract_xml_data $xmlBlob "name" | head -n 1)
-    deviceID=$(extract_xml_data $xmlBlob "id" | head -n 1)
+    deviceName=$(extract_data_blob $xmlBlob "name" | head -n 1)
+    deviceID=$(extract_data_blob $xmlBlob "id" | head -n 1)
 
-    devicefailedMDM=$(extract_xml_data $xmlBlob "failed")
+    devicefailedMDM=$(extract_data_blob $xmlBlob "failed")
     devicefailedMDM=("${(@f)devicefailedMDM}")
-    devicefailedStatus=$(extract_xml_data $xmlBlob "//failed//status")
+    devicefailedStatus=$(extract_data_blob $xmlBlob "//failed//status")
     devicefailedStatus=("${(@f)devicefailedStatus}")
-    devicefailedName=$(extract_xml_data $xmlBlob "//failed//name")
+    devicefailedName=$(extract_data_blob $xmlBlob "//failed//name")
     devicefailedName=("${(@f)devicefailedName}")
     # Remove any special characters that might mess with APFS
     formatted_deviceName=$(make_apfs_safe $deviceName)
@@ -930,11 +937,10 @@ function backup_jamf_scripts ()
     declare logMsg
     # PURPOSE: Backup all of the JAMF scripts from JAMF
     logMe "Backing up JAMF scripts"
-    ScriptList=$(JAMF_retrieve_data_blob "JSSResource/scripts" "xml")
-    create_listitem_list "The following JAMF scripts are being downloaded from JAMF" "xml" "name" "$ScriptList"
 
-    ScriptIDs=$(echo $ScriptList | xmllint --xpath '//id' - 2>/dev/null)
-    ScriptIDs=($(remove_xml_tags "$ScriptIDs" "id"))
+    ScriptList=$(JAMF_retrieve_data_blob "api/v1/scripts?page=0&page-size=100&sort=name%3Aasc" "json")
+    create_listitem_list "The following JAMF scripts are being downloaded from JAMF" "json" ".name" "$ScriptList"
+    ScriptIDs=($(echo -E $ScriptList | jq -r '.results[].id' ))
 
     for item in ${ScriptIDs[@]}; do
         tasks+=("extract_script_details $item")
@@ -963,17 +969,16 @@ function extract_script_details ()
     declare formatted_scriptName
     declare exported_filename
 
-    JAMF_retrieve_data_blob_global "JSSResource/scripts/id/$1" "xml"
-    
-    scriptName=$(extract_xml_data $xmlBlob "name")
+    JAMF_retrieve_data_blob_global "/api/v1/scripts/$1" "json"
+    scriptName=$(echo -E "$xmlBlob" | jq -r '.name')
+
     # if the Script name is empty, then we will not be able to export it, so show as a failure and report it
     if [[ -z $scriptName ]]; then
         fix_import_errors "$xmlBlob" "Problems saving script"
         return 1
     fi
-    scriptCategory=$(extract_xml_data $xmlBlob "category")
-    # For some reason, the script contents are not being extracted correctly, so we will use the following line instead
-    scriptContents=$(echo "$xmlBlob" | xmllint --xpath 'string(//'script_contents')' - 2>/dev/null)
+    scriptCategory=$(echo -E "$xmlBlob" | jq -r '.categoryName')
+    scriptContents=$(echo -E "$xmlBlob" | jq -r '.scriptContents')
 
     # Remove any special characters that might mess with APFS
     formatted_scriptName=$(make_apfs_safe $scriptName)
@@ -1008,13 +1013,12 @@ function  backup_computer_extensions ()
     # RETURN: None
     # EXPECTED: None
 
-    logMe "Backing up computer extensions"
+    logMe "Backing up computer Extensions Attributes"
 
-    ExtensionList=$(JAMF_retrieve_data_blob "JSSResource/computerextensionattributes" "xml")
-    create_listitem_list "The following Computer EAs are being downloaded from JAMF" "xml" "name" "$ExtensionList"
+    ExtensionList=$(JAMF_retrieve_data_blob "api/v1/computer-extension-attributes?page=0&page-size=100&sort=name.asc" "json")
+    create_listitem_list "The following Computer EAs are being downloaded from JAMF" "json" ".name" "$ExtensionList"
 
-    ExtensionIDs=$(echo $ExtensionList | xmllint --xpath '//id' - 2>/dev/null)
-    ExtensionIDs=($(remove_xml_tags "$ExtensionIDs" "id"))
+    ExtensionIDs=($(extract_data_blob $ExtensionList ".results[].id" "json"))
 
     for item in ${ExtensionIDs[@]}; do
         tasks+=("extract_extension_details $item")
@@ -1040,21 +1044,35 @@ function extract_extension_details ()
     declare extensionScript
     declare formatted_extensionName
     declare exported_filename
+    declare fileDetails
 
     [[ -z "${1}" ]] && return 0
 
-    JAMF_retrieve_data_blob_global "JSSResource/computerextensionattributes/id/$1" "xml"
+    JAMF_retrieve_data_blob_global "api/v1/computer-extension-attributes/$1" "json"
 
-    extensionName=$(extract_xml_data $xmlBlob "name")
-    #for some reason, the script contents are not being extracted correctly, so we will use the following line instea
-  
-    extensionScript=$(echo "$xmlBlob" | xmllint --xpath 'string(//'script')' - 2>/dev/null)   
-
+    extensionName=$(extract_data_blob $xmlBlob ".name" "json")
+    extensionType=$(extract_data_blob $xmlBlob ".inputType" "json")
+    
     # Remove any special characters that might mess with APFS
     formatted_extensionName=$(make_apfs_safe $extensionName)
 
+    case "${extensionType}" in
+        TEXT )
+            fileDetails="Text field: "$(extract_data_blob $xmlBlob ".dataType" "json")
+            ;;
+        SCRIPT )
+            fileDetails=$(extract_data_blob $xmlBlob ".scriptContents" "json")
+            ;;
+        POPUP )
+            fileDetails="Pop-up Chocies: \n\n"$(extract_data_blob $xmlBlob ".popupMenuChoices[]" "json")
+            ;;
+        DIRECTORY_SERVICE_ATTRIBUTE_MAPPING )
+            fileDetails="AD Mapping: "$(extract_data_blob $xmlBlob ".ldapAttributeMapping" "json")
+            ;;
+    esac
     # if the script shows as empty (probably due to import issues), then show as a failure and report it
-    if [[ -z $extensionScript ]]; then
+
+    if [[ -z $fileDetails ]]; then
         update_display_list "Update" "" "${extensionName}" "" "fail" "Not exported!"
         logMe "Extension ${extensionName} not exported due to empty contents"
         echo "Problems exporting Computer EA: "${formatted_extensionName} >> $ERROR_LOG_LOCATION
@@ -1063,7 +1081,8 @@ function extract_extension_details ()
         # Store the script in the destination folder
         exported_filename="$location_ComputerEA/${formatted_extensionName}.sh"
         logMe "Exporting extension ${extensionName} to $exported_filename"
-        echo "${extensionScript}" > "${exported_filename}"
+
+        echo "${fileDetails}" > "${exported_filename}"
         update_display_list "Update" "" "${extensionName}" "" "success" "Finished"
     fi
 }
@@ -1116,7 +1135,7 @@ function extract_profile_details ()
 
     JAMF_retrieve_data_blob_global "JSSResource/osxconfigurationprofiles/id/$1" "xml"
 
-    profileName=$(extract_xml_data $xmlBlob "name" | head -n 1)
+    profileName=$(extract_data_blob $xmlBlob "name" | head -n 1)
     profileContents=$(echo "$xmlBlob" | xmllint --xpath 'string(//payloads)' - 2>/dev/null)
 
     # Remove any special characters that might mess with APFS
@@ -1287,10 +1306,10 @@ function extract_user_details ()
 	[[ -z "${1}" ]] && return 0
 
     JAMF_retrieve_data_blob_global "JSSResource/users/id/$1" "xml"
-    userShortName=$(extract_xml_data $xmlBlob "name" | head -n 1)
-    userFullName=$(extract_xml_data $xmlBlob  "full_name")
-    userEmail=$(extract_xml_data $xmlBlob "email_address")
-    userPosition=$(extract_xml_data $xmlBlob "position")
+    userShortName=$(extract_data_blob $xmlBlob "name" | head -n 1)
+    userFullName=$(extract_data_blob $xmlBlob  "full_name")
+    userEmail=$(extract_data_blob $xmlBlob "email_address")
+    userPosition=$(extract_data_blob $xmlBlob "position")
 
 
     # if the script shows as empty (probably due to import issues), then show as a failure and report it
@@ -1402,36 +1421,36 @@ function export_computer_group_details ()
 
     JAMF_retrieve_data_blob_global "JSSResource/computergroups/id/$groupid" "xml"
 
-    groupName=$(extract_xml_data $xmlBlob "name" | head -n 1)
+    groupName=$(extract_data_blob $xmlBlob "name" | head -n 1)
     # Parse the XML to get the group details
     # get the group name and see if it is a smart group or a static group
     # this section will store every condition into an array, so that we can display it later
     
-    groupIsSmart=$(extract_xml_data $xmlBlob "is_smart")
+    groupIsSmart=$(extract_data_blob $xmlBlob "is_smart")
 
     [[ $groupIsSmart == "true" ]] && groupIsSmart="Smart" || groupIsSmart="Static"
 
     # extract the group criteria
     # opening and closing parentheses
-    groupOpenParen=$(extract_xml_data $xmlBlob  "opening_paren")
+    groupOpenParen=$(extract_data_blob $xmlBlob  "opening_paren")
     groupOpenParen=("${(@f)groupOpenParen}") # Convert to array
     
-    groupCloseParen=$(extract_xml_data $xmlBlob "closing_paren")
+    groupCloseParen=$(extract_data_blob $xmlBlob "closing_paren")
     groupCloseParen=("${(@f)groupCloseParen}") # Convert to array
     
-    groupAndOr=$(extract_xml_data $xmlBlob "and_or")
+    groupAndOr=$(extract_data_blob $xmlBlob "and_or")
     groupAndOr=("${(@f)groupAndOr}") # Convert to array
     groupAndOr=("${(U)groupAndOr[@]}") # Convert to uppercase
     groupAndOr=("${groupAndOr[@]:1}") # Remove the first element, which is not needed
     
     # extract the group criteria, search type and value
-    groupCriteria=$(extract_xml_data $xmlBlob "criteria//name")
+    groupCriteria=$(extract_data_blob $xmlBlob "criteria//name")
     groupCriteria=("${(@f)groupCriteria}") # Convert to array    
 
-    groupSearchType=$(extract_xml_data $xmlBlob "criteria//search_type")
+    groupSearchType=$(extract_data_blob $xmlBlob "criteria//search_type")
     groupSearchType=("${(@f)groupSearchType}") # Convert to array
 
-    groupValue=$(extract_xml_data $xmlBlob "criteria//value")
+    groupValue=$(extract_data_blob $xmlBlob "criteria//value")
     groupValue=("${(@f)groupValue}") # Convert to array
  
     if [[ $groupIsSmart == "Smart" ]]; then
@@ -1447,7 +1466,7 @@ function export_computer_group_details ()
     else
         # If the group is a static group, then we will just list the members
         groupCondition="$groupIsSmart group ($groupid)\n\nMembers:\n\n"
-        memberID=$(extract_xml_data $xmlBlob  "computers//name")
+        memberID=$(extract_data_blob $xmlBlob  "computers//name")
         groupCondition+="$(echo "${memberID[@]}" | sed 's/ /\n/g')\n"
     fi
     # if the script shows as empty (probably due to import issues), then show as a failure and report it
