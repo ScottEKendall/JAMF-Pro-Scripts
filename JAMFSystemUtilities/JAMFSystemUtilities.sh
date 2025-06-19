@@ -17,6 +17,10 @@
 # 2.1 - Added variable EMAIL_APP to allow users to choose which email app to use (have to use the bundle identifier)
 # 2.2 - Added option to export Application Usage
 # 2.3 - Fixed error logged and stored the error log in working directory
+# 2.4 - Fixed a typo in line #1233..changed "frst" to "first"
+#     - Delete the error log from previous runs before script starts
+#     - Chaged checkbox style to switch so the list is now scrollable
+#     - Better error log report during failures
 
 ######################################################################################################
 #
@@ -325,19 +329,19 @@ function construct_dialog_header_settings ()
 	# PARMS Passed: $1 is message to be displayed on the window
 
 	echo '{
-		"icon" : "'${SD_ICON_FILE}'",
-		"message" : "'$1'",
-		"bannerimage" : "'${SD_BANNER_IMAGE}'",
+        "icon" : "'${SD_ICON_FILE}'",
+        "message" : "'$1'",
+        "bannerimage" : "'${SD_BANNER_IMAGE}'",
         "infobox" : "'${SD_INFO_BOX_MSG}'",
         "overlayicon" : "'${OVERLAY_ICON}'",
         "ontop" : "true",
-		"bannertitle" : "'${SD_WINDOW_TITLE}'",
-		"titlefont" : "shadow=1",
-		"button1text" : "OK",
-		"moveable" : "true",
+        "bannertitle" : "'${SD_WINDOW_TITLE}'",
+        "titlefont" : "shadow=1",
+        "button1text" : "OK",
+        "moveable" : "true",
         "json" : "true", 
-		"quitkey" : "0",
-		"messageposition" : "top",'
+        "quitkey" : "0",
+        "messageposition" : "top",'
 }
 
 function create_listitem_list ()
@@ -1053,7 +1057,7 @@ function extract_extension_details ()
     if [[ -z $extensionScript ]]; then
         update_display_list "Update" "" "${extensionName}" "" "fail" "Not exported!"
         logMe "Extension ${extensionName} not exported due to empty contents"
-        echo "Computer EA: "${formatted_extensionName} >> $ERROR_LOG_LOCATION
+        echo "Problems exporting Computer EA: "${formatted_extensionName} >> $ERROR_LOG_LOCATION
     else
         update_display_list "Update" "" "${extensionName}" "" "wait" "Working..."
         # Store the script in the destination folder
@@ -1229,7 +1233,7 @@ function create_vcf_cards ()
             if [[ $i -eq 0 ]]; then
                 # Show a message that we are creating VCF cards from the group (this is the first item)
                 construct_dialog_header_settings "The following VCF Cards are being created from the JAMF group:<br><br>** $GroupName" > "${JSON_DIALOG_BLOB}"
-                create_listitem_message_body "$userEmail" "" "Adding User..." "pending" "frst"
+                create_listitem_message_body "$userEmail" "" "Adding User..." "pending" "first"
                 create_listitem_message_body "" "" "" "" "last"
                 update_display_list "Create"
             else
@@ -1662,6 +1666,7 @@ function display_welcome_msg ()
         --button1text "OK"
         --button2text "Cancel"
         --infobuttontext "My Repo"
+        --checkboxstyle switch
         --infobuttonaction "https://github.com/ScottEKendall/JAMF-Pro-Scripts"
         --helpmessage "This script will backup various items from your JAMF server.  Please select the items you wish to backup and the location to store them."
         --textfield "Select a storage location",fileselect,filetype=folder,required,name=StorageLocation
@@ -1672,7 +1677,7 @@ function display_welcome_msg ()
         --checkbox "Backup Computer Extension Attributes (*.sh)",checked,name=BackupComputerExtensions
         --checkbox "Backup Configuration Profiles (*.mobileconfig)",checked,name=BackupConfigurationProfiles
         --checkbox "Backup Smart Groups & Static Groups (*.txt)",checked,name=BackupSmartGroups
-        --checkbox "+ Create VCF cards from email address or Smart Groups (*.vcf)",checked,name=createVCFcards
+        --checkbox "+ Create VCF cards or send emails from Groups (*.vcf)",checked,name=createVCFcards
         --checkbox "+ Export Application Usage from Users / Groups (*.csv)",checked,name=exportApplicationUsage
         )
 	
@@ -1840,6 +1845,9 @@ JAMF_get_server
 
 display_welcome_msg
 check_directories
+
+# Remove exissting error log if one exists
+[[ -e "${ERROR_LOG_LOCATION}" ]] && rm -r "${ERROR_LOG_LOCATION}"
 
 [[ "${menu_backupSSIcons}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; backup_ss_icons;}
 [[ "${menu_backupFailedMDM}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; export_failed_mdm_devices;}
