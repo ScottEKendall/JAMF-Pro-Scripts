@@ -222,7 +222,6 @@ create_infobox_message
 welcomemsg
 exit 0
 
-
 function update_display_list ()
 {
     # setopt -s nocasematch
@@ -475,6 +474,75 @@ function get_nic_info ()
 
 }
 
+function extract_xml_data ()
+{
+    declare -a retval
+    # PURPOSE: extract an XML string from the passed string
+    # RETURN: parsed XML string
+    # PARAMETERS: $1 - XML "blob"
+    #             $2 - String to extract
+    # EXPECTED: None
+    retval=$(echo "$1" | xmllint --xpath "//$2/text()" - 2>/dev/null)
+    echo $retval
+}
+
+function make_apfs_safe ()
+{
+    # PURPOSE: Remove any "illegal" APFS macOS characters from filename
+    # RETURN: ADFS safe filename
+    # PARAMETERS: $1 - string to format
+    # EXPECTED: None
+    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/\//-/g' -e 's/|/-/g')
+}
+
+function convert_to_hex ()
+{
+    local input="$1"
+    local length="${#input}"
+    local result=""
+
+    for (( i = 0; i <= length; i++ )); do
+        local char="${input[i]}"
+        if [[ "$char" =~ [^a-zA-Z0-9] ]]; then
+            hex=$(printf '%x' "'$char")
+            result+="%$hex"
+        else
+            result+="$char"
+        fi
+    done
+
+    echo "$result"
+}
+
+function execute_in_parallel ()
+{
+    # PURPOSE: Execute a list of tasks in parallel, with a limit on the number of concurrent jobs
+    # RETURN: None
+    # PARAMETERS: $1 - Maximum number of concurrent jobs
+    #             $2 - Array list of tasks to execute
+    # EXPECTED: None
+
+    declare max_jobs=$1
+    shift
+    declare tasks=("$@")
+    declare current_jobs=0
+    declare pids=()
+
+    for task in "${tasks[@]}"; do
+        eval "${task}" &
+        pids+=($!)
+        ((current_jobs++))
+        if [[ $current_jobs -ge $max_jobs ]]; then
+            for pid in "${pids[@]}"; do wait $pid; done
+            current_jobs=0
+            pids=()
+        fi
+    done
+
+    # Wait for any remaining jobs
+    for pid in "${pids[@]}"; do wait $pid; done
+}
+
 ###########################
 #
 # JAMF functions
@@ -512,6 +580,12 @@ function JAMF_get_classic_api_token ()
     # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
 
      api_token=$(/usr/bin/curl -X POST --silent -u "${CLIENT_ID}:${CLIENT_SECRET}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
+     if [[ "$api_token" == *"Could not extract value"* ]]; then
+         logMe "Error: Unable to obtain API token. Check your credentials and JAMF Pro URL."
+         exit 1
+     else 
+        logMe "Classic API token successfully obtained."
+    fi
 
 }
 
@@ -543,6 +617,8 @@ function JAMF_get_access_token ()
     elif [[ "$returnval" == '{"error":"invalid_client"}' ]]; then
         logMe "Check the API Client credentials and permissions"
         exit 1
+    else
+        logMe "API token successfully obtained."
     fi
     
     api_token=$(echo "$returnval" | plutil -extract access_token raw -)
@@ -593,58 +669,100 @@ function JAMF_invalidate_token ()
     fi    
 }
 
-function JAMF_retrieve_xml_data_summary ()
+function JAMF_retrieve_data_summary ()
 {    
     # PURPOSE: Extract the summary of the JAMF conmand results
     # RETURN: XML contents of command
-    # PARAMTERS: The API command of the JAMF atrribute to read
+    # PARAMTERS: $1 = The API command of the JAMF atrribute to read
+    #            $2 = format to return XML or JSON
     # EXPECTED: 
     #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
     #   api_token - base64 hex code of your bearer token
     #   jamppro_url - the URL of your JAMF server   
-    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}${1}" )
+    [[ -z "${2}" ]] && $2="xml"
+    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/$2" "${jamfpro_url}${1}" )
 }
 
-function JAMF_retrieve_xml_data_details ()
+function JAMF_retrieve_data_details ()
 {    
     # PURPOSE: Extract the summary of the JAMF conmand results
     # RETURN: XML contents of command
-    # PARAMTERS: The subset API command of the JAMF atrribute to read
+    # PARAMTERS: $1 = The API command of the JAMF atrribute to read
+    #            $2 = format to return XML or JSON
     # EXPECTED: 
     #   api_token - base64 hex code of your bearer token
-    #   jamppro_url - the URL of your JAMF server   
-    xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}${1}")
+    #   jamppro_url - the URL of your JAMF server
+    declare format=$2
+    [[ -z "${format}" ]] && format="xml"
+    xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}")
 }
 
-function JAMF_get_inventory_record ()
+function JAMF_get_inventory_record()
 {
     # PURPOSE: Uses the JAMF 
     # RETURN: the device ID (UDID) for the device in question.
-    # PARMS: $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
+    # PARMS:  $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
     #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
     #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
+    #        $2 - Filter condition to use for search
+
+    filter=$(convert_to_hex $2)
+    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory?section=$1&filter=$filter" 2>/dev/null)
+    echo $retval | tr -d '\n'
+}
+
+function JAMF_get_inventory_record_byID ()
+{
+    # PURPOSE: Uses the JAMF 
+    # RETURN: the device ID (UDID) for the device in question.
+    # PARMS: $1 - The JAMF ID of the device to retrieve
+    #        $2 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
+    #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
+    #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
+    #        $3 - Filter to use for search
+
     retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$1?section=$2" 2>/dev/null)
     echo $retval | tr -d '\n'
 }
 
 function JAMF_get_policy_list ()
 {
-    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/policies" )
+    # PURPOSE: Get the list of policies from JAMF Pro
+    # RETURN: XML contents of command
+    # EXPECTED: api_token, jamfpro_url
+    # PARMS: None
+
+    echo $(curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/policies")
 
 }
 
-function JAMF_get_deviceID ()
+function JAMF_clear_failed_mdm_commands()
 {
-    # PURPOSE: uses the serial number or hostname to get the device ID (UDID) from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
-    # RETURN: the device ID (UDID) for the device in question.
-    # PARMS: $1 - search identifier to use (Serial or Hostname)
-
-    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-
-    echo $(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" | /usr/bin/plutil -extract results.0.id raw -)
+    # PURPOSE: clear failed MDM commands for the computer in Jamf Pro
+    # RETURN: None
+    # Expected jamfpro_url, api_token, ID
+    
+    response=$(curl -s -X DELETE "${jamfpro_url}JSSResource/commandflush/computers/id/$1/status/Failed" -H "Authorization: Bearer $api_token")
+    logMe "Clear MDM Commands Response: $response"
 }
 
-function sendRecoveryLockCommand()
+function JAMF_fileVault_recovery_key_valid_check () 
+{
+     # Verify that a FileVault recovery key is available by running an API command
+     # which checks if there is a FileVault recovery key present.
+     #
+     # The API call will only return the HTTP status code.
+
+     filevault_recovery_key_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" --request GET -H "Authorization: Bearer ${api_token}")
+}
+
+function JAMF_fileVault_recovery_key_retrieval () 
+{
+     # Retrieves a FileVault recovery key from the computer inventory record.
+     filevault_recovery_key_retrieved=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" | plutil -extract personalRecoveryKey raw -)   
+}
+
+function JANMF_send_recovery_lock_command()
 {
     # PURPOSE: send the command to clear or remove the Recovery Lock 
     # RETURN: None
@@ -667,19 +785,209 @@ EOF
 	logMe "Recovery Lock ${lockMode} for ${computer_id}"
 }
 
-function FileVaultRecoveryKeyValidCheck () 
-{
-     # Verify that a FileVault recovery key is available by running an API command
-     # which checks if there is a FileVault recovery key present.
-     #
-     # The API call will only return the HTTP status code.
+#######################################################################################################
+# 
+# Functions to create textfields, listitems, checkboxes & dropdown lists
+#
+#######################################################################################################
 
-     filevault_recovery_key_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" --request GET -H "Authorization: Bearer ${api_token}")
+function construct_dialog_header_settings ()
+{
+    # Construct the basic Switft Dialog screen info that is used on all messages
+    #
+    # RETURN: None
+	# VARIABLES expected: All of the Widow variables should be set
+	# PARMS Passed: $1 is message to be displayed on the window
+
+	echo '{
+        "icon" : "'${SD_ICON_FILE}'",
+        "message" : "'$1'",
+        "bannerimage" : "'${SD_BANNER_IMAGE}'",
+        "infobox" : "'${SD_INFO_BOX_MSG}'",
+        "overlayicon" : "'${OVERLAY_ICON}'",
+        "ontop" : "true",
+        "bannertitle" : "'${SD_WINDOW_TITLE}'",
+        "titlefont" : "shadow=1",
+        "button1text" : "OK",
+        "moveable" : "true",
+        "json" : "true", 
+        "quitkey" : "0",
+        "messageposition" : "top",'
 }
 
-function FileVaultRecoveryKeyRetrieval () 
+function create_listitem_list ()
 {
-     # Retrieves a FileVault recovery key from the computer inventory record.
-     filevault_recovery_key_retrieved=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" | plutil -extract personalRecoveryKey raw -)   
+    # PURPOSE: Create the display list for the dialog box
+    # RETURN: None
+    # EXPECTED: JSON_DIALOG_BLOB should be defined
+    # PARMS: $1 - message to be displayed on the window
+    #        $2 - tyoe of data to parse XML or JSON
+    #        #3 - key to parse for list items
+    #        $4 - string to parse for list items
+    # EXPECTED: None
+
+    construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
+    create_listitem_message_body "" "" "" "" "first"
+
+    # Parse the XML or JSON data and create list items
+    
+    if [[ "$2:l" == "json" ]]; then
+        # If the second parameter is XML, then parse the XML data
+        xml_blob=$(echo $4 | jq -r '.results[]'$3)
+    else
+        # If the second parameter is JSON, then parse the JSON data
+        xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2) #>/dev/null)
+    fi
+
+    echo $xml_blob | while IFS= read -r line; do
+        # Remove the <name> and </name> tags from the line and trailing spaces
+        line="${${line#*<name>}%</name>*}"
+        line=$(echo $line | sed 's/[[:space:]]*$//')
+        create_listitem_message_body "$line" "" "pending" "Pending..."
+    done
+    create_listitem_message_body "" "" "" "" "last"
+    update_display_list "Create"
 }
 
+function create_listitem_message_body ()
+{
+    # PURPOSE: Construct the List item body of the dialog box
+    # "listitem" : [
+    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+    # RETURN: None
+    # EXPECTED: message
+    # PARMS: $1 - title 
+    #        $2 - icon
+    #        $3 - status text (for display)
+    #        $4 - status
+    #        $5 - first or last - construct appropriate listitem heders / footers
+
+    declare line && line=""
+
+    [[ "$5:l" == "first" ]] && line+='"button1disabled" : "true", "listitem" : ['
+    [[ ! -z $1 ]] && line+='{"title" : "'$1'", "icon" : "'$2'", "status" : "'$4'", "statustext" : "'$3'"},'
+    [[ "$5:l" == "last" ]] && line+=']}'
+    echo $line >> ${JSON_DIALOG_BLOB}
+}
+
+function create_textfield_message_body ()
+{
+    # PURPOSE: Construct the List item body of the dialog box
+    # "listitem" : [
+    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+
+    # RETURN: None
+    # EXPECTED: message
+    # PARMS: $1 - item name (interal reference) 
+    #        $2 - title (Display)
+    #        $3 - first or last - construct appropriate listitem heders / footers
+
+    declare line && line=""
+    declare today && today=$(date +"%m/%d/%y")
+
+    [[ "$3:l" == "first" ]] && line+='"textfield" : ['
+    [[ ! -z $1 ]] && line+='{"name" : "'$1'", "title" : "'$2'", "isdate" : "true", "required" : "true", "value" : "'$today'" },'
+    [[ "$3:l" == "last" ]] && line+=']'
+    echo $line >> ${JSON_DIALOG_BLOB}
+}
+
+function create_dropdown_list ()
+{
+    # PURPOSE: Create the dropdown list for the dialog box
+    # RETURN: None
+    # EXPECTED: JSON_DIALOG_BLOB should be defined
+    # PARMS: $1 - message to be displayed on the window
+    #        $2 - tyoe of data to parse XML or JSON
+    #        #3 - key to parse for list items
+    #        $4 - string to parse for list items
+    # EXPECTED: None
+    declare -a array
+
+    construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
+    create_dropdown_message_body "" "" "first"
+
+    # Parse the XML or JSON data and create list items
+    
+    if [[ "$2:l" == "json" ]]; then
+        # If the second parameter is XML, then parse the XML data
+        xml_blob=$(echo $4 | jq -r '.results[]'$3)
+    else
+        # If the second parameter is JSON, then parse the JSON data
+        xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2) #>/dev/null)
+    fi
+    
+    echo $xml_blob | while IFS= read -r line; do
+        # Remove the <name> and </name> tags from the line and trailing spaces
+        line="${${line#*<name>}%</name>*}"
+        line=$(echo $line | sed 's/[[:space:]]*$//')
+        array+='"'$line'",'
+    done
+    # Remove the trailing comma from the array
+    array="${array%,}"
+    create_dropdown_message_body "Select Groups:" "$array" "last"
+
+    #create_dropdown_message_body "" "" "last"
+    update_display_list "Create"
+}
+
+function create_dropdown_message_body ()
+{
+    # PURPOSE: Construct the List item body of the dialog box
+    # "listitem" : [
+    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+
+    # RETURN: None
+    # EXPECTED: message
+    # PARMS: $1 - title (Display)
+    #        $2 - values (comma separated list)
+    #        $3 - first or last - construct appropriate listitem heders / footers
+
+    declare line && line=""
+
+    [[ "$3:l" == "first" ]] && line+=' "selectitems" : ['
+    [[ ! -z $1 ]] && line+='{"title" : "'$1'", "values" : ['$2']},'
+    [[ "$3:l" == "last" ]] && line+=']'
+    echo $line >> ${JSON_DIALOG_BLOB}
+}
+
+function construct_dropdown_list_items ()
+{
+    # PURPOSE: Construct the list of items for the dropdowb menu
+    # RETURN: formatted list of items
+    # EXPECTED: None
+    # PARMS: $1 - XML variable to parse 
+    declare xml_blob
+    declare line
+    xml_blob=$(echo $1 |jq -r '.computer_groups[] | "\(.id) - \(.name)"')
+    echo $xml_blob | while IFS= read -r line; do
+        # Remove the <name> and </name> tags from the line and trailing spaces
+        line="${${line#*<name>}%</name>*}"
+        line=$(echo $line | sed 's/[[:space:]]*$//')
+        array+='"'$line'",'
+    done
+    # Remove the trailing comma from the array
+    array="${array%,}"
+    echo $array
+}
+
+function create_checkbox_message_body ()
+{
+    # PURPOSE: Construct a checkbox style body of the dialog box
+    #"checkbox" : [
+	#			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+
+    # RETURN: None
+    # EXPECTED: message
+    # PARMS: $1 - title (Display)
+    #        $2 - name (intenral reference)
+    #        $3 - icon
+    #        $4 - Default Checked (true/false)
+    #        $5 - disabled (true/false)
+    #        $6 - first or last - construct appropriate listitem heders / footers
+
+    declare line && line=""
+    [[ "$6:l" == "first" ]] && line+=' "checkbox" : ['
+    [[ ! -z $1 ]] && line+='{"name" : "'$2'", "label" : "'$1'", "icon" : "'$3'", "checked" : "'$4'", "disabled" : "'$5'"},'
+    [[ "$6:l" == "last" ]] && line+='] ' #,"checkboxstyle" : {"style" : "switch", "size"  : "small"}'
+    echo $line >> ${JSON_DIALOG_BLOB}
+}
