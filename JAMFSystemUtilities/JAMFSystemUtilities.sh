@@ -379,7 +379,7 @@ function create_listitem_list ()
     echo $xml_blob | while IFS= read -r line; do
         # Remove the <name> and </name> tags from the line and trailing spaces
         line="${${line#*<name>}%</name>*}"
-        line=$(echo $line | sed 's/[[:space:]]*$//')
+        line=$(echo "$line" | sed 's/[[:space:]]*$//')
         create_listitem_message_body "$line" "" "pending" "Pending..."
     done
     create_listitem_message_body "" "" "" "" "last"
@@ -1431,31 +1431,31 @@ function export_computer_group_details ()
     # get the group name and see if it is a smart group or a static group
     # this section will store every condition into an array, so that we can display it later
     
-    groupIsSmart=$(extract_data_blob $xmlBlob "is_smart")
+    groupIsSmart=$(extract_data_blob $xmlBlob ".computer_group.is_smart" "json")
 
     [[ $groupIsSmart == "true" ]] && groupIsSmart="Smart" || groupIsSmart="Static"
 
     # extract the group criteria
     # opening and closing parentheses
-    groupOpenParen=$(extract_data_blob $xmlBlob  "opening_paren")
+    groupOpenParen=$(extract_data_blob $xmlBlob  ".computer_group.criteria[].opening_paren" "json")
     groupOpenParen=("${(@f)groupOpenParen}") # Convert to array
     
-    groupCloseParen=$(extract_data_blob $xmlBlob "closing_paren")
+    groupCloseParen=$(extract_data_blob $xmlBlob ".computer_group.criteria[].closing_paren" "json")
     groupCloseParen=("${(@f)groupCloseParen}") # Convert to array
     
-    groupAndOr=$(extract_data_blob $xmlBlob "and_or")
+    groupAndOr=$(extract_data_blob $xmlBlob ".computer_group.criteria[].and_or" "json")
     groupAndOr=("${(@f)groupAndOr}") # Convert to array
     groupAndOr=("${(U)groupAndOr[@]}") # Convert to uppercase
     groupAndOr=("${groupAndOr[@]:1}") # Remove the first element, which is not needed
     
     # extract the group criteria, search type and value
-    groupCriteria=$(extract_data_blob $xmlBlob "criteria//name")
+    groupCriteria=$(extract_data_blob $xmlBlob ".computer_group.criteria[].name" "json")
     groupCriteria=("${(@f)groupCriteria}") # Convert to array    
 
-    groupSearchType=$(extract_data_blob $xmlBlob "criteria//search_type")
+    groupSearchType=$(extract_data_blob $xmlBlob ".computer_group.criteria[].search_type" "json")
     groupSearchType=("${(@f)groupSearchType}") # Convert to array
 
-    groupValue=$(extract_data_blob $xmlBlob "criteria//value")
+    groupValue=$(extract_data_blob $xmlBlob ".computer_group.criteria[].value" "json")
     groupValue=("${(@f)groupValue}") # Convert to array
  
     if [[ $groupIsSmart == "Smart" ]]; then
@@ -1471,7 +1471,7 @@ function export_computer_group_details ()
     else
         # If the group is a static group, then we will just list the members
         groupCondition="$groupIsSmart group ($groupid)\n\nMembers:\n\n"
-        memberID=$(extract_data_blob $xmlBlob  "computers//name")
+        memberID=$(extract_data_blob $xmlBlob  ".computer_group.computers[].name" "json")
         groupCondition+="$(echo "${memberID[@]}" | sed 's/ /\n/g')\n"
     fi
 
