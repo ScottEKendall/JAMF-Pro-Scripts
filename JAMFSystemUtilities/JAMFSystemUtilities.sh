@@ -21,6 +21,7 @@
 #     - Delete the error log from previous runs before script starts
 #     - Chaged checkbox style to switch so the list is now scrollable
 #     - Better error log report during failures
+# 2.5 - used modern API for comoputer EAs
 
 ######################################################################################################
 #
@@ -288,7 +289,7 @@ function extract_data_blob ()
     if [[ ${format} == "xml" ]]; then
         retval=$(echo "$1" | xmllint --xpath "//$2/text()" - 2>/dev/null)
     else
-        retval=$(echo -E "$1" | jq -r $2)
+        retval=$(echo -E "$1" | jq -r "$2")
     fi
     echo $retval
 }
@@ -368,10 +369,10 @@ function create_listitem_list ()
     # Parse the XML or JSON data and create list items
     
     if [[ "$2:l" == "json" ]]; then
-        # If the second parameter is XML, then parse the XML data
-        xml_blob=$(echo -E $4 | jq -r '.results[]'$3)
+        # If the second parameter is JSON, then parse the XML data
+        xml_blob=$(echo -E $4 | jq -r "${3}")
     else
-        # If the second parameter is JSON, then parse the JSON data
+        # If the second parameter is XML, then parse the JSON data
         xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2) #>/dev/null)
     fi
 
@@ -845,7 +846,7 @@ function export_failed_mdm_devices ()
 
     logMe "Exporting failed MDM devices"
     DeviceList=$(JAMF_retrieve_data_blob "api/v1/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc" "json")
-    create_listitem_list "The following failed MDM devices are being exported from JAMF" "json" ".general.name" "$DeviceList"
+    create_listitem_list "The following failed MDM devices are being exported from JAMF" "json" ".results[].general.name" "$DeviceList"
     
     DeviceIDs=($(echo $DeviceList | jq -r '.results[].general.name'))
 
@@ -939,7 +940,7 @@ function backup_jamf_scripts ()
     logMe "Backing up JAMF scripts"
 
     ScriptList=$(JAMF_retrieve_data_blob "api/v1/scripts?page=0&page-size=100&sort=name%3Aasc" "json")
-    create_listitem_list "The following JAMF scripts are being downloaded from JAMF" "json" ".name" "$ScriptList"
+    create_listitem_list "The following JAMF scripts are being downloaded from JAMF" "json" ".results[].name" "$ScriptList"
     ScriptIDs=($(echo -E $ScriptList | jq -r '.results[].id' ))
 
     for item in ${ScriptIDs[@]}; do
@@ -1016,7 +1017,7 @@ function  backup_computer_extensions ()
     logMe "Backing up computer Extensions Attributes"
 
     ExtensionList=$(JAMF_retrieve_data_blob "api/v1/computer-extension-attributes?page=0&page-size=100&sort=name.asc" "json")
-    create_listitem_list "The following Computer EAs are being downloaded from JAMF" "json" ".name" "$ExtensionList"
+    create_listitem_list "The following Computer EAs are being downloaded from JAMF" "json" ".results[].name" "$ExtensionList"
 
     ExtensionIDs=($(extract_data_blob $ExtensionList ".results[].id" "json"))
 
@@ -1074,7 +1075,7 @@ function extract_extension_details ()
 
     if [[ -z $fileDetails ]]; then
         update_display_list "Update" "" "${extensionName}" "" "fail" "Not exported!"
-        logMe "Extension ${extensionName} not exported due to empty contents"
+        logMe "Computer Extension Attribute ${extensionName} not exported due to empty contents"
         echo "Problems exporting Computer EA: "${formatted_extensionName} >> $ERROR_LOG_LOCATION
     else
         update_display_list "Update" "" "${extensionName}" "" "wait" "Working..."
@@ -1100,11 +1101,10 @@ function backup_configuration_profiles ()
     declare logMsg
     # PURPOSE: Backup all of the configuration profiles from JAMF
     logMe "Backing up configuration profiles"
-    ProfileList=$(JAMF_retrieve_data_blob "JSSResource/osxconfigurationprofiles" "xml")
-    create_listitem_list "The following configuration profiles are being downloaded from JAMF" "xml" "name" "$ProfileList"
+    ProfileList=$(JAMF_retrieve_data_blob "JSSResource/osxconfigurationprofiles" "json")
+    create_listitem_list "The following configuration profiles are being downloaded from JAMF" "json" ".os_x_configuration_profiles[].name" "$ProfileList"
 
-    ProfileIDs=$(echo $ProfileList | xmllint --xpath '//id' - 2>/dev/null)
-    ProfileIDs=($(remove_xml_tags "$ProfileIDs" "id"))
+    ProfileIDs=($(echo -E $ProfileList | jq -r '.os_x_configuration_profiles[].id'))
 
     for item in ${ProfileIDs[@]}; do
         tasks+=("extract_profile_details $item")
@@ -1122,7 +1122,7 @@ function backup_configuration_profiles ()
 
 function extract_profile_details ()
 {
-    # PURPOSE: extract the XNL string from the JAMF ID and create a list of found items
+    # PURPOSE: extract the JSON string from the JAMF ID and create a list of found items
     # RETURN: None
     # PARAMETERS: $1 - API substring to call from JAMF
     # EXPECTED: xmlBlob should be globally defined
@@ -1133,10 +1133,10 @@ function extract_profile_details ()
 
     [[ -z "${1}" ]] && return 0
 
-    JAMF_retrieve_data_blob_global "JSSResource/osxconfigurationprofiles/id/$1" "xml"
+    JAMF_retrieve_data_blob_global "JSSResource/osxconfigurationprofiles/id/$1" "json"
 
-    profileName=$(extract_data_blob $xmlBlob "name" | head -n 1)
-    profileContents=$(echo "$xmlBlob" | xmllint --xpath 'string(//payloads)' - 2>/dev/null)
+    profileName=$(extract_data_blob $xmlBlob ".os_x_configuration_profile.general.name" "json"| head -n 1)
+    profileContents=$(extract_data_blob $xmlBlob ".os_x_configuration_profile.general.payloads" "json")
 
     # Remove any special characters that might mess with APFS
     formatted_profileName=$(make_apfs_safe $profileName)
@@ -1417,11 +1417,16 @@ function export_computer_group_details ()
     # EXPECTED: xmlBlob should be globally defined
     declare managed && managed=true
     declare groupName
-    declare groupid=$1
 
-    JAMF_retrieve_data_blob_global "JSSResource/computergroups/id/$groupid" "xml"
+    JAMF_retrieve_data_blob_global "JSSResource/computergroups/id/$1" "json"
 
-    groupName=$(extract_data_blob $xmlBlob "name" | head -n 1)
+    groupName=$(extract_data_blob $xmlBlob ".computer_group.name" "json" | head -n 1)
+    if [[ -z $groupName ]]; then
+        update_display_list "Update" "" "${groupName}" "" "fail" "Not exported"
+        logMe "Group ${groupName} not exported due to empty group name"
+        echo "Computer Group export: "${groupName} >> $ERROR_LOG_LOCATION
+        return 1
+    fi
     # Parse the XML to get the group details
     # get the group name and see if it is a smart group or a static group
     # this section will store every condition into an array, so that we can display it later
@@ -1469,18 +1474,11 @@ function export_computer_group_details ()
         memberID=$(extract_data_blob $xmlBlob  "computers//name")
         groupCondition+="$(echo "${memberID[@]}" | sed 's/ /\n/g')\n"
     fi
-    # if the script shows as empty (probably due to import issues), then show as a failure and report it
-    if [[ -z $groupName ]]; then
-        update_display_list "Update" "" "${groupName}" "" "fail" "Not exported"
-        logMe "Group ${groupName} not exported due to empty group name"
-        echo "Computer Group export: "${groupName} >> $ERROR_LOG_LOCATION
 
-    else
-        update_display_list "Update" "" "${groupName}" "" "wait" "Working..."
-        logMe "Exporting ${groupIsSmart} group ${groupName} to text file"
-        echo "${groupCondition}" > "$location_backupSmartGroups/${groupIsSmart}/${groupName}.txt"
-        update_display_list "Update" "" "${groupName}" "" "success" "Finished"
-    fi
+    update_display_list "Update" "" "${groupName}" "" "wait" "Working..."
+    logMe "Exporting ${groupIsSmart} group ${groupName} to text file"
+    echo "${groupCondition}" > "$location_backupSmartGroups/${groupIsSmart}/${groupName}.txt"
+    update_display_list "Update" "" "${groupName}" "" "success" "Finished"
 }
 
 ###############################################
@@ -1598,6 +1596,83 @@ function export_usage_details ()
     fi
 }
 
+###############################################
+#
+# Export User with multiple System
+#
+###############################################
+
+
+function export_user_multiple ()
+{
+    # PURPOSE: Export a list of users with multiple systems
+    # RETURN: None
+    # EXPECTED: None
+
+    declare tasks=()
+    declare UserList=()
+
+    # Split the group name into ID and Name (this came from the dropdown list)
+    logMe "Exporting Users with multiple systems"
+
+    # If they chose to export a specific group, then we will append that group name to create the VCF file
+    
+    [[ ! -d "$location_UsersMultipleSystems" ]] && /bin/mkdir -p "${location_UsersMultipleSystems}"
+    UserList=$(JAMF_get_inventory_record "USER_AND_LOCATION&page=0&page-size=10000" "")
+    UserID=($(echo $UserList | jq -r '.results[].userAndLocation.username' | sort | uniq -d))
+    
+    create_listitem_list "The following users have multiple systems:" "json" ".userAndLocation.username" "$UserList"
+    
+    for item in ${UserID[@]}; do
+        tasks+=("export_user_multiple_details $item")
+    done
+    execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
+
+    # Display how many usage Reports were downloaded
+    DirectoryCount=$(ls $location_UsersMultipleSystems | wc -l | xargs )
+    logMsg="$DirectoryCount Usage reports were downloaded to $location_UsersMultipleSystems."
+    logMe $logMsg 
+    update_display_list "progress" "" "" "" "$logMsg" 100
+    update_display_list "buttonenable"
+    wait
+}
+
+function export_user_multiple_details ()
+{
+    # PURPOSE: extract the Usage info from the record ID and parse the info
+    # RETURN: None
+    # PARAMETERS: $1 - Computer Name to search
+    # EXPECTED: xmlBlob should be globally defined
+
+    declare filename
+    declare appDate
+
+	[[ -z "${1}" ]] && return 0
+
+    JAMF_retrieve_data_blob_global "JSSResource/computerapplicationusage/name/$1/${menu_startDateUsage}_${menu_endDateUsage}" "json"
+
+    # if the script returns <computer_application_usage/> then there is no data to show
+    if [[ ${xmlBlob} == '{"computer_application_usage":[]}' ]]; then
+        update_display_list "Update" "" "${1}" "" "fail" "No usage date for those dates"
+        logMe "No computer usage data found for ${1}"
+        echo "App Usage no data: "${1} >> $ERROR_LOG_LOCATION
+    else
+        appDate=($(echo $xmlBlob | jq -r '.computer_application_usage[].date'))
+        update_display_list "Update" "" "${1}" "" "wait" "Working..."
+
+        #export the Usage Report
+        if [[ ! -z ${#appDate[@]} ]]; then
+            filename="${formatted_ApplicationUsage_name}/$1.csv"
+            logMe "Creating Usage Report $filename"
+            touch "$filename"
+            echo "Serial #, Date, App Name,Total Hours,Version" >> $filename
+            for item in ${appDate[@]}; do
+                echo $xmlBlob | jq -r '.computer_application_usage[] | select(.date == "'$item'") | .apps[] | "'$1','$item',\(.name),\(.foreground),\(.version)"' >> $filename
+            done
+        fi
+        update_display_list "Update" "" "${1}" "" "success" "Finished"
+    fi
+}
 
 ###############################################
 #
@@ -1698,6 +1773,7 @@ function display_welcome_msg ()
         --checkbox "Backup Smart Groups & Static Groups (*.txt)",checked,name=BackupSmartGroups
         --checkbox "+ Create VCF cards or send emails from Groups (*.vcf)",checked,name=createVCFcards
         --checkbox "+ Export Application Usage from Users / Groups (*.csv)",checked,name=exportApplicationUsage
+        #--checkbox "Export Users with multiple systems (*.txt)",checked,name=exportUsersMultipleSystems
         )
 	
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
@@ -1714,6 +1790,7 @@ function display_welcome_msg ()
     menu_backupSmartGroups=$( echo $temp | jq -r '.BackupSmartGroups' )
     menu_exportApplicationUsage=$( echo $temp | jq -r '.exportApplicationUsage' )
     menu_backupComputerPolicy=$( echo $temp | jq -r '.BackupComputerPolicy' )
+    menu_UsersMultipleSystems=$( echo $temp | jq -r '.exportUsersMultipleSystems' )
     
     [[ $menu_backupFailedMDM == "true" ]] && export_failed_mdm_commands_menu
     [[ $menu_createVCFcards == "true" ]] && create_vcf_cards_menu
@@ -1766,18 +1843,22 @@ function check_directories ()
     location_FailedMDM="${menu_storageLocation}/FailedMDM"
     location_backupSmartGroups="${menu_storageLocation}/ComputerGroups"
     location_ApplicationUsage="${menu_storageLocation}/AppUsage"
+    location_UsersMultipleSystems="${menu_storageLocation}/MutipleComputerUsers"
 
-    [[ ! -d "${menu_storageLocation}" ]] && /bin/mkdir -p "${menu_storageLocation}"
-    [[ ! -d "$location_SSIcons" ]] && /bin/mkdir -p "$location_SSIcons"
-    [[ ! -d "$location_JAMFScripts" ]] && /bin/mkdir -p "${location_JAMFScripts}"
-    [[ ! -d "$location_ComputerEA" ]] && /bin/mkdir -p "${location_ComputerEA}"
-    [[ ! -d "$location_Contacts" ]] && /bin/mkdir -p "${location_Contacts}"
-    [[ ! -d "$location_ConfigurationProfiles" ]] && /bin/mkdir -p "${location_ConfigurationProfiles}"
-    [[ ! -d "$location_FailedMDM" ]] && /bin/mkdir -p "${location_FailedMDM}"
-    [[ ! -d "$location_backupSmartGroups" ]] && /bin/mkdir -p "${location_backupSmartGroups}"
-    [[ ! -d "$location_backupSmartGroups/Smart" ]] && /bin/mkdir -p "${location_backupSmartGroups}/Smart"
-    [[ ! -d "$location_backupSmartGroups/Static" ]] && /bin/mkdir -p "${location_backupSmartGroups}/Static"
-    [[ ! -d "$location_ApplicationUsage" ]] && /bin/mkdir -p "${location_ApplicationUsage}"
+    for make_directory (
+        "$menu_storageLocation"
+        "$location_SSIcons"
+        "$location_JAMFScripts"
+        "$location_ComputerEA"
+        "$location_Contacts"
+        "$location_ConfigurationProfiles"
+        "$location_FailedMDM"
+        "$location_backupSmartGroups"
+        "$location_backupSmartGroups/Smart"
+        "$location_backupSmartGroups/Static"
+        "$location_ApplicationUsage"
+        "$location_UsersMultipleSystems"
+        ) { [[ ! -d "${make_directory}" ]] && {  /bin/mkdir "${make_directory}" ;  logMe "Created directory: ${make_directory}" ; }}
 
     chmod -R 755 "${menu_storageLocation}"
     chown -R "${LOGGED_IN_USER}" "${menu_storageLocation}"
@@ -1841,6 +1922,7 @@ declare location_ComputerEA
 declare location_Contacts
 declare location_ConfigurationProfiles
 declare location_FailedMDM
+declare location_UsersMultipleSystems
 declare jamfpro_version
 declare menu_backupSmartGroups
 declare menu_groupVCFExport
@@ -1850,6 +1932,7 @@ declare menu_exportApplicationUsage
 declare menu_startDateUsage
 declare menu_endDdateUsage
 declare menu_groupAppUsage
+declare menu_UsersMultipleSystems
 declare -a MDMfailures && MDMfailures=()
 
 create_log_directory
@@ -1876,6 +1959,7 @@ check_directories
 [[ "${menu_backupSmartGroups}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; export_computer_groups;}
 [[ "${menu_createVCFcards}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; create_vcf_cards;}
 [[ "${menu_exportApplicationUsage}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; export_usage;}
+[[ "${menu_UsersMultipleSystems}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; export_user_multiple;}
 JAMF_invalidate_token
 
 # If we get here, then we are done with the script
@@ -1883,4 +1967,4 @@ logMe "JAMF Backup Utilities completed successfully!"
 # Show errors if any failed backups occurred
 
 [[ -s "${ERROR_LOG_LOCATION}" ]] && show_backup_errors "The following items could not be backed up or exported for some reason!"
-cleanup_and_exit
+#cleanup_and_exit
