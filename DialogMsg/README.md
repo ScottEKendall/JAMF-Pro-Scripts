@@ -33,3 +33,4 @@ The script will determine the country code of the local Mac and display the appr
 #####       - Will display the infobox items if you can the function first
 #####       - Minimum version of SwiftDialog is now 2.5.0
 ##### _v1.3 - supports a 2nd language._
+
