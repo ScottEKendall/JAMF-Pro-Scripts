@@ -65,6 +65,8 @@ JSONOptions=$(mktemp /var/tmp/DialogNotify.XXXXX)
 BANNER_TEXT_PADDING="      "
 SD_INFO_BOX_MSG=""
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+SD_DEFAULT_LANGUAGE="EN"
+DISPLAY_MESSAGE=""
 
 ##################################################
 #
@@ -77,11 +79,12 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}$4"
 SD_WELCOME_MSG="${5:-"Information Message"}"
-SD_BUTTON1_PROMPT="${6:-"OK"}"
-SD_IMAGE_TO_DISPLAY="${7:-""}"
-SD_IMAGE_POLCIY="${8:-""}"
-SD_ICON_PRIMARY="${9:-"AlertNoteIcon.icns"}"
-SD_TIMER="${10-120}"
+SD_WELCOME_MSG_ALT="${6:-"Information Message"}"
+SD_BUTTON1_PROMPT="${7:-"OK"}"
+SD_IMAGE_TO_DISPLAY="${8:-""}"
+SD_IMAGE_POLCIY="${9:-""}"
+SD_ICON_PRIMARY="${10:-"AlertNoteIcon.icns"}"
+SD_TIMER="${11-120}"
 SD_ICON_PRIMARY="${ICON_FILES}${SD_ICON_PRIMARY}"
 
 
@@ -160,7 +163,7 @@ function check_support_files ()
 function display_msg ()
 {
 	MainDialogBody=(
-		--message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  ${SD_WELCOME_MSG}"
+		--message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  ${DISPLAY_MESSAGE}"
 		--ontop
 		--icon "${SD_ICON_PRIMARY}"
 		--overlayicon computer
@@ -197,15 +200,56 @@ function create_infobox_message()
 	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
+function check_language_support ()
+{
+
+    declare -a languageArray
+    declare preferredLanguage && preferredLanguage=${LANG[1,2]:u}
+
+    # if there is no 2nd language line, the just return the 1st line 
+    if [[ -z $SD_WELCOME_MSG_ALT ]]; then
+        message=$SD_WELCOME_MSG
+        return 0
+    fi
+
+    languageArray+=(${SD_WELCOME_MSG})
+    languageArray+=(${SD_WELCOME_MSG_ALT})
+
+    # get the system(s) default language
+
+    # Loop through the array and print the message for the preferred language
+    for entry in "${languageArray[@]}"; do
+        langCode=$(echo $entry | awk -F "|" '{print $1}' | xargs)
+        message=$(echo $entry | awk -F "|" '{print $2}'| xargs)
+        if [[ "$preferredLanguage" == "$langCode" ]]; then
+            echo "${message}"
+            return 0
+        fi
+    done
+
+    # If no match was found, print the message for the default language
+    for entry in "${languageArray[@]}"; do
+        langCode=$(echo $entry | awk -F "|" '{print $1}'| xargs)
+        message=$(echo $entry | awk -F "|" '{print $2}' | xargs)
+
+        if [[ "$SD_DEFAULT_LANGUAGE" == "$langCode" ]]; then
+            echo "${message}"
+            return 0
+        fi
+    done
+}
+
 ####################################################################################################
 #
 # Main Script
 #
 ####################################################################################################
+
 autoload 'is-at-least'
 
 check_swift_dialog_install
 check_support_files
 create_infobox_message
+DISPLAY_MESSAGE=$(check_language_support)
 display_msg
 exit 0
