@@ -5,12 +5,16 @@
 # Written by: Scott Kendall
 #
 # Created Date: 01/227/2025
-# Last modified: 02/13/2025
+# Last modified: 06/23/2025
 #
 # Script Purpose: Display a generic SWifDialog notification to JAMF users.  Pass in variables to customize display
 #
 # v1.0 - Inital script
 # v1.1 - Code cleanup to be more consistant with all apps
+# v1.2 - the JAMF_LOGGED_IN_USER will default to LOGGED_IN_USER if there is no name present
+#      - Added -ignorednd to make sure that the message is displayed regardless of focus setting
+#      - Will display the infobox items if you can the function first
+#      - Minimum version of SwiftDialog is now 2.5.0
 #
 # Expected Paramaters: 
 # #4 - Title
@@ -30,10 +34,18 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
+OS_PLATFORM=$(/usr/bin/uname -p)
+
+[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+
+SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
+MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
+MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
 OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/DiskSpace.png"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-
 
 LOG_DIR="${SUPPORT_DIR}/logs"
 LOG_FILE="${LOG_DIR}/DialogNotify.log"
@@ -43,7 +55,7 @@ LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
@@ -60,7 +72,7 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}$4"
@@ -105,7 +117,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -155,6 +166,10 @@ function display_msg ()
 		--overlayicon computer
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --ignorednd
+        --moveable
+        --helpmsg ""
 		--quitkey 0
         --timer "${SD_TIMER}"
 		--button1text "${SD_BUTTON1_PROMPT}"
@@ -174,12 +189,12 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##\n"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 ####################################################################################################
