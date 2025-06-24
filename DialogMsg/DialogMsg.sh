@@ -166,6 +166,7 @@ function display_msg ()
 		--message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  ${DISPLAY_MESSAGE}"
 		--ontop
 		--icon "${SD_ICON_PRIMARY}"
+        --titlefont shadow=1
 		--overlayicon computer
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
