@@ -79,7 +79,7 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}$4"
 SD_WELCOME_MSG="${5:-"Information Message"}"
-SD_WELCOME_MSG_ALT="${6:-"Information Message"}"
+SD_WELCOME_MSG_ALT="${6:-""}"
 SD_BUTTON1_PROMPT="${7:-"OK"}"
 SD_IMAGE_TO_DISPLAY="${8:-""}"
 SD_IMAGE_POLCIY="${9:-""}"
@@ -158,6 +158,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -trigger ${SD_IMAGE_POLCIY}
 }
 
 function display_msg ()
@@ -207,9 +208,10 @@ function check_language_support ()
     declare -a languageArray
     declare preferredLanguage && preferredLanguage=${LANG[1,2]:u}
 
-    # if there is no 2nd language line, the just return the 1st line 
-    if [[ -z $SD_WELCOME_MSG_ALT ]]; then
-        message=$SD_WELCOME_MSG
+    # if there is no 2nd language line, the just return the 1st line
+    
+    if [[ -z "${SD_WELCOME_MSG_ALT}" ]]; then
+        echo "${SD_WELCOME_MSG}"
         return 0
     fi
 
