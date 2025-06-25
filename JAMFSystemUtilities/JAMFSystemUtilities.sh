@@ -22,7 +22,8 @@
 #     - Chaged checkbox style to switch so the list is now scrollable
 #     - Better error log report during failures
 # 2.5 - used modern API for comoputer EAs
-
+# 2.6 - Added option for export of multiple users per system
+#     - Added option for export of Computer Policie
 ######################################################################################################
 #
 # Gobal "Common" variables
@@ -379,6 +380,7 @@ function create_listitem_list ()
     #        $5 - Option icon to show
     # EXPECTED: None
 
+    declare xml_blob
     construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
     create_listitem_message_body "" "" "" "" "first"
 
@@ -389,7 +391,7 @@ function create_listitem_list ()
         xml_blob=$(echo -E $4 | jq -r "${3}")
     else
         # If the second parameter is XML, then parse the JSON data
-        xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2) #>/dev/null)
+        xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2>/dev/null)
     fi
 
     echo $xml_blob | while IFS= read -r line; do
@@ -717,7 +719,6 @@ function JAMF_get_inventory_record()
     retval=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory?section=$1&filter=$filter" 2>/dev/null)
     echo $retval | tr -d '\n'
 }
-
 
 function JAMF_get_inventory_record_byID ()
 {
@@ -1205,6 +1206,83 @@ function extract_profile_details ()
         logMe "Exporting profile ${profileName} to ${exported_filename}"
         echo "${profileContents}" > "${exported_filename}"
         update_display_list "Update" "" "${profileName}" "" "success" "Finished"
+    fi
+}
+
+###############################################
+#
+# Backup Compugter Policy functions
+#
+###############################################
+
+function backup_computer_policies ()
+{
+    declare processed_tasks=0
+    declare tasks=()
+    declare logMsg
+    # PURPOSE: Backup all of the Computer Policies from JAMF
+    logMe "Backing up Computer Policies"
+    PolicyList=$(JAMF_retrieve_data_blob "JSSResource/policies" "json")
+    create_listitem_list "The following Computer Policies are being downloaded from JAMF" "json" ".policies[].name" "$PolicyList" "SF=apple.terminal.fill"
+
+    PolicyIDs=($(echo -E $PolicyList | jq -r '.policies[].id'))
+    PolicyCount=${#PolicyIDs}
+
+    for item in ${PolicyIDs[@]}; do
+        tasks+=("extract_computer_policies_details $item")
+    done
+    execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
+
+   # Display how many Policies files were downloaded.
+    DirectoryCount=$(ls $location_ComputerPolicies | wc -l | xargs )
+	# run a compare against policy count
+	# compare downloaded vs policy count
+	if (( PolicyCount != DirectoryCount )); then
+	  logMsg="WARNING: ⚠️ Missing Computer Policies: Expected $PolicyCount but only found $DirectoryCount on disk ⚠️"
+	else
+	  logMsg="INFO: All $PolicyCount Computer Policies downloaded successfully"
+	fi
+	logMe "${logMsg}"
+    logMsg="$DirectoryCount Computer Policies were downloaded to $location_ComputerPolicies."
+    logMe "${logMsg}" 
+    update_display_list "progress" "" "" "" "$logMsg" 100
+    update_display_list "buttonenable"
+    wait
+}
+
+function extract_computer_policies_details ()
+{
+    # PURPOSE: extract the JSON string from the JAMF ID and create a list of found items
+    # RETURN: None
+    # PARAMETERS: $1 - API substring to call from JAMF
+    # EXPECTED: xmlBlob should be globally defined
+    declare policyName
+    declare policyContents
+    declare formatted_PolicyName
+    declare exported_filename
+
+    [[ -z "${1}" ]] && return 0
+
+    JAMF_retrieve_data_blob_global "JSSResource/policies/id/$1" "xml"
+
+    policyName=$(extract_data_blob $xmlBlob "policy//name" "xml"| head -n 1)
+    policyContents=$(echo $xmlBlob | xmllint --format "//policy" - 2>/dev/null)
+
+    # Remove any special characters that might mess with APFS
+    formatted_PolicyName=$(make_policy_apfs_safe $policyName)
+
+    # if the script shows as empty (probably due to import issues), then show as a failure and report it
+    if [[ -z $policyContents ]]; then
+        update_display_list "Update" "" "${policyName}" "" "fail" "Not exported!"
+        logMe "Profile ${policyName} not exported due to empty contents"
+        echo "Computer Policy: "${formatted_PolicyName} >> $ERROR_LOG_LOCATION
+    else
+        update_display_list "Update" "" "${policyName}" "" "wait" "Working..."
+        # Store the script in the destination folder
+        exported_filename="$location_ComputerPolicies/${formatted_PolicyName}.xml"
+        logMe "Exporting profile ${policyName} to ${exported_filename}"
+        echo "${policyContents}" > "${exported_filename}"
+        update_display_list "Update" "" "${policyName}" "" "success" "Finished"
     fi
 }
 
@@ -1842,7 +1920,7 @@ function display_welcome_msg ()
         --checkbox "------- User Based Actions -------",disabled
         --checkbox "Create VCF cards or send emails from Groups (*.vcf) +",checked,name=createVCFcards
         --checkbox "Export Application Usage from Users / Groups (*.csv) +",checked,name=exportApplicationUsage
-        --checkbox "Export Users with multiple systems (*.txt)",checked,name=exportUsersMultipleSystems
+        --checkbox "Export Users with multiple systems (*.csv)",checked,name=exportUsersMultipleSystems
         --checkbox "------- System Based Actions -------",disabled
         --checkbox "Backup Self Service Icons (*.png)",checked,name=BackupSSIcons
         --checkbox "Backup System Scripts (*.sh)",checked,name=BackupJAMFScripts
@@ -1861,7 +1939,7 @@ function display_welcome_msg ()
     menu_backupFailedMDM=$( echo $temp | jq -r '.BackupFailedMDMCommands' )
     menu_backupSmartGroups=$( echo $temp | jq -r '.BackupSmartGroups' )
     menu_exportApplicationUsage=$( echo $temp | jq -r '.exportApplicationUsage' )
-    menu_backupComputerPolicy=$( echo $temp | jq -r '.BackupComputerPolicy' )
+    menu_backupComputerPolicies=$( echo $temp | jq -r '.BackupComputerPolicy' )
     menu_UsersMultipleSystems=$( echo $temp | jq -r '.exportUsersMultipleSystems' )
     
     [[ $menu_backupFailedMDM == "true" ]] && export_failed_mdm_commands_menu
@@ -1916,6 +1994,7 @@ function check_directories ()
     location_backupSmartGroups="${menu_storageLocation}/ComputerGroups"
     location_ApplicationUsage="${menu_storageLocation}/AppUsage"
     location_UsersMultipleSystems="${menu_storageLocation}/MutipleComputerUsers"
+    location_ComputerPolicies="${menu_storageLocation}/ComputerPolicies"
 
     for make_directory (
         "$menu_storageLocation"
@@ -1924,6 +2003,7 @@ function check_directories ()
         "$location_ComputerEA"
         "$location_Contacts"
         "$location_ConfigurationProfiles"
+        "$location_ComputerPolicies"
         "$location_FailedMDM"
         "$location_backupSmartGroups"
         "$location_backupSmartGroups/Smart"
@@ -1988,6 +2068,16 @@ declare menu_computerea
 declare menu_configurationProfiles
 declare menu_clearFailedMDM
 declare menu_backupFailedMDM
+declare menu_backupSmartGroups
+declare menu_groupVCFExport
+declare menu_createCSV
+declare menu_composeEmail
+declare menu_exportApplicationUsage
+declare menu_backupComputerPolicies
+declare menu_startDateUsage
+declare menu_endDdateUsage
+declare menu_groupAppUsage
+declare menu_UsersMultipleSystems
 declare location_SSIcons
 declare location_JAMFScripts
 declare location_ComputerEA
@@ -1996,15 +2086,8 @@ declare location_ConfigurationProfiles
 declare location_FailedMDM
 declare location_UsersMultipleSystems
 declare jamfpro_version
-declare menu_backupSmartGroups
-declare menu_groupVCFExport
-declare menu_createCSV
-declare menu_composeEmail
-declare menu_exportApplicationUsage
-declare menu_startDateUsage
-declare menu_endDdateUsage
-declare menu_groupAppUsage
-declare menu_UsersMultipleSystems
+declare location_ComputerPolicies
+
 declare -a MDMfailures && MDMfailures=()
 
 create_log_directory
@@ -2023,6 +2106,7 @@ check_directories
 # Remove exissting error log if one exists
 [[ -e "${ERROR_LOG_LOCATION}" ]] && rm -r "${ERROR_LOG_LOCATION}"
 
+[[ "${menu_backupComputerPolicies}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; backup_computer_policies;}
 [[ "${menu_computerea}" == "true" ]] && {[[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token; backup_computer_extensions;}
 [[ "${menu_configurationProfiles}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; backup_configuration_profiles;}
 [[ "${menu_backupSmartGroups}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; export_computer_groups;}
