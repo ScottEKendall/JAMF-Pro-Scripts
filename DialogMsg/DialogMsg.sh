@@ -159,6 +159,7 @@ function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
     [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -trigger ${SD_IMAGE_POLCIY}
+    /usr/bin/chmod 666 "${SD_IMAGE_TO_DISPLAY}"
 }
 
 function display_msg ()
