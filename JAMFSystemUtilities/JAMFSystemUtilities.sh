@@ -251,6 +251,12 @@ function update_display_list ()
             echo "quit:" >> "${DIALOG_CMD_FILE}"
             ;;
 
+        "buttonchange" )
+
+            # change text of button 1
+            /bin/echo "button1text: ${2}" >> "${DIALOG_CMD_FILE}"
+            ;;
+
         "update" | "change" )
 
             #
@@ -300,7 +306,16 @@ function make_apfs_safe ()
     # RETURN: ADFS safe filename
     # PARAMETERS: $1 - string to format
     # EXPECTED: None
-    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/|/-/g') #-e 's/\//-/g'
+    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/|/-/g' ) #-e 's/\//-/g') 
+}
+
+function make_policy_apfs_safe ()
+{
+    # PURPOSE: Remove any "illegal" APFS macOS characters from filename
+    # RETURN: ADFS safe filename
+    # PARAMETERS: $1 - string to format
+    # EXPECTED: None
+    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/|/-/g' -e 's/\//-/g') 
 }
 
 function convert_to_hex ()
@@ -361,6 +376,7 @@ function create_listitem_list ()
     #        $2 - tyoe of data to parse XML or JSON
     #        #3 - key to parse for list items
     #        $4 - string to parse for list items
+    #        $5 - Option icon to show
     # EXPECTED: None
 
     construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
@@ -380,7 +396,7 @@ function create_listitem_list ()
         # Remove the <name> and </name> tags from the line and trailing spaces
         line="${${line#*<name>}%</name>*}"
         line=$(echo "$line" | sed 's/[[:space:]]*$//')
-        create_listitem_message_body "$line" "" "pending" "Pending..."
+        create_listitem_message_body "$line" "$5" "pending" "Pending..."
     done
     create_listitem_message_body "" "" "" "" "last"
     update_display_list "Create"
@@ -695,10 +711,13 @@ function JAMF_get_inventory_record()
     #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
     #        $2 - Filter condition to use for search
 
-    filter=$(convert_to_hex $2)
+    filter=$2
+    #filter=$(convert_to_hex $2)
+    #echo $filter 1>&2
     retval=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory?section=$1&filter=$filter" 2>/dev/null)
     echo $retval | tr -d '\n'
 }
+
 
 function JAMF_get_inventory_record_byID ()
 {
@@ -738,22 +757,30 @@ function backup_ss_icons ()
     # PURPOSE: Backup all of the Self Service icons from JAMF
     logMe "Backing up Self Service icons"
     PolicyList=$(JAMF_retrieve_data_blob "JSSResource/policies" "xml" )
-    create_listitem_list "The following Self Service icons are being downloaded from JAMF" "xml" "name" "$PolicyList"
+    create_listitem_list "The following Self Service icons are being downloaded from JAMF" "xml" "name" "$PolicyList" "SF=app.badge"
 
-    PolicyIDList=$(echo $PolicyList | xmllint --xpath '//id' - 2>/dev/null)
-    PolicyIDs=($(remove_xml_tags "$PolicyIDList" "id"))
+    iconIDList=$(echo $PolicyList | xmllint --xpath '//id' - 2>/dev/null)
+    iconIDs=($(remove_xml_tags "$iconIDList" "id"))
+    iconCount=${#iconIDs}
 
     logMe "Checking policies for Self Service icons ..."
 
-    for item in ${PolicyIDs[@]}; do
+    for item in ${iconIDs[@]}; do
         tasks+=("backup_ss_icons_detail $item")
     done
     execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
 
-   # Display how many Self Service icon files were downloaded.
+    # Display how many Self Service icon files were downloaded.
     DirectoryCount=$(ls $location_SSIcons| wc -l | xargs )
+    # Run a comparison of what we think we should export, vs what actually exported
+    if (( iconCount != DirectoryCount )); then
+        logMsg="WARNING: ⚠️ Missing Self service Icons: Expected $iconCount but only found $DirectoryCount on disk ⚠️"
+    else
+        logMsg="INFO: All $ProfileCount Self Service Icons downloaded successfully"
+    fi
+    logMe "${logMsg}"
     logMsg="$DirectoryCount Self Service icon files downloaded to $location_SSIcons."
-    logMe $logMsg 
+    logMe "${logMsg}" 
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
     wait
@@ -774,6 +801,7 @@ function backup_ss_icons_detail ()
     declare ss_icon
     declare ss_iconName
     declare ss_iconURI
+    declare formatted_ss_policy_name
 
     JAMF_retrieve_data_blob_global "JSSResource/policies/id/$1" "xml"
     # Extract the policy name, icon ID, icon filename, and icon URI from the XML blob
@@ -785,8 +813,7 @@ function backup_ss_icons_detail ()
 
 
     # Remove any special characters that might mess with APFS
-    formatted_ss_policy_name=$(make_apfs_safe "${PolicyName}")
-    ss_iconName=$(make_apfs_safe "${ss_iconName}")
+    formatted_ss_policy_name=$(make_policy_apfs_safe "${PolicyName}")
     if [[ "$ss_policy_check" = "true" ]] && [[ -n "$ss_icon" ]] && [[ -n "$ss_iconURI" ]]; then
        # If the policy has an icon associated with it then extract the name & icon name and format it correctly and then download it
         update_display_list "Update" "" "${PolicyName}" "" "wait" "Working..."
@@ -846,7 +873,7 @@ function export_failed_mdm_devices ()
 
     logMe "Exporting failed MDM devices"
     DeviceList=$(JAMF_retrieve_data_blob "api/v1/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc" "json")
-    create_listitem_list "The following failed MDM devices are being exported from JAMF" "json" ".results[].general.name" "$DeviceList"
+    create_listitem_list "The following failed MDM devices are being exported from JAMF" "json" ".results[].general.name" "$DeviceList" "SF=desktopcomputer.and.macbook"
     
     DeviceIDs=($(echo $DeviceList | jq -r '.results[].general.name'))
 
@@ -939,19 +966,27 @@ function backup_jamf_scripts ()
     # PURPOSE: Backup all of the JAMF scripts from JAMF
     logMe "Backing up JAMF scripts"
 
-    ScriptList=$(JAMF_retrieve_data_blob "api/v1/scripts?page=0&page-size=100&sort=name%3Aasc" "json")
-    create_listitem_list "The following JAMF scripts are being downloaded from JAMF" "json" ".results[].name" "$ScriptList"
-    ScriptIDs=($(echo -E $ScriptList | jq -r '.results[].id' ))
+    scriptList=$(JAMF_retrieve_data_blob "api/v1/scripts?page=0&page-size=100&sort=name%3Aasc" "json")
+    create_listitem_list "The following JAMF scripts are being downloaded from JAMF" "json" ".results[].name" "$scriptList" "SF=apple.terminal.fill"
+    scriptIDs=($(echo -E $scriptList | jq -r '.results[].id' ))
+    scriptCount=${#scriptIDs}
 
-    for item in ${ScriptIDs[@]}; do
+    for item in ${scriptIDs[@]}; do
         tasks+=("extract_script_details $item")
     done
     execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
 
    # Display how many Failed MDM command files were downloaded.
     DirectoryCount=$(ls $location_JAMFScripts | wc -l | xargs )
+    # Run a comparison of what we think we should export, vs what actually exported
+    if (( scriptCount != DirectoryCount )); then
+        logMsg="WARNING: ⚠️ Missing System Scripts: Expected $scriptCount Configuration Profiles but only found $DirectoryCount on disk ⚠️"
+    else
+        logMsg="INFO: All $DirectoryCount System Scripts downloaded successfully"
+    fi
+    logMe "${logMsg}"
     logMsg="$DirectoryCount Script files were downloaded to $location_JAMFScripts."
-    logMe $logMsg 
+    logMe "${logMsg}" 
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
     wait
@@ -1017,9 +1052,10 @@ function  backup_computer_extensions ()
     logMe "Backing up computer Extensions Attributes"
 
     ExtensionList=$(JAMF_retrieve_data_blob "api/v1/computer-extension-attributes?page=0&page-size=100&sort=name.asc" "json")
-    create_listitem_list "The following Computer EAs are being downloaded from JAMF" "json" ".results[].name" "$ExtensionList"
+    create_listitem_list "The following Computer EAs are being downloaded from JAMF" "json" ".results[].name" "$ExtensionList" "SF=apple.terminal.fill"
 
     ExtensionIDs=($(extract_data_blob $ExtensionList ".results[].id" "json"))
+    ExtensionCount=${#ExtensionIDs}
 
     for item in ${ExtensionIDs[@]}; do
         tasks+=("extract_extension_details $item")
@@ -1028,8 +1064,15 @@ function  backup_computer_extensions ()
 
    # Display how many Failed MDM command files were downloaded.
     DirectoryCount=$(ls $location_ComputerEA | wc -l | xargs )
+    # Run a comparison of what we think we should export, vs what actually exported
+    if (( ExtensionCount != DirectoryCount )); then
+        logMsg="WARNING: ⚠️ Missing Computer EAs: Expected $ExtensionCount but only found $DirectoryCount on disk ⚠️"
+    else
+        logMsg="INFO: All $DirectoryCount Computer EAs downloaded successfully"
+    fi
+    logMe "${logMsg}"
     logMsg="$DirectoryCount Computer EAs were downloaded to $location_ComputerEA."
-    logMe $logMsg 
+    logMe "${logMsg}"
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
     wait
@@ -1102,9 +1145,10 @@ function backup_configuration_profiles ()
     # PURPOSE: Backup all of the configuration profiles from JAMF
     logMe "Backing up configuration profiles"
     ProfileList=$(JAMF_retrieve_data_blob "JSSResource/osxconfigurationprofiles" "json")
-    create_listitem_list "The following configuration profiles are being downloaded from JAMF" "json" ".os_x_configuration_profiles[].name" "$ProfileList"
+    create_listitem_list "The following configuration profiles are being downloaded from JAMF" "json" ".os_x_configuration_profiles[].name" "$ProfileList" "SF=gear.circle.fill,color=brown"
 
     ProfileIDs=($(echo -E $ProfileList | jq -r '.os_x_configuration_profiles[].id'))
+    ProfileCount=${#ProfileIDs}
 
     for item in ${ProfileIDs[@]}; do
         tasks+=("extract_profile_details $item")
@@ -1113,8 +1157,16 @@ function backup_configuration_profiles ()
 
    # Display how many Failed MDM command files were downloaded.
     DirectoryCount=$(ls $location_ConfigurationProfiles | wc -l | xargs )
+	# run a compare against profile count
+	# compare downloaded vs profilecount
+	if (( ProfileCount != DirectoryCount )); then
+	  logMsg="WARNING: ⚠️ Missing Configuration Profiles: Expected $ProfileCount but only found $DirectoryCount on disk ⚠️"
+	else
+	  logMsg="INFO: All $ProfileCount Configuration Profiles downloaded successfully"
+	fi
+	logMe "${logMsg}"
     logMsg="$DirectoryCount Configuration profiles were downloaded to $location_ConfigurationProfiles."
-    logMe $logMsg 
+    logMe "${logMsg}" 
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
     wait
@@ -1180,7 +1232,6 @@ function create_vcf_cards_menu ()
 
     create_dropdown_message_body "" "" "first"
     # Read in the JAMF groups and create a dropdown list of them
-    # create_listitem_list "The following Smart / Static groups are being exported from the JAMF server" "xml" "name" $GroupList
     GroupList=$(JAMF_retrieve_data_blob "JSSResource/computergroups" "json")
     array=$(construct_dropdown_list_items $GroupList)
     create_dropdown_message_body "Select Groups:" "$array"
@@ -1270,7 +1321,7 @@ function create_vcf_cards ()
     else
         logMe "Creating VCF Cards from JAMF users"
         UserList=$(JAMF_retrieve_data_blob "JSSResource/users" "xml")
-        create_listitem_list "The following VCF Cards are being created from the JAMF server" "xml" "name" $UserList
+        create_listitem_list "The following VCF Cards are being created from the JAMF server" "xml" "name" $UserList "SF=person.fill"
         UserIDs=$(echo $UserList | xmllint --xpath '//id' - 2>/dev/null)
     fi
     UserIDs=($(echo "$UserIDs" | grep -Eo "[0-9]+" | xargs))
@@ -1285,6 +1336,7 @@ function create_vcf_cards ()
     logMsg="$DirectoryCount Contacts were downloaded to $location_Contacts."
     logMe $logMsg 
     update_display_list "progress" "" "" "" "$logMsg" 100
+    [[ $menu_composeEmail == "true" ]] && update_display_list "buttonchange" "Send Email" #change the button to send email if they chose that option
     update_display_list "buttonenable"
     wait
     if [[ $menu_composeEmail == "true" ]]; then
@@ -1381,7 +1433,6 @@ function extract_assigned_systems ()
 #
 ###############################################
 
-
 function export_computer_groups ()
 {
     declare processed_tasks=0
@@ -1391,9 +1442,10 @@ function export_computer_groups ()
     logMe "Export computer groups from JAMF"
     GroupList=$(JAMF_retrieve_data_blob "JSSResource/computergroups" "xml")
     
-    create_listitem_list "The following Smart / Static groups are being exported from the JAMF server" "xml" "name" $GroupList
+    create_listitem_list "The following Smart / Static groups are being exported from the JAMF server" "xml" "name" $GroupList "SF=person.3.fill"
     GroupIDs=$(echo $GroupList | xmllint --xpath '//id' - 2>/dev/null)
     GroupIDs=($(remove_xml_tags "$GroupIDs" "id" ))
+    GroupCount=${#GroupIDs}
 
     for item in ${GroupIDs[@]}; do
         tasks+=("export_computer_group_details $item")
@@ -1402,8 +1454,15 @@ function export_computer_groups ()
 
    # Display how many Static/Smart groups files were downloaded.
     DirectoryCount=$(ls -R $location_backupSmartGroups | wc -l | xargs)
+    # Run a comparison of what we think we should export, vs what actually exported
+    if (( GroupCount != DirectoryCount )); then
+        logMsg="WARNING: ⚠️ Missing Static/Smart Groups: Expected $GroupCount but only found $DirectoryCount on disk ⚠️"
+    else
+        logMsg="INFO: All $DirectoryCount Static/Smart Groups downloaded successfully"
+    fi
+    logMe "${logMsg}"
     logMsg="$DirectoryCount Static/Smart groups were downloaded to $location_backupSmartGroups"
-    logMe $logMsg 
+    logMe "${logMsg}"
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
     wait
@@ -1541,9 +1600,10 @@ function export_usage ()
     formatted_ApplicationUsage_name=$(make_apfs_safe "${location_ApplicationUsage}")
     [[ ! -d "$formatted_ApplicationUsage_name" ]] && /bin/mkdir -p "${formatted_ApplicationUsage_name}"
     computerList=$(JAMF_retrieve_data_blob "JSSResource/computergroups/id/$GroupID" "xml")
-    create_listitem_list "The following Usage report will be generated from group:<br><br>**$GroupName**" "xml" "computer//name" "$computerList"
+    create_listitem_list "The following Usage report will be generated from group:<br><br>**$GroupName**" "xml" "computer//name" "$computerList" "SF=desktopcomputer.and.macbook"
     ComputerIDs=$(echo $computerList | xmllint --xpath '//computer//name' - 2>/dev/null)
     ComputerIDs=($(remove_xml_tags "$ComputerIDs" "name"))
+    ComputerCount=${#ComputerIDs}
     
     for item in ${ComputerIDs[@]}; do
         tasks+=("export_usage_details $item")
@@ -1552,8 +1612,15 @@ function export_usage ()
 
     # Display how many usage Reports were downloaded
     DirectoryCount=$(ls $formatted_ApplicationUsage_name | wc -l | xargs )
+    # Run a comparison of what we think we should export, vs what actually exported
+    if (( iconCount != DirectoryCount )); then
+        logMsg="WARNING: ⚠️ Missing Usage Reports: Expected $iconCount but only found $DirectoryCount on disk ⚠️"
+    else
+        logMsg="INFO: All $DirectoryCount Configuration Profiles downloaded successfully"
+    fi
+    logMe "${logMsg}"
     logMsg="$DirectoryCount Usage reports were downloaded to $formatted_ApplicationUsage_name."
-    logMe $logMsg 
+    logMe "${logMsg}"
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
     wait
@@ -1619,19 +1686,28 @@ function export_user_multiple ()
     
     [[ ! -d "$location_UsersMultipleSystems" ]] && /bin/mkdir -p "${location_UsersMultipleSystems}"
     UserList=$(JAMF_get_inventory_record "USER_AND_LOCATION&page=0&page-size=10000" "")
-    UserID=($(echo $UserList | jq -r '.results[].userAndLocation.username' | sort | uniq -d))
+    UserIDs=($(echo $UserList | jq -r '.results[].userAndLocation.username' | grep -v "null" | sort | uniq -d ))
+    UserCount=${#UserIDs}
+
+    construct_dialog_header_settings "Exporting list of users with multiple systems" > "${JSON_DIALOG_BLOB}"
+    create_listitem_message_body "" "" "" "" "first"
+    for item in ${UserIDs[@]}; do
     
-    create_listitem_list "The following users have multiple systems:" "json" ".userAndLocation.username" "$UserList"
+        create_listitem_message_body "$item" "" "pending" "Pending..."
+    done
+    create_listitem_message_body "" "" "" "" "last"
+    update_display_list "Create"
     
-    for item in ${UserID[@]}; do
+    for item in ${UserIDs[@]}; do
         tasks+=("export_user_multiple_details $item")
+        #export_user_multiple_details "$item"
     done
     execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
 
     # Display how many usage Reports were downloaded
     DirectoryCount=$(ls $location_UsersMultipleSystems | wc -l | xargs )
-    logMsg="$DirectoryCount Usage reports were downloaded to $location_UsersMultipleSystems."
-    logMe $logMsg 
+    logMsg="$DirectoryCount Users with multiple systems were downloaded to $location_UsersMultipleSystems."
+    logMe "${logMsg}" 
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
     wait
@@ -1648,30 +1724,23 @@ function export_user_multiple_details ()
     declare appDate
 
 	[[ -z "${1}" ]] && return 0
+    
+    UserList=$(JAMF_get_inventory_record "GENERAL&page=0&page-size=100" "userAndLocation.email==$1")
+    machineList=($(echo $UserList | jq -r '.results[].general.name'))
+    machineCount=$(echo $UserList  | jq -r '.totalCount')
+    managedList=($(echo $UserList | jq -r '.results[].general.remoteManagement.managed'))
+    machineLastContact=($(echo $UserList | jq -r '.results[].general.lastContactTime'))
 
-    JAMF_retrieve_data_blob_global "JSSResource/computerapplicationusage/name/$1/${menu_startDateUsage}_${menu_endDateUsage}" "json"
-
-    # if the script returns <computer_application_usage/> then there is no data to show
-    if [[ ${xmlBlob} == '{"computer_application_usage":[]}' ]]; then
-        update_display_list "Update" "" "${1}" "" "fail" "No usage date for those dates"
-        logMe "No computer usage data found for ${1}"
-        echo "App Usage no data: "${1} >> $ERROR_LOG_LOCATION
-    else
-        appDate=($(echo $xmlBlob | jq -r '.computer_application_usage[].date'))
-        update_display_list "Update" "" "${1}" "" "wait" "Working..."
-
-        #export the Usage Report
-        if [[ ! -z ${#appDate[@]} ]]; then
-            filename="${formatted_ApplicationUsage_name}/$1.csv"
-            logMe "Creating Usage Report $filename"
-            touch "$filename"
-            echo "Serial #, Date, App Name,Total Hours,Version" >> $filename
-            for item in ${appDate[@]}; do
-                echo $xmlBlob | jq -r '.computer_application_usage[] | select(.date == "'$item'") | .apps[] | "'$1','$item',\(.name),\(.foreground),\(.version)"' >> $filename
-            done
-        fi
-        update_display_list "Update" "" "${1}" "" "success" "Finished"
-    fi
+    update_display_list "Update" "" "${1}" "" "wait" "Working..."
+    formatted_location_ApplicationUsage=$(make_apfs_safe "${location_UsersMultipleSystems}")
+    filename="${formatted_location_ApplicationUsage}/$1.csv"
+    logMe "Creating Multi-user System report: ${filename}"
+    touch "${filename}"
+    echo "Serial #, Managed","Last Contact" >> "${filename}"
+    for ((i=1; i<=${#machineList[@]}; i++)); do
+        echo "${machineList[i]}, ${managedList[i]}, ${machineLastContact[i]}" >> "${filename}"
+    done
+    update_display_list "Update" "" "${1}" "" "success" "$machineCount Systems"
 }
 
 ###############################################
@@ -1764,16 +1833,19 @@ function display_welcome_msg ()
         --infobuttonaction "https://github.com/ScottEKendall/JAMF-Pro-Scripts"
         --helpmessage "This script will backup various items from your JAMF server.  Please select the items you wish to backup and the location to store them."
         --textfield "Select a storage location",fileselect,filetype=folder,required,name=StorageLocation
-        --checkbox "Backup Self Service Icons (*.png)",checked,name=BackupSSIcons
-        --checkbox "+ Exported failed MDM commands (*.txt)",checked,name=BackupFailedMDMCommands
-        --checkbox "Backup System Scripts (*.sh)",checked,name=BackupJAMFScripts
+        --checkbox " ------- Computer Based Actions -------",disabled
         --checkbox "Backup Computer Policies (*.xml)",checked,name=BackupComputerPolicy
         --checkbox "Backup Computer Extension Attributes (*.sh)",checked,name=BackupComputerExtensions
         --checkbox "Backup Configuration Profiles (*.mobileconfig)",checked,name=BackupConfigurationProfiles
         --checkbox "Backup Smart Groups & Static Groups (*.txt)",checked,name=BackupSmartGroups
-        --checkbox "+ Create VCF cards or send emails from Groups (*.vcf)",checked,name=createVCFcards
-        --checkbox "+ Export Application Usage from Users / Groups (*.csv)",checked,name=exportApplicationUsage
-        #--checkbox "Export Users with multiple systems (*.txt)",checked,name=exportUsersMultipleSystems
+        --checkbox "Exported failed MDM commands (*.txt) +",checked,name=BackupFailedMDMCommands
+        --checkbox "------- User Based Actions -------",disabled
+        --checkbox "Create VCF cards or send emails from Groups (*.vcf) +",checked,name=createVCFcards
+        --checkbox "Export Application Usage from Users / Groups (*.csv) +",checked,name=exportApplicationUsage
+        --checkbox "Export Users with multiple systems (*.txt)",checked,name=exportUsersMultipleSystems
+        --checkbox "------- System Based Actions -------",disabled
+        --checkbox "Backup Self Service Icons (*.png)",checked,name=BackupSSIcons
+        --checkbox "Backup System Scripts (*.sh)",checked,name=BackupJAMFScripts
         )
 	
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
@@ -1951,15 +2023,15 @@ check_directories
 # Remove exissting error log if one exists
 [[ -e "${ERROR_LOG_LOCATION}" ]] && rm -r "${ERROR_LOG_LOCATION}"
 
-[[ "${menu_backupSSIcons}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; backup_ss_icons;}
-[[ "${menu_backupFailedMDM}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; export_failed_mdm_devices;}
-[[ "${menu_backupJAMFScripts}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; backup_jamf_scripts;}
-[[ "${menu_computerea}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; backup_computer_extensions;}
-[[ "${menu_configurationProfiles}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; backup_configuration_profiles;}
-[[ "${menu_backupSmartGroups}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; export_computer_groups;}
-[[ "${menu_createVCFcards}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; create_vcf_cards;}
-[[ "${menu_exportApplicationUsage}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; export_usage;}
-[[ "${menu_UsersMultipleSystems}" == "true" ]] && {[[ JAMF_token = "new" ]] && JAMF_get_access_token; export_user_multiple;}
+[[ "${menu_computerea}" == "true" ]] && {[[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token; backup_computer_extensions;}
+[[ "${menu_configurationProfiles}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; backup_configuration_profiles;}
+[[ "${menu_backupSmartGroups}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; export_computer_groups;}
+[[ "${menu_backupFailedMDM}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; export_failed_mdm_devices;}
+[[ "${menu_createVCFcards}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; create_vcf_cards;}
+[[ "${menu_exportApplicationUsage}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; export_usage;}
+[[ "${menu_UsersMultipleSystems}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; export_user_multiple;}
+[[ "${menu_backupSSIcons}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; backup_ss_icons;}
+[[ "${menu_backupJAMFScripts}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; backup_jamf_scripts;}
 JAMF_invalidate_token
 
 # If we get here, then we are done with the script
