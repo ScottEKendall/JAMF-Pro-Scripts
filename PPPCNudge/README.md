@@ -322,3 +322,5 @@ https://gist.github.com/rmcdongit/f66ff91e0dad78d4d6346a75ded4b751
 Some more good info here: 
 
 https://gist.github.com/rmcdongit/f66ff91e0dad78d4d6346a75ded4b751
+
+https://github.com/AtlasGondal/macos-pentesting-resources/blob/main/tccd/kTCCService.md#tcc-services-and-descriptions
