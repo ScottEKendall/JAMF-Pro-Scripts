@@ -41,6 +41,7 @@ UserDir=$(dscl . -read /Users/${LoggedInUser} NFSHomeDirectory | awk '{ print $2
 
 appType="dsk"
 appName="Join Raspberry Network.pdf"
+runAfterDone="No"
 
 FolderPath=""
 CertPath="/Library/Frameworks/Python.framework/Versions/3.10/etc/openssl"
@@ -396,4 +397,5 @@ clear_quarantine_flag
 
 logMe "Cleanup and Exit"
 cleanup
+[[ $runAfterDone == "Yes" ]] && sudo /usr/bin/open "${DestPath}/${appName}"
 exit 0
