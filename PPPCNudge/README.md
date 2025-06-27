@@ -6,25 +6,25 @@ This can be modified to handle any TCC Key value that is present on the system. 
 
 **Exmaple screen for Screen & Audio recording**
 
-![](/PCCCNudge/PPPCNudge-Screen.png)
+![](/PPPCNudge/PPPCNudge-Screen.png)
 
 Example screen using the "mini" mode
 
-![](/PCCCNudge/PPPCNudge-Screen-mini.png)
+![](/PPPCNudge/PPPCNudge-Screen-mini.png)
 
 
 
 **Example screen for accessability**
 
-![](/PCCCNudge/PPPCNudge-Accessibility.png)
+![](/PPPCNudge/PPPCNudge-Accessibility.png)
 
 Example screen using the "mini" mode
 
-![](/PCCCNudge/PPPCNudge-Accessibility-mini.png)
+![](/PPPCNudge/PPPCNudge-Accessibility-mini.png)
 
 **Script Parameters**
 
-![](/PCCCNudge/PPPCNudge-Parameters.png)
+![](/PPCNudge/PPPCNudge-Parameters.png)
 
 
 I developed this script from the one found on this site:
@@ -44,11 +44,11 @@ a system-wide TCC database is located at ```/Library/Application Support/com.app
 
 From a user’s perspective, they see TCC in action when an application wants access to one of the features protected by TCC. When this happens the user is prompted with a dialog asking them whether they want to allow access or not. This response is then stored in the TCC database.
 
-![](/PCCCNudge/PPPCNudge-Consent.png)
+![](/PPPCNudge/PPPCNudge-Consent.png)
 
 To get visibility into TCC permissions, users can navigate to their System Settings, and click into Privacy & Security. In this pane, you can see the vast majority of TCC permissions. This includes, but is not limited to, applications that have requested access to the camera or microphone, location data, and specific files and folders such as the Desktop or Documents.
 
-![](/PCCCNudge/PPPCNudge-System%20Settings.png)
+![](/PPPCNudge/PPPCNudge-System%20Settings.png)
 
 **Accessing the TCC Database**
 
