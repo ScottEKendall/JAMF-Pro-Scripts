@@ -4,6 +4,9 @@ This script allows you to display a dialog informing the user what to do if a pa
 
 This can be modified to handle any TCC Key value that is present on the system.  The JSON Blob ```tccJSONarray``` contains the information to search & retreive for any given TCC Key
 
+*This script is designed to test/evaluate the current condition of the PPPC Key.  If everything seems OK (enabled), it will exit quietly with no user interaction, so theoretically you could scope this to all users...*
+
+
 **Exmaple screen for Screen & Audio recording**
 
 ![](/PPPCNudge/PPPCNudge-Screen.png)
