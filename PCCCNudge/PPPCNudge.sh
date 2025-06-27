@@ -253,21 +253,20 @@ function get_app_details ()
 
     Check_TCC
 
+    # Verify that the PPPC profile has been pushed to their system
     if [[ $pppc_status != "AllowStandardUserToSetSystemService" ]]; then
         logMe "WARNING: Could not find valid PPPC Profile for $APP_NAME allowing Standard User to Approve."
         cleanup_and_exit 1
-    else
-        logMe "INFO: found valid PPPC Profile for $APP_NAME allowing Standard User to Approve."
-    fi
+    fi    
+    logMe "INFO: found valid PPPC Profile for $APP_NAME allowing Standard User to Approve."
 
     # Quick check to see if our search results match the bundleID from the app
     if [[ $tccApprovalSystem == "$bundleID" ]]; then
         logMe "${prefScreen} has already been approved for $APP_NAME..."
         cleanup_and_exit 0
-    else
-        logMe "${prefScreen} has not been approved for $APP_NAME..."
-        return 0
     fi
+    logMe "${prefScreen} has not been approved for $APP_NAME..."
+    
     logMe "INFO: Valid application found, contining script"
 }
 
