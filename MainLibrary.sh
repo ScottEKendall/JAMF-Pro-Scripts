@@ -111,7 +111,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -991,4 +990,25 @@ function create_checkbox_message_body ()
     [[ ! -z $1 ]] && line+='{"name" : "'$2'", "label" : "'$1'", "icon" : "'$3'", "checked" : "'$4'", "disabled" : "'$5'"},'
     [[ "$6:l" == "last" ]] && line+='] ' #,"checkboxstyle" : {"style" : "switch", "size"  : "small"}'
     echo $line >> ${JSON_DIALOG_BLOB}
+}
+#######################################################################################################
+# 
+# Functions for system & user level TCCC Database
+#
+#######################################################################################################
+
+function configure_system_tccdb ()
+{
+    local values=$1
+    local dbPath="/Library/Application Support/com.apple.TCC/TCC.db"
+    local sqlQuery="INSERT OR IGNORE INTO access VALUES($values);"
+    sudo sqlite3 "$dbPath" "$sqlQuery"
+}
+
+function configure_user_tccdb () 
+{
+    local values=$1
+    local dbPath="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
+    local sqlQuery="INSERT OR IGNORE INTO access VALUES($values);"
+    sqlite3 "$dbPath" "$sqlQuery"
 }
