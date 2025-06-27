@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/26/2025
-# Last updated: 06/26/2025
+# Last updated: 06/27/2025
 #
 # Script Purpose: check the PPPC Database to see if the requested item is turned off for a particular app, and prompt user if necessasry
 #
@@ -13,6 +13,7 @@
 # https://www.macosadventures.com/2023/03/07/screennudge-v1-7/
 #
 # 1.0 - Initial
+# 1.1 - Put in logic to check User TCC first and then the System TCC
 #
 # Here is a list of the System Settings Prefpanes that can be opened from terminal
 #
@@ -93,7 +94,7 @@ HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 APP_PATH="${4}"
-TCCC_KEY="${5}" #The TCC service to modify
+TCC_KEY="${5}" #The TCC service to modify
 MAX_ATTEMPTS="${6}" #How many attempts at prompting the user before giving up.
 SLEEP_TIME="${7}" #How many seconds to wait between user prompts. 
 DISPLAY_TYPE=${8:-"MINI"}
@@ -253,6 +254,22 @@ function get_app_details ()
 
     Check_TCC
 
+    # Possiblities to check
+    # 1.  Key is in the System TCC, but user is not allowed to approve
+    # 2.  Key is in the System TCC, and user is allowed to approve
+    # 3.  Key is in the User TCC 
+
+    # Check to see if this is in the User TCC first
+    if [[ $tccKeyDB == "User" ]]; then
+        if [[ ! -z $tccApproval ]]; then
+            logMe "INFO: Service found in User TCC and has already been approved for $APP_NAME"
+            cleanup_and_exit 0
+        fi
+        logMe "INFO: Service found in User TCC, but has not been approved for $APP_NAME"
+        return 0
+    fi
+
+    # It wasn't found in the User TCC so work on the System TCC
     # Verify that the PPPC profile has been pushed to their system
     if [[ $pppc_status != "AllowStandardUserToSetSystemService" ]]; then
         logMe "WARNING: Could not find valid PPPC Profile for $APP_NAME allowing Standard User to Approve."
@@ -261,7 +278,7 @@ function get_app_details ()
     logMe "INFO: found valid PPPC Profile for $APP_NAME allowing Standard User to Approve."
 
     # Quick check to see if our search results match the bundleID from the app
-    if [[ $tccApprovalSystem == "$bundleID" ]]; then
+    if [[ $tccApproval == "$bundleID" ]]; then
         logMe "${prefScreen} has already been approved for $APP_NAME..."
         cleanup_and_exit 0
     fi
@@ -272,11 +289,15 @@ function get_app_details ()
 
 function Check_TCC ()
 {
-    pppc_status=$(/usr/libexec/PlistBuddy -c 'print "'$bundleID':'$TCCC_KEY':Authorization"' "/Library/Application Support/com.apple.TCC/MDMOverrides.plist" 2>/dev/null)
-    # Check the system TCC library first
-    tccApprovalSystem=$(sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" 'SELECT client FROM access WHERE service like "'$TCCC_KEY'" AND auth_value = '2'' | grep -o "$bundleID")
-    [[ ! -z $tccApprovalSystem ]] && return 0
-    tccApprovalUser=$(sudo sqlite3 "$USER_DIR/Library/Application Support/com.apple.TCC/TCC.db" 'SELECT client FROM access WHERE service like "'$TCCC_KEY'" AND auth_value = '2'' | grep -o "$bundleID")
+    # If this key is in the user TCC then check that first
+    if [[ $tccKeyDB == "User" ]]; then
+        tccApproval=$(sudo sqlite3 "$USER_DIR/Library/Application Support/com.apple.TCC/TCC.db" "SELECT client FROM access WHERE service like '$TCC_KEY' AND auth_value = '2'" | grep -o "$bundleID")
+    else
+        # Check to see if this app has been allowed via PPPC policy
+        pppc_status=$(/usr/libexec/PlistBuddy -c 'print "'$bundleID':'$TCC_KEY':Authorization"' "/Library/Application Support/com.apple.TCC/MDMOverrides.plist" 2>/dev/null)
+        # and check the system TCC library
+        tccApproval=$(sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" 'SELECT client FROM access WHERE service like "'$TCC_KEY'" AND auth_value = '2'' | grep -o "$bundleID")
+    fi
 }
 
 function runAsUser () 
@@ -307,18 +328,20 @@ function extract_keys_from_json ()
 # Main Script
 #
 ####################################################################################################
-declare tccApprovalSystem
+
 declare bundleID
 declare iconPath
 declare tccJSONarray
-declare $TCCC_KEY
 declare pppc_status
+declare userTCCServices
+declare tccApproval
+declare tccKeyDB && tccKeyDB="System"
 
 autoload 'is-at-least'
 
 # Make sure that the passed app has the .app extension
+# eand xtract just the app name from the path that was passed in
 [[ ! "$APP_PATH" == *".app" ]] && APP_PATH+=".app"
-# extract just the app name from the path that was passed in
 APP_NAME="${APP_PATH:t:r}"
 SD_ICON_FILE=$APP_PATH
 
@@ -330,11 +353,18 @@ tccJSONarray='{
         {"name": "kTCCServiceAccessibility"       ,"menu": "Privacy_Accessibility",   "descrip" : "Please allow the *Accessibility* for **'$APP_NAME'**.  This is so that various automation actions can be used with the application."},
         {"name": "kTCCServiceMicrophone"          ,"menu": "Privacy_Microphone",      "descrip" : "Please allow the *Microphone* for **'$APP_NAME'**.  This is so others can hear you during meetings."} ]}'
 
+# Store the User TCC Keys into an array so we can search on it later
+# if the TCC_KEY is found in the user TCC then mark it as User
+userTCCServices=$(sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" "SELECT * FROM access;" | awk -F "|" '{print $1}' | sort | uniq)
+[[ $(echo $userTCCServices | grep $TCC_KEY) ]] && tccKeyDB="User"
+
 #extract the BundleID from the application
 bundleID=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")
+
 #extract the preferences pane to use and the message to display
-prefScreen=$(extract_keys_from_json $tccJSONarray $TCCC_KEY ".menu")
-messageBlurb=$(extract_keys_from_json $tccJSONarray $TCCC_KEY ".descrip")
+prefScreen=$(extract_keys_from_json $tccJSONarray $TCC_KEY ".menu")
+messageBlurb=$(extract_keys_from_json $tccJSONarray $TCC_KEY ".descrip")
+
 # strip out the Markdown Characters if using the mini mode
 [[ "${DISPLAY_TYPE:l}" == "mini" ]] && messageBlurb=$(echo $messageBlurb | tr -d '*')
 
@@ -345,7 +375,7 @@ get_app_details
 
 # start the loop and continue until either the user approves the request or max attempts have been reached.
 dialogAttempts=0
-until [[ $tccApprovalSystem = $bundleID ]]; do
+until [[ $tccApproval = $bundleID ]]; do
     if (( $dialogAttempts >= $MAX_ATTEMPTS )); then
         logMe "Prompts have been ignored after $MAX_ATTEMPTS attempts. Giving up..."
         cleanup_and_exit 1
