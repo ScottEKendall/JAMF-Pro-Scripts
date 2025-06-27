@@ -318,3 +318,7 @@ runAsUser open "x-apple.systempreferences:com.apple.preference.security?Privacy_
 All System settings panes can be opened via terminal, here is a complete article on it:
 
 https://gist.github.com/rmcdongit/f66ff91e0dad78d4d6346a75ded4b751
+
+Some more good info here: 
+
+https://gist.github.com/rmcdongit/f66ff91e0dad78d4d6346a75ded4b751
