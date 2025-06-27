@@ -24,7 +24,7 @@ Example screen using the "mini" mode
 
 **Script Parameters**
 
-![](/PPCNudge/PPPCNudge-Parameters.png)
+![](/PPPCNudge/PPPCNudge-Parameters.png)
 
 
 I developed this script from the one found on this site:
