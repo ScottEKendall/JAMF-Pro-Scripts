@@ -253,6 +253,13 @@ function get_app_details ()
 
     Check_TCC
 
+    if [[ $pppc_status != "AllowStandardUserToSetSystemService" ]]; then
+        logMe "WARNING: Could not find valid PPPC Profile for $APP_NAME allowing Standard User to Approve."
+        cleanup_and_exit 1
+    else
+        logMe "INFO: found valid PPPC Profile for $APP_NAME allowing Standard User to Approve."
+    fi
+
     # Quick check to see if our search results match the bundleID from the app
     if [[ $tccApprovalSystem == "$bundleID" ]]; then
         logMe "${prefScreen} has already been approved for $APP_NAME..."
@@ -261,17 +268,12 @@ function get_app_details ()
         logMe "${prefScreen} has not been approved for $APP_NAME..."
         return 0
     fi
-
-    if [[ $pppc_status != "AllowStandardUserToSetSystemService" ]]; then
-        logMe "WARNING: Could not find valid PPPC Profile for $APP_NAME allowing Standard User to Approve."
-        cleanup_and_exit 1
-    fi
     logMe "INFO: Valid application found, contining script"
 }
 
 function Check_TCC ()
 {
-    pppc_status=$(/usr/libexec/PlistBuddy -c 'print "'$bundleID':'$TCCC_KEY':Authorization"' "/Library/Application Support/com.apple.TCC/MDMOverrides.plist")
+    pppc_status=$(/usr/libexec/PlistBuddy -c 'print "'$bundleID':'$TCCC_KEY':Authorization"' "/Library/Application Support/com.apple.TCC/MDMOverrides.plist" 2>/dev/null)
     # Check the system TCC library first
     tccApprovalSystem=$(sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" 'SELECT client FROM access WHERE service like "'$TCCC_KEY'" AND auth_value = '2'' | grep -o "$bundleID")
     [[ ! -z $tccApprovalSystem ]] && return 0
@@ -326,9 +328,8 @@ tccJSONarray='{
     "applications": [
         {"name": "kTCCServiceScreenCapture",       "menu": "Privacy_ScreenCapture",   "descrip" : "Please approve the *Screen & Audio Recordings* for **'$APP_NAME'**.  This is so that others can view your screen or you can record screens."},
         {"name": "kTCCServiceSystemPolicyAllFiles","menu": "Privacy_FilesAndFolders", "descrip" : "Please approve the *Files & Folders* for **'$APP_NAME'**.  This is so that you can access files from various locations."},
-        {"name": "kTCCServiceAccessibility"       ,"menu": "Privacy_Accessibility",   "descrip" : "Please allow the *Accessibility* for **'$APP_NAME'**.  This is so that various automation actions can be used with the application."} ]}'
-
-
+        {"name": "kTCCServiceAccessibility"       ,"menu": "Privacy_Accessibility",   "descrip" : "Please allow the *Accessibility* for **'$APP_NAME'**.  This is so that various automation actions can be used with the application."},
+        {"name": "kTCCServiceMicrophone"          ,"menu": "Privacy_Microphone",      "descrip" : "Please allow the *Microphone* for **'$APP_NAME'**.  This is so others can hear you during meetings."} ]}'
 
 #extract the BundleID from the application
 bundleID=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")
