@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/26/2025
-# Last updated: 06/27/2025
+# Last updated: 06/30/2025
 #
 # Script Purpose: check the PPPC Database to see if the requested item is turned off for a particular app, and prompt user if necessasry
 #
@@ -14,6 +14,7 @@
 #
 # 1.0 - Initial
 # 1.1 - Put in logic to check User TCC first and then the System TCC
+# 1.2 - Added check to make sure a user is logged in / Added more logging items / Removed the sudo command from the sql command
 #
 # Here is a list of the System Settings Prefpanes that can be opened from terminal
 #
@@ -291,12 +292,14 @@ function Check_TCC ()
 {
     # If this key is in the user TCC then check that first
     if [[ $tccKeyDB == "User" ]]; then
-        tccApproval=$(sudo sqlite3 "$USER_DIR/Library/Application Support/com.apple.TCC/TCC.db" "SELECT client FROM access WHERE service like '$TCC_KEY' AND auth_value = '2'" | grep -o "$bundleID")
+        logMe "INFO: Querying user TCC database"
+        tccApproval=$(sqlite3 "$USER_DIR/Library/Application Support/com.apple.TCC/TCC.db" "SELECT client FROM access WHERE service like '$TCC_KEY' AND auth_value = '2'" | grep -o "$bundleID")
     else
         # Check to see if this app has been allowed via PPPC policy
         pppc_status=$(/usr/libexec/PlistBuddy -c 'print "'$bundleID':'$TCC_KEY':Authorization"' "/Library/Application Support/com.apple.TCC/MDMOverrides.plist" 2>/dev/null)
         # and check the system TCC library
-        tccApproval=$(sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" 'SELECT client FROM access WHERE service like "'$TCC_KEY'" AND auth_value = '2'' | grep -o "$bundleID")
+        logMe "INFO: Querying system TCC database"
+        tccApproval=$(sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" 'SELECT client FROM access WHERE service like "'$TCC_KEY'" AND auth_value = '2'' | grep -o "$bundleID")
     fi
 }
 
@@ -338,6 +341,11 @@ declare tccApproval
 declare tccKeyDB && tccKeyDB="System"
 
 autoload 'is-at-least'
+
+if [[ -z "$LOGGED_IN_USER" ]]; then
+    logMe "INFO: No user logged in"
+    cleanup_and_exit 0
+fi
 
 # Make sure that the passed app has the .app extension
 # eand xtract just the app name from the path that was passed in
