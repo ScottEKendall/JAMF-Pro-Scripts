@@ -221,17 +221,25 @@ function welcomemsg ()
 
 function configure_system_tccdb ()
 {
+    # PURPOSE: change the TCC.db database in the system location with hardcoded vaiues
+    # EXPECTED: None
+    # RETURNS: None
+    # PARAMETERS: $1 - values to set
     local values=$1
     local dbPath="/Library/Application Support/com.apple.TCC/TCC.db"
-    local sqlQuery="INSERT OR IGNORE INTO access VALUES($values);"
+    local sqlQuery="INSERT OR IGNORE INTO access VALUES($1);"
     sudo sqlite3 "$dbPath" "$sqlQuery"
 }
 
 function configure_user_tccdb () 
 {
+    # PURPOSE: change the TCC.db database in the user location with hardcoded vaiues
+    # EXPECTED: None
+    # RETURNS: None
+    # PARAMETERS: $1 - values to set
     local values=$1
     local dbPath="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
-    local sqlQuery="INSERT OR IGNORE INTO access VALUES($values);"
+    local sqlQuery="INSERT OR IGNORE INTO access VALUES($1);"
     sqlite3 "$dbPath" "$sqlQuery"
 }
 
@@ -290,6 +298,15 @@ function get_app_details ()
 
 function Check_TCC ()
 {
+    # PURPOSE: Check both the User TCC.db and the System TCC.db for the key and bundleID
+    # EXPECTED: $USER_DIR:  Directory of user files
+    #           $TCC_KEY:   The TCC Service to search for
+    #           $BundleID:  Applicaiton bundleID
+    # ENVIRONMENT: tccApproval: Will contain the results of the BundleID was found for the TCC_KEY
+    #              pppc_status: If the user is allowed to set the values for the TCC_KEY
+    # RETURNS: None
+    # PARAMETERS: None
+    #
     # If this key is in the user TCC then check that first
     if [[ $tccKeyDB == "User" ]]; then
         logMe "INFO: Querying user TCC database"
@@ -305,13 +322,7 @@ function Check_TCC ()
 
 function runAsUser () 
 {  
-  if [ "$LOGGED_IN_USER" != "loginwindow" ]; then
     launchctl asuser "$UID" sudo -u "$LOGGED_IN_USER" "$@"
-  else
-    echo "no user logged in"
-    # uncomment the exit command to make the function exit with an error when no user is logged in
-    # exit 1
-  fi
 }
 
 function extract_keys_from_json ()
@@ -342,7 +353,8 @@ declare tccKeyDB && tccKeyDB="System"
 
 autoload 'is-at-least'
 
-if [[ -z "$LOGGED_IN_USER" ]]; then
+
+if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
     logMe "INFO: No user logged in"
     cleanup_and_exit 0
 fi
