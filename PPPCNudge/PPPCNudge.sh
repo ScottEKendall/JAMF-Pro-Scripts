@@ -267,16 +267,20 @@ function get_app_details ()
     # Possiblities to check
     # 1.  Key is in the System TCC, but user is not allowed to approve
     # 2.  Key is in the System TCC, and user is allowed to approve
-    # 3.  Key is in the User TCC 
+    # 3.  Key is pesent in the User TCC 
+    # 4.  Key is NOT present in the user TCC
 
     # Check to see if this is in the User TCC first
+    TCCresults="0"
     if [[ $tccKeyDB == "User" ]]; then
-        if [[ ! -z $tccApproval ]]; then
+        if [[ -z $tccApproval ]]; then
+            logMe "WARNING: $1 Service should be in User TCC, but not found.  App might need to be launched for the first time."
+            TCCresults="1"
+            return 1
+        else
             logMe "INFO: $1 Service found in User TCC and has already been approved for $APP_NAME"
             return 0
-        fi
-        logMe "INFO: $1 Service found in User TCC, but has not been approved for $APP_NAME"
-        return 0
+        fi        
     fi
 
     # It wasn't found in the User TCC so work on the System TCC
@@ -349,7 +353,8 @@ declare tccJSONarray
 declare pppc_status
 declare userTCCServices
 declare tccApproval
-declare tccKeyDB && tccKeyDB="System"
+declare tccKeyDB
+declare TCCresults
 
 autoload 'is-at-least'
 
@@ -371,6 +376,27 @@ TCC_KEY_ARRAY=($(echo $TCC_KEY))
 APP_NAME="${APP_PATH:t:r}"
 SD_ICON_FILE=$APP_PATH
 
+# Store the User TCC Keys into an array so we can search on it later
+userTCCServices=(kTCCServiceAddressBook
+kTCCServiceAppleEvents
+kTCCServiceBluetoothAlways
+kTCCServiceCalendar
+kTCCServiceCamera
+kTCCServiceFileProviderDomain
+kTCCServiceLiverpool
+kTCCServiceMicrophone
+kTCCServicePhotos
+kTCCServiceReminders
+kTCCServiceSystemPolicyAppBundles
+kTCCServiceSystemPolicyAppData
+kTCCServiceSystemPolicyDesktopFolder
+kTCCServiceSystemPolicyDocumentsFolder
+kTCCServiceSystemPolicyDownloadsFolder
+kTCCServiceSystemPolicyNetworkVolumes
+kTCCServiceSystemPolicyRemovableVolumes
+kTCCServiceUbiquity
+kTCCServiceWebBrowserPublicKeyCredential)
+
 # the JSON blob contains the TCCKey, the system setitngs pane to open, and a verbal description of what you want to display to the user
 tccJSONarray='{
     "applications": [
@@ -385,22 +411,22 @@ tccJSONarray='{
 bundleID=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")
 logMe "Bundle ID for $APP_NAME is $bundleID"
 
-# Store the User TCC Keys into an array so we can search on it later
-userTCCServices=$(sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" "SELECT * FROM access;" | awk -F "|" '{print $1}' | sort | uniq)
-
 for ((i=1; i<=${#TCC_KEY_ARRAY[@]}; i++)); do
     # if the TCC_KEY is found in the user TCC then mark it as User
 
     [[ ! -z $(echo $userTCCServices | grep $TCC_KEY_ARRAY[i]) ]] && tccKeyDB="User" || tccKeyDB="System"
-    
     #extract the preferences pane to use and the message to display
     prefScreen=$(extract_keys_from_json $tccJSONarray $TCC_KEY_ARRAY[i] ".menu")
     messageBlurb=$(extract_keys_from_json $tccJSONarray $TCC_KEY_ARRAY[i] ".descrip")
 
     # strip out the Markdown Characters if using the mini mode
     [[ "${DISPLAY_TYPE:l}" == "mini" ]] && messageBlurb=$(echo $messageBlurb | tr -d '*')
-
     get_app_details "$TCC_KEY_ARRAY[i]"
+    # This condition should only happen if testing on the User TCC and there is no entry, which probably means that the app hasn't been launched for the first time
+    if [[ $TCCresults == "1" ]]; then
+        logMe "Skipping $TCC_KEY_ARRAY[i]. Continuing..."
+        continue
+    fi
 
     # start the loop and continue until either the user approves the request or max attempts have been reached.
     dialogAttempts=0
