@@ -390,7 +390,6 @@ userTCCServices=$(sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.d
 
 for ((i=1; i<=${#TCC_KEY_ARRAY[@]}; i++)); do
     # if the TCC_KEY is found in the user TCC then mark it as User
-    echo $TCC_KEY_ARRAY[i]
 
     [[ ! -z $(echo $userTCCServices | grep $TCC_KEY_ARRAY[i]) ]] && tccKeyDB="User" || tccKeyDB="System"
     
