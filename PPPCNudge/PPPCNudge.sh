@@ -273,7 +273,7 @@ function get_app_details ()
     if [[ $tccKeyDB == "User" ]]; then
         if [[ ! -z $tccApproval ]]; then
             logMe "INFO: $1 Service found in User TCC and has already been approved for $APP_NAME"
-            cleanup_and_exit 0
+            return 0
         fi
         logMe "INFO: $1 Service found in User TCC, but has not been approved for $APP_NAME"
         return 0
@@ -377,18 +377,23 @@ tccJSONarray='{
         {"name": "kTCCServiceScreenCapture",       "menu": "Privacy_ScreenCapture",   "descrip" : "Please approve the *Screen & Audio Recordings* for **'$APP_NAME'**.  This is so that others can view your screen or you can record screens."},
         {"name": "kTCCServiceSystemPolicyAllFiles","menu": "Privacy_FilesAndFolders", "descrip" : "Please approve the *Files & Folders* for **'$APP_NAME'**.  This is so that you can access files from various locations."},
         {"name": "kTCCServiceAccessibility"       ,"menu": "Privacy_Accessibility",   "descrip" : "Please allow the *Accessibility* for **'$APP_NAME'**.  This is so that various automation actions can be used with the application."},
+        {"name": "kTCCServiceBluetoothAlways"     ,"menu": "Privacy_Bluetooth",       "descrip" : "Please allow the *Bluetooth* for **'$APP_NAME'**.  This is so that you can use a bluetooth device for speaker or microphone."},
+        {"name": "kTCCServiceCamera"              ,"menu": "Privacy_Camera",          "descrip" : "Please allow the *Camera* for **'$APP_NAME'**.  This is so that others can see you."},
         {"name": "kTCCServiceMicrophone"          ,"menu": "Privacy_Microphone",      "descrip" : "Please allow the *Microphone* for **'$APP_NAME'**.  This is so others can hear you during meetings."} ]}'
 
 #extract the BundleID from the application
 bundleID=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")
+logMe "Bundle ID for $APP_NAME is $bundleID"
 
 # Store the User TCC Keys into an array so we can search on it later
 userTCCServices=$(sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" "SELECT * FROM access;" | awk -F "|" '{print $1}' | sort | uniq)
 
 for ((i=1; i<=${#TCC_KEY_ARRAY[@]}; i++)); do
     # if the TCC_KEY is found in the user TCC then mark it as User
-    [[ $(echo $userTCCServices | grep $TCC_KEY_ARRAY[i]) ]] && tccKeyDB="User"
+    echo $TCC_KEY_ARRAY[i]
 
+    [[ ! -z $(echo $userTCCServices | grep $TCC_KEY_ARRAY[i]) ]] && tccKeyDB="User" || tccKeyDB="System"
+    
     #extract the preferences pane to use and the message to display
     prefScreen=$(extract_keys_from_json $tccJSONarray $TCC_KEY_ARRAY[i] ".menu")
     messageBlurb=$(extract_keys_from_json $tccJSONarray $TCC_KEY_ARRAY[i] ".descrip")
@@ -414,7 +419,7 @@ for ((i=1; i<=${#TCC_KEY_ARRAY[@]}; i++)); do
         logMe "Checking for approval of ${prefScreen} for $APP_NAME..."
         Check_TCC $TCC_KEY_ARRAY[i] $bundleID
     done
-    logMe "INFO: $prefScreen for $APP_NAME has been approved!..."
+    logMe "INFO: ${TCC_KEY_ARRAY[i]} for $APP_NAME has been approved!..."
 done
 runAsUser /usr/bin/osascript -e 'quit app "System Preferences"'
 cleanup_and_exit 0

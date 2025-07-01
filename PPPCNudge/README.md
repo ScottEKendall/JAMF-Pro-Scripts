@@ -157,7 +157,7 @@ This is what I have found so far for Sequoia...I will post any changes in here f
 | kTCCServiceAll                                 | Provides access to all TCC services.                          |                                                          |
 | kTCCServiceAppleEvents                         | Grants access to send Apple Events.                           | Apple Events                                             |
 | kTCCServiceAudioCapture                        | Allows capturing audio input.                                 |                                                          |
-| kTCCServiceBluetoothAlways                     | Allows Bluetooth access at all times.                         |                                                          |
+| kTCCServiceBluetoothAlways                     | Allows Bluetooth access at all times.                         | Bluetooth Access                                         |
 | kTCCServiceBluetoothPeripheral                 | Grants access to Bluetooth peripherals.                       |                                                          |
 | kTCCServiceBluetoothWhileInUse                 | Allows Bluetooth access only while in use.                    |                                                          |
 | kTCCServiceCalendar                            | Grants access to the calendar.                                | Calendar                                                 |
