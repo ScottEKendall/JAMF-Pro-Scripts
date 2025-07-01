@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/26/2025
-# Last updated: 06/30/2025
+# Last updated: 07/01/2025
 #
 # Script Purpose: check the PPPC Database to see if the requested item is turned off for a particular app, and prompt user if necessasry
 #
@@ -16,6 +16,7 @@
 # 1.1 - Put in logic to check User TCC first and then the System TCC
 # 1.2 - Added check to make sure a user is logged in / Added more logging items / Removed the sudo command from the sql command
 # 1.3 - Added support for multiple TCC checks (seperate each key with a space)
+# 1.4 - Made the UserTCC keys a "static" array so that it can be checked against bundles better
 #
 # Here is a list of the System Settings Prefpanes that can be opened from terminal
 #
