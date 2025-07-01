@@ -6,8 +6,9 @@ This can be modified to handle any TCC Key value that is present on the system. 
 
 *This script is designed to test/evaluate the current condition of the PPPC Key.  If everything seems OK (enabled), it will exit quietly with no user interaction, so theoretically you could scope this to all users...*
 
+**v1.2 update now includes the ability to have multiple TCCKeys to be evalulated with one script call.  Just pass in each TCC service key seperated by a space. (ie. _kTCCServiceSystemPolicyAllFiles kTCCServiceCamera kTCCServiceMicrophone_)**. will allow for the full Disk access, Camera & Microphone to be checked for a particular app.
 
-**Exmaple screen for Screen & Audio recording**
+**Example screen for Screen & Audio recording**
 
 ![](/PPPCNudge/PPPCNudge-Screen.png)
 
