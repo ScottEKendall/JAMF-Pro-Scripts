@@ -4,20 +4,20 @@
 #
 # Purpose: Provide user notifications of a password expiration.
 #
-# Created Date: 04/18/2025
-# Last modified: 05/28/2025
+# Created: 04/18/2024
+# Last updated: 07/02/2025
 #
-# v1.0 - Inital script
-# v1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# v1.0 - Initial Release
+# v1.1 - Major code cleanup & documentation
+#		 Structred code to be more inline / consistent across all apps
+# v1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# v1.3 - Fixed pasword age calculation
+# 		 Add support for 'on demand' viewing of password
 #
 # Expected Paramaters: 
-# #4 - Title
-# #5 - Full formatted message to display
-# #6 - Button1 Text
-# #7 - Image to display
-# #8 - JAMF policy to load image if it doeesn't exist
-# #9 - Notification icon name
-# #10 - Timer (in seconds) to wait until dismissal
+# $4 - Password Expiration in Days
+# $5 - Show "on demand" viewing (Yes) or script processing (No)
+
 ######################################################################################################
 #
 # Gobal "Common" variables
@@ -79,9 +79,10 @@ SD_ICON_PRIMARY="${ICON_FILES}AlertNoteIcon.icns"
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}   # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 PASSWORD_EXPIRE_IN_DAYS=$4
+PASSWORD_CHECK=${5:-"NO"}
 
 ####################################################################################################
 #
@@ -243,13 +244,12 @@ function get_password_info()
 
     if [[ $passwordExpireDate == *"Does Not Exist"* || -z $passwordExpireDate ]]; then
         # Not populated yet, so fall back to the local login password change
-        curUser=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-        passwordAge=$(expr $(expr $(date +%s) - $(dscl . read /Users/${curUser} | grep -A1 passwordLastSetTime | grep real | awk -F'real>|</real' '{print $2}' | awk -F'.' '{print $1}')) / 86400)
+        passwordAge=$(expr $(expr $(date +%s) - $(dscl . read /Users/${LOGGED_IN_USER} | grep -A1 passwordLastSetTime | grep real | awk -F'real>|</real' '{print $2}' | awk -F'.' '{print $1}')) / 86400)
     else
         #found the key, so determine the days based off of that
         passwordAge=$(duration_in_days $passwordExpireDate $(date))
     fi
-    passwordAge=(($PASSWORD_EXPIRE_IN_DAYS - $passwordAge))
+    passwordAge=$(($PASSWORD_EXPIRE_IN_DAYS - $passwordAge))
     echo ${passwordAge}
 }
 
@@ -269,7 +269,7 @@ create_infobox_message
 passwordAge=$(get_password_info)
 logMe "INFO: Users passsword age is: "$passwordAge
 
-if [[ ${passwordAge} -ge 8 ]]; then
+if [[ ${passwordAge} -ge 8 && ${PASSWORD_CHECK:l} == "no" ]]; then
     SD_WELCOME_MSG="Your are receiving this notice because your password is about to expire within the next ${passwordAge} days.  You can click on the 'Change Password...' option in **JAMF Connect** to change your password.  You will receive further notices when your password is about to expire within the next 7 days."
 	logMe "INFO: Display prompt for user that password will expire in ${passwordAge} days"
 	display_msg
