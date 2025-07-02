@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/26/2025
-# Last updated: 07/01/2025
+# Last updated: 07/02/2025
 #
 # Script Purpose: check the PPPC Database to see if the requested item is turned off for a particular app, and prompt user if necessasry
 #
@@ -17,6 +17,7 @@
 # 1.2 - Added check to make sure a user is logged in / Added more logging items / Removed the sudo command from the sql command
 # 1.3 - Added support for multiple TCC checks (seperate each key with a space)
 # 1.4 - Made the UserTCC keys a "static" array so that it can be checked against bundles better
+# 1.5 - Code clean up and better determination of mode of TCC Key
 #
 # Here is a list of the System Settings Prefpanes that can be opened from terminal
 #
@@ -279,7 +280,11 @@ function get_app_details ()
             TCCresults="1"
             return 1
         else
-            logMe "INFO: $1 Service found in User TCC and has already been approved for $APP_NAME"
+            if [[ $tccKeyStatus == "off" ]]; then
+                logMe "INFO: $1 service found in User TCC, but is not approved for $APP_NAME"
+            else
+                logMe "INFO: $1 Service found in User TCC and has already been approved for $APP_NAME"
+            fi
             return 0
         fi        
     fi
@@ -295,6 +300,7 @@ function get_app_details ()
     # Quick check to see if our search results match the bundleID from the app
     if [[ $tccApproval == "$bundleID" ]]; then
         logMe "INFO: ${prefScreen} has already been approved for $APP_NAME..."
+        tccKeyStatus="on"
         return 0
     fi
     logMe "${prefScreen} has not been approved for $APP_NAME..."
@@ -315,13 +321,25 @@ function Check_TCC ()
     # If this key is in the user TCC then check that first
     if [[ $tccKeyDB == "User" ]]; then
         logMe "INFO: Querying user TCC database for $1"
-        tccApproval=$(sqlite3 "$USER_DIR/Library/Application Support/com.apple.TCC/TCC.db" "SELECT client FROM access WHERE service like '$1' AND auth_value = '2'" | grep -o "$2")
+
+        tccKeyStatus=$(sqlite3 "$USER_DIR/Library/Application Support/com.apple.TCC/TCC.db" "SELECT * FROM access WHERE service like '$1'" | grep "$2" | awk -F "|" '{print $4}')
+        tccApproval=$2
+        # Test to see if Key was found in User TCC, and then if it is enabled or not (2 means on/enabled)
+        if [[ $tccKeyStatus == "2" ]]; then # Key was found and turned on
+            tccKeyStatus="on"
+        elif [[ $tccKeyStatus == "0" ]]; then # Key was found but not turned on
+            tccKeyStatus="off"
+        else
+            tccApproval="" # Key was not found
+        fi
+
     else
         # Check to see if this app has been allowed via PPPC policy
         pppc_status=$(/usr/libexec/PlistBuddy -c 'print "'$2':'$1':Authorization"' "/Library/Application Support/com.apple.TCC/MDMOverrides.plist" 2>/dev/null)
         # and check the system TCC library
         logMe "INFO: Querying system TCC database for $1"
         tccApproval=$(sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" 'SELECT client FROM access WHERE service like "'$1'" AND auth_value = '2'' | grep -o "$2")
+        [[ ! -z $tccApproval ]] && tccKeyStatus="on"
     fi
 }
 
@@ -356,6 +374,7 @@ declare userTCCServices
 declare tccApproval
 declare tccKeyDB
 declare TCCresults
+declare tccKeyStatus
 
 autoload 'is-at-least'
 
@@ -431,7 +450,7 @@ for ((i=1; i<=${#TCC_KEY_ARRAY[@]}; i++)); do
 
     # start the loop and continue until either the user approves the request or max attempts have been reached.
     dialogAttempts=0
-    until [[ $tccApproval = $bundleID ]]; do
+    until [[ $tccApproval = $bundleID && $tccKeyStatus = "on" ]]; do
         if (( $dialogAttempts >= $MAX_ATTEMPTS )); then
             logMe "Prompts have been ignored after $MAX_ATTEMPTS attempts. Giving up..."
             cleanup_and_exit 1
