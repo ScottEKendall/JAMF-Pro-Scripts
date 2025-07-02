@@ -320,7 +320,7 @@ function Check_TCC ()
     #
     # If this key is in the user TCC then check that first
     if [[ $tccKeyDB == "User" ]]; then
-        logMe "INFO: Querying user TCC database for $1"
+        logMe "Querying user TCC database for $1"
 
         tccKeyStatus=$(sqlite3 "$USER_DIR/Library/Application Support/com.apple.TCC/TCC.db" "SELECT * FROM access WHERE service like '$1'" | grep "$2" | awk -F "|" '{print $4}')
         tccApproval=$2
@@ -337,7 +337,7 @@ function Check_TCC ()
         # Check to see if this app has been allowed via PPPC policy
         pppc_status=$(/usr/libexec/PlistBuddy -c 'print "'$2':'$1':Authorization"' "/Library/Application Support/com.apple.TCC/MDMOverrides.plist" 2>/dev/null)
         # and check the system TCC library
-        logMe "INFO: Querying system TCC database for $1"
+        logMe "Querying system TCC database for $1"
         tccApproval=$(sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" 'SELECT client FROM access WHERE service like "'$1'" AND auth_value = '2'' | grep -o "$2")
         [[ ! -z $tccApproval ]] && tccKeyStatus="on"
     fi
@@ -420,12 +420,12 @@ kTCCServiceWebBrowserPublicKeyCredential)
 # the JSON blob contains the TCCKey, the system setitngs pane to open, and a verbal description of what you want to display to the user
 tccJSONarray='{
     "applications": [
-        {"name": "kTCCServiceScreenCapture",       "menu": "Privacy_ScreenCapture",   "descrip" : "Please approve the *Screen & Audio Recordings* for **'$APP_NAME'**.  This is so that others can view your screen or you can record screens."},
-        {"name": "kTCCServiceSystemPolicyAllFiles","menu": "Privacy_FilesAndFolders", "descrip" : "Please approve the *Files & Folders* for **'$APP_NAME'**.  This is so that you can access files from various locations."},
-        {"name": "kTCCServiceAccessibility"       ,"menu": "Privacy_Accessibility",   "descrip" : "Please allow the *Accessibility* for **'$APP_NAME'**.  This is so that various automation actions can be used with the application."},
-        {"name": "kTCCServiceBluetoothAlways"     ,"menu": "Privacy_Bluetooth",       "descrip" : "Please allow the *Bluetooth* for **'$APP_NAME'**.  This is so that you can use a bluetooth device for speaker or microphone."},
-        {"name": "kTCCServiceCamera"              ,"menu": "Privacy_Camera",          "descrip" : "Please allow the *Camera* for **'$APP_NAME'**.  This is so that others can see you."},
-        {"name": "kTCCServiceMicrophone"          ,"menu": "Privacy_Microphone",      "descrip" : "Please allow the *Microphone* for **'$APP_NAME'**.  This is so others can hear you during meetings."} ]}'
+        {"name": "kTCCServiceScreenCapture",       "menu": "Privacy_ScreenCapture",   "descrip" : "Please approve the **Screen & Audio Recordings** for *'$APP_NAME'*.  This is so that others can view your screen or you can record screens."},
+        {"name": "kTCCServiceSystemPolicyAllFiles","menu": "Privacy_FilesAndFolders", "descrip" : "Please approve the **Files & Folders** for *'$APP_NAME'*.  This is so that you can access files from various locations."},
+        {"name": "kTCCServiceAccessibility"       ,"menu": "Privacy_Accessibility",   "descrip" : "Please allow the **Accessibility** for *'$APP_NAME'*.  This is so that various automation actions can be used with the application."},
+        {"name": "kTCCServiceBluetoothAlways"     ,"menu": "Privacy_Bluetooth",       "descrip" : "Please allow the **Bluetooth** for *'$APP_NAME'*.  This is so that you can use a bluetooth device for speaker or microphone."},
+        {"name": "kTCCServiceCamera"              ,"menu": "Privacy_Camera",          "descrip" : "Please allow the **Camera** for *'$APP_NAME'*.  This is so that others can see you."},
+        {"name": "kTCCServiceMicrophone"          ,"menu": "Privacy_Microphone",      "descrip" : "Please allow the **Microphone** for *'$APP_NAME'*.  This is so others can hear you during meetings."} ]}'
 
 #extract the BundleID from the application
 bundleID=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$APP_PATH/Contents/Info.plist")
