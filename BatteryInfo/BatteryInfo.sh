@@ -1,4 +1,3 @@
-
 #!/bin/zsh
 #
 # BatteryInfo.sh
@@ -35,7 +34,7 @@ FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/GiantEagle/SupportFiles/GE_SD_BannerImage.png"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 LOG_DIR="${SUPPORT_DIR}/logs"
 
@@ -63,7 +62,7 @@ LOG_FILE="${LOG_DIR}/BatteryCondition.log"
 SD_ICON="SF=minus.plus.batteryblock, color=green, weight=normal"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-
+HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 SYSTEM_PROFILER_BATTERY_BLOB=$( /usr/sbin/system_profiler 'SPPowerDataType')
 
@@ -80,8 +79,9 @@ BatteryChargingWattage=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Wattage (W)"
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"  
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}" 
+BATTERY_CONDITION=${4:-""}
 
 ####################################################################################################
 #
@@ -114,7 +114,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -152,7 +151,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message ()
@@ -171,10 +170,18 @@ function create_infobox_message ()
 	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
 }
 
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit 0
+}
+
 function welcomemsg ()
 {
     if [[ "${BATTERY_CONDITION:l}" == "info" ]]; then
-        messagebody="$SD_DIALOG_GREETING $SD_FIRST_NAME, here is the current state of your laptop battery:<br><br>"
+        messagebody="$SD_DIALOG_GREETING $SD_FIRST_NAME. Here is the current state of your laptop battery:<br><br>"
         messagebody+="Condition: **${BatteryCondition}**<br>"
         messagebody+="Current # of Cycles: **${BatteryCycleCount}**<br>"
         messagebody+="Total Capacity Remain: **${BatteryCapacity}**<br>"
@@ -183,7 +190,7 @@ function welcomemsg ()
         if [[ "$BatteryCharging" == "Yes" ]]; then
             messagebody+="Charger Wattage: **${BatteryChargingWattage}W**<br>"
         fi
-        OVERLAY_ICON=""
+        OVERLAY_ICON="SF=minus.plus.batteryblock.fill,color=green,bgcolor=none,weight=bold"
     else
         messagebody="$SD_DIALOG_GREETING $SD_FIRST_NAME!  This is an automated message from JAMF "
         messagebody+="to let you know that the battery in your laptop is below acceptable"
@@ -191,12 +198,12 @@ function welcomemsg ()
         messagebody+="performance may be severly affected.  Please raise a ticket with the"
         messagebody+=" TSD to let them know that you received this message, and it is"
         messagebody+=" recommended that you purchase a new laptop at this time."
-        OVERLAY_ICON="warning"
+        OVERLAY_ICON="SF=minus.plus.batteryblock.fill,color=red,bgcolor=none,weight=bold"
     fi
 
 	MainDialogBody=(
         --message "${messagebody}"
-        --icon "${SD_ICON}"
+        --icon computer #"${SD_ICON}"
         --overlayicon "${OVERLAY_ICON}"
 		--height 420
 		--ontop
@@ -208,20 +215,17 @@ function welcomemsg ()
 		--button1text 'OK'
 		--buttonstyle center
     )
-
-	# Show the dialog screen and allow the user to choose
-
+    if [[ -z "${BATTERY_CONDITION:l}" ]] && MainDialogBody+=(--button2text "Help Desk Ticket")
+    
 	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-    returnCode=$?
+    buttonpress=$?
+    if [[ $buttonpress = 2 ]]; then
+        open $HELPDESK_URL
+        logMe "INFO: User choose to open a ticket...redirecting to URL and exiting script"
+        cleanup_and_exit 0
+    fi
 }
 
-function cleanup_and_exit ()
-{
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
-}
 ####################################################################################################
 #
 # Main Program
