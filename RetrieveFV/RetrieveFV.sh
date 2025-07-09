@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 12/20/2024
-# Last updated: 05/28/2025
+# Last updated: 07/09/2025
 #
 # Script Purpose: View Users Filevault Key
 #
@@ -14,6 +14,7 @@
 # 1.2 - Use new JAMF API calls / Add more info in dialog screens
 # 1.3 - Change welcome dialog to have a more friendly greeting
 # 1.4 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.5 - dialog text changes / fix PBCOPY issue / Added overlay icon / Add title shadow
 
 ######################################################################################################
 #
@@ -63,6 +64,7 @@ SD_INFO_BOX_MSG=""
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}View FileVault Key"
 LOG_FILE="${LOG_DIR}/ViewFileVaultKey.log"
 SD_ICON="${ICON_FILES}FileVaultIcon.icns"
+OVERLAY_ICON="SF=key.fill,color=black,bgcolo=none"
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 ##################################################
 #
@@ -70,7 +72,7 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID=${4}                               # user name for JAMF Pro
 CLIENT_SECRET=${5}                             
@@ -172,52 +174,55 @@ function cleanup_and_exit ()
 
 function display_welcome_message ()
 {
-     MainDialogBody=(
-          --bannerimage "${SD_BANNER_IMAGE}"
-          --bannertitle "${SD_WINDOW_TITLE}"
-          --icon "${SD_ICON}"
-          --infobox "${SD_INFO_BOX_MSG}"
-          --iconsize 100
-          --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial of the device you wish to see the FV Recovey Key for. \n\n You must also provide a reason for retreiving the Recovery Key."
-          --messagefont name=Arial,size=17
-          --vieworder "dropdown,textfield"
-          --textfield "Device,required"
-          --textfield "Reason,required"
-          --selecttitle "Serial,required"
-          --selectvalues "Serial Number, Hostname"
-          --selectdefault "Hostname"
-          --button1text "Continue"
-          --button2text "Quit"
-          --ontop
-          --height 400
-          --json
-          --moveable
-     )
-	
-     message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+    MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${SD_ICON}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --overlayicon "${OVERLAY_ICON}"
+        --iconsize 100
+        --titlefont shadow=1
+        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial or hostname of the device you wish to see the FV Recovey Key for. \n\n You must also provide a reason for retreiving the Recovery Key."
+        --messagefont name=Arial,size=17
+        --vieworder "dropdown,textfield"
+        --textfield "Device,required"
+        --textfield "Reason,required"
+        --selecttitle "Serial,required"
+        --selectvalues "Serial Number, Hostname"
+        --selectdefault "Hostname"
+        --button1text "Continue"
+        --button2text "Quit"
+        --ontop
+        --height 400
+        --json
+        --moveable
+    )
 
-     buttonpress=$?
+    message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+
+    buttonpress=$?
     [[ $buttonpress = 2 ]] && exit 0
 
-     search_type=$(echo $message | plutil -extract 'SelectedOption' 'raw' -)
-     computer_id=$(echo $message | plutil -extract 'Device' 'raw' -)
-     reason=$(echo $message | plutil -extract 'Reason' 'raw' -)
+    search_type=$(echo $message | plutil -extract 'SelectedOption' 'raw' -)
+    computer_id=$(echo $message | plutil -extract 'Device' 'raw' -)
+    reason=$(echo $message | plutil -extract 'Reason' 'raw' -)
 }
 
 function display_status_message ()
 {
     MainDialogBody=(
-     --bannerimage "${SD_BANNER_IMAGE}"
-     --bannertitle "${SD_WINDOW_TITLE}"
-     --icon "${SD_ICON}" 
-     --infobox "${SD_INFO_BOX_MSG}"
-     --overlayicon SF="checkmark.circle.fill, color=green,weight=heavy"
-     --message "The Recovery Key for $computer_id is: <br>**$filevault_recovery_key_retrieved**<br><br>This key has also been put onto the clipboard"
-     --messagefont "name=Arial,size=17"
-     --width 900
-     --height 420
-     --ontop
-     --moveable
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${SD_ICON}" 
+        --infobox "${SD_INFO_BOX_MSG}"
+        --overlayicon SF="checkmark.circle.fill, color=green,weight=heavy"
+        --message "The Recovery Key for $computer_id is: <br>**$filevault_recovery_key_retrieved**<br><br>This key has also been put onto the clipboard"
+        --messagefont "name=Arial,size=17"
+        --titlefont shadow=1
+        --width 900
+        --height 420
+        --ontop
+        --moveable
     )
 
     $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
@@ -226,21 +231,22 @@ function display_status_message ()
 
 function invalid_device_message ()
 {
-     dialogarray=(
-          --bannerimage "${SD_BANNER_IMAGE}"
-          --bannertitle "${SD_WINDOW_TITLE}"
-          --icon "${SD_ICON}" 
-          --overlayicon warning
-          --infobox "${SD_INFO_BOX_MSG}"
-          --message "Device inventory not found for $computer_id. \nPlease make sure the device name or serial is correct."
-          --messagefont "name=Arial,size=17"
-          --ontop
-          --height 420
-          --moveable
-     )
-          
-     $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
-     cleanup_and_exit
+    dialogarray=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${SD_ICON}" 
+        --overlayicon warning
+        --infobox "${SD_INFO_BOX_MSG}"
+        --message "Device inventory not found for $computer_id. \nPlease make sure the device name or serial is correct."
+        --messagefont "name=Arial,size=17"
+        --ontop
+        --height 420
+        --titlefont shadow=1
+        --moveable
+    )
+        
+    $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
+    cleanup_and_exit
 }
 
 function get_JAMF_Server () 
@@ -328,20 +334,22 @@ function FileVault_Recovery_Key_Retrieval ()
 function display_status_message ()
 {
     MainDialogBody=(
-     --bannerimage "${SD_BANNER_IMAGE}"
-     --bannertitle "${SD_WINDOW_TITLE}"
-     --icon "${SD_ICON}" 
-     --infobox "${SD_INFO_BOX_MSG}"
-     --overlayicon SF="checkmark.circle.fill, color=green,weight=heavy"
-     --message "The Recovery Key for $computer_id is: <br>**$filevault_recovery_key_retrieved**<br><br>This key has also been put onto the clipboard"
-     --messagefont "name=Arial,size=17"
-     --width 900
-     --height 420
-     --ontop
-     --moveable
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${SD_ICON}" 
+        --infobox "${SD_INFO_BOX_MSG}"
+        --overlayicon SF="checkmark.circle.fill, color=green,weight=heavy"
+        --message "The Recovery Key for $computer_id is: <br>**$filevault_recovery_key_retrieved**<br><br>This key has also been put onto the clipboard"
+        --messagefont "name=Arial,size=17"
+        --titlefont shadow=1
+        --width 900
+        --height 420
+        --ontop
+        --moveable
     )
 
     $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    echo $filevault_recovery_key_retrieved | pbcopy
     cleanup_and_exit
 }
 ####################################################################################################
