@@ -3,7 +3,7 @@
 # DeviceCompliance
 
 # Written: 11/20/2024
-# Last updated: 05/28/2025
+# Last updated: 07/09/2025
 # by: Scott Kendall
 #
 # If the user doesn't have the Workplace Join Key (WPJ) in their Keychain, it will prompt them to run the device compliance from SS
@@ -11,13 +11,14 @@
 # 1.0 - Initial rewrite using Swift Dialog prompts
 # 1.1 - Merge updated global library functions into app
 # 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.3 - Refresh library calls / Add shadow on banner title / Increased timer / Adjusted window heigth
 
 ######################################################################################################
 #
 # Gobal "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -25,14 +26,14 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 
 [[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
-FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+LOG_DIR="${SUPPORT_DIR}/logs"
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
+
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.3.3"
@@ -45,36 +46,24 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 #
 ###################################################
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-OVERLAY_ICON="/Applications/Self Service.app"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-
-LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/DeviceCompliance.log"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-
-JSON_OPTIONS=$(mktemp /var/tmp/DeviceCompliance.XXXXX)
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Entra Device Compliance"
 SD_INFO_BOX_MSG=""
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Device Compliance Registration"
+LOG_FILE="${LOG_DIR}/DeviceCompliance.log"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+OVERLAY_ICON="/Applications/Self Service.app"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-
-TSD_TICKET='https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d'
-
+HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 ##################################################
 #
 # Passed in variables
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"              # Passed in by JAMF automatically
-ENROLL_POLICY_ID=$4                                         # Policy # to run for registration
-
-#PassedParameterDefault="${4:-"<set default vaulue"}"
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}     # Passed in by JAMF automatically
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
+ENROLL_POLICY_ID=$4                             # Policy # to run for registration
 
 ####################################################################################################
 #
@@ -107,7 +96,6 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    echo "${1}" 1>&2
     echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
 }
 
@@ -181,8 +169,12 @@ function welcomemsg ()
 		--overlayicon "${OVERLAY_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
         --helpmessage "Device Compliance is necessary to ensure that your device meets specific security standards and protocols, helping protect and maintain the integrity of your data."
 		--width 920
+        --height 430
+        --ignorednd
+        --timer 20
 		--quitkey 0
 		--button1text "OK"
         --button2text "Create Ticket"
@@ -216,7 +208,7 @@ case ${returnCode} in
         /usr/local/bin/jamf policy -id ${ENROLL_POLICY_ID}
         ;;
     2) logMe "${JAMF_LOGGED_IN_USER} clicked Create Ticket. Creating Ticket "
-        open ${TSD_TICKET}
+        open ${HELPDESK_URL}
        ;;
     4) logMe "${JAMF_LOGGED_IN_USER} allowed timer to expire"
         ;;
