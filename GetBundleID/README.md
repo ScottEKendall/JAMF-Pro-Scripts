@@ -1,17 +1,13 @@
-## JAMF Binary Self Heal   
+## GetBundleIDs  
 
-As of JAMF 10.36, we have the ability to send out a command for the JAMF binary to "self heal" itself.  Useful for when you get the dreaded "Device Signature failure".  I have found in my testing, that once this command is sent to the device, it will also trigger the enrollment process as well.
+Handy little utility to retreive all of the bundleIDs from a given directory.  If you need to only do one app, I have also included an Automator droplet to extract the BundleID from a single app.
 
-Initial Dialog asking for info
+Welcome Screen
 
-![](/JAMFBinaryRedeploy/JAMBinaryRedeploy%20-%20Info.png)
-
-Confirmation window
-
-![](/JAMFBinaryRedeploy/JAMBinaryRedeploy%20-%20Confirm.png)
+![](/GetBundleID/GetBundleID-Welcome.png)
 
 Results screen
 
-![](/JAMFBinaryRedeploy/JAMBinaryRedeploy%20-%20Done.png)
+![](/GetBundleID/GetBundleID-Results.png)
 
 ##### _v1.0 - Initial Commit_
