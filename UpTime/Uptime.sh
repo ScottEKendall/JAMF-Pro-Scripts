@@ -1,17 +1,20 @@
 #!/bin/zsh
-
 #
 # UpTime
 #
 # Created by: Scott Kendall
 # Created on: 02/10/25
-# Last Modified: 05/28/2025
+# Last Modified: 07/16/2025
 # 
 # 1.0 - Initial Commit
 # 1.1 - Added more logging details
 # 1.2 - Added shutdown -r now command in case the applescript method fails
 # 1.3 - Add logic to not display restart option if already on day 0...this addresses an issue in JAMF that this policy might be run before inventory gets accurate info
 # 1.4 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.5 - Add additional logging
+#       set the default JAMF_LOGGED_IN_USER to current logged in user if not called from JAMF
+#       Put in logic to install the icon if it doesn't already existing in specified location
+#       Bumped min version of Swift Dialog to v2.5.0
 # 
 ######################################################################################################
 #
@@ -27,16 +30,11 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 [[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -44,23 +42,10 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-
-##################################################
-#
-# Passed in variables
-# 
-#################################################
-
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}" 
-UPTIME_DAYS="${4:-"30"}"
-RESTART_TIMER="${5:-"10"}"
-
 
 ###################################################
 #
@@ -68,12 +53,35 @@ RESTART_TIMER="${5:-"10"}"
 #
 ###################################################
 
+# Support / Log files location
+
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+LOG_DIR="${SUPPORT_DIR}/logs"
+LOG_FILE="${LOG_DIR}/SystemUptime.log"
+
+# Display items (banner / icon)
+
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}System Uptime Reminder"
 SD_INFO_BOX_MSG=""
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/Uptime.png"
-LOG_FILE="${LOG_DIR}/SystemUptime.log"
-JAMF_LOGGED_IN_USER=$3
+
+# Trigger installs for Images & icons
+
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_ICON_TRIGGER="install_uptimeicon"
+
+##################################################
+#
+# Passed in variables
+# 
+#################################################
+
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}" 
+UPTIME_DAYS="${4:-"30"}"
+RESTART_TIMER="${5:-"10"}"
 
 ####################################################################################################
 #
@@ -145,6 +153,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${OVERLAY_ICON}" ]] && /usr/local/bin/jamf policy -trigger ${DIALOG_ICON_TRIGGER}
 }
 
 function create_infobox_message()
@@ -155,12 +164,12 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##\n"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
@@ -226,12 +235,14 @@ function display_restart_timer ()
     --timer $((RESTART_TIMER*60))
     --button1text "Restart Now"
     )
-	logMe "INFO: User chose to restart now...starting timer"
+
+	logMe "INFO: User chose to restart now...starting $RESTART_TIMER timer"
     
 	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
 
     osascript -e 'tell app "System Events" to restart'
     if [[ $? -ne 0 ]]; then
+        logMe "Performing restart of system at this time."
         sudo shutdown -r now
     fi
 }
