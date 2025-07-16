@@ -147,7 +147,7 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+    /usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
@@ -158,26 +158,26 @@ function check_support_files ()
 
 function create_infobox_message()
 {
-	################################
-	#
-	# Swift Dialog InfoBox message construct
-	#
-	################################
+    ################################
+    #
+    # Swift Dialog InfoBox message construct
+    #
+    ################################
 
-	SD_INFO_BOX_MSG="## System Info ##<br>"
-	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="{serialnumber}<br>"
-	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
-	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
+    SD_INFO_BOX_MSG="## System Info ##<br>"
+    SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+    SD_INFO_BOX_MSG+="{serialnumber}<br>"
+    SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
+    SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
+    SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+    [[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
+    exit 0
 }
 
 function welcomemsg ()
@@ -190,31 +190,31 @@ function welcomemsg ()
     messagebody+="You can choose Restart Now, and it will start a $RESTART_TIMER minute count down "
     messagebody+="timer before the system restarts.<br><br>If you do not restart very soon, "
     messagebody+="you will get a friendly reminder next week."
- 
-	MainDialogBody=(
+
+    MainDialogBody=(
         --message "${messagebody}"
-		--icon "${OVERLAY_ICON}"
+        --icon "${OVERLAY_ICON}"
         --overlayicon --computer
-		--height 480
-		--ontop
-		--bannerimage "${SD_BANNER_IMAGE}"
-		--bannertitle "${SD_WINDOW_TITLE}"
+        --height 480
+        --ontop
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --titlefont shadow=1
         --moveable
-		--button2text "OK"
-		--button1text "Restart Now"
-		--buttonstyle center
+        --button2text "OK"
+        --button1text "Restart Now"
+        --buttonstyle center
     )
 
-	# Show the dialog screen and allow the user to choose
+    # Show the dialog screen and allow the user to choose
 
-	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-	buttonpress=$?
+    "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+    buttonpress=$?
 
-	# User wants to continue, so retart the computer
+    # User wants to continue, so retart the computer
 
-	[[ ${buttonpress} -eq 0 ]] && display_restart_timer
+    [[ ${buttonpress} -eq 0 ]] && display_restart_timer
     logMe "INFO: User chose to defer at this time."
 }
 
@@ -236,9 +236,9 @@ function display_restart_timer ()
     --button1text "Restart Now"
     )
 
-	logMe "INFO: User chose to restart now...starting $RESTART_TIMER timer"
+    logMe "INFO: User chose to restart now...starting $RESTART_TIMER timer"
     
-	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+    "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
 
     osascript -e 'tell app "System Events" to restart'
     if [[ $? -ne 0 ]]; then
