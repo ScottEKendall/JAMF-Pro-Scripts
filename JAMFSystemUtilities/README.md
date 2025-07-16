@@ -112,8 +112,8 @@ JAMF Roles
 #### 2.0 - Added options to export Smart /Static groups, / export VCF cards for specific groups / send email to specific groups / added support for JAMF Pro OAuth API
 #### 2.1 - Added variable EMAIL_APP to allow users to choose which email app to use (have to use the bundle identifier)
 #### 2.2 - Added option to export Application Usage
-#### 2.3 - Fixed error logged and stored the error log in working directory
-#### 2.4 - Fixed a typo in line #1233..changed "frst" to "first" / Delete the error log from previous runs before script starts / Chaged checkbox style to switch so the list is now scrollable / Better error log report during failures
-#### 2.5 - used modern API for comoputer EAs
+#### 2.3 - Fixed error logging and stored the error log in working directory
+#### 2.4 - Fixed a typo in line #1233..changed "frst" to "first" / Delete the error log from previous runs before script starts / Changed checkbox style to switch so the list is now scrollable / Better error log report during failures
+#### 2.5 - used modern API for computer EAs
 #### 2.6 - Added option for export of multiple users per system / Added option for export of Computer Policie
-#### 2.7 - Added option to compare two configuration profiles / Reworked home screen to show switch style options
+#### 2.7 - Added option to compare two configuration profiles / Reordered items in Home screen

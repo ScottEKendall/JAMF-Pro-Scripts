@@ -19,9 +19,9 @@
 # 2.3 - Fixed error logged and stored the error log in working directory
 # 2.4 - Fixed a typo in line #1233..changed "frst" to "first"
 #     - Delete the error log from previous runs before script starts
-#     - Chaged checkbox style to switch so the list is now scrollable
+#     - Changed checkbox style to switch so the list is now scrollable
 #     - Better error log report during failures
-# 2.5 - used modern API for comoputer EAs
+# 2.5 - used modern API for computer EAs
 # 2.6 - Added option for export of multiple users per system
 #     - Added option for export of Computer Policie
 # 2.7 - Added option to compare two configuration profiles
