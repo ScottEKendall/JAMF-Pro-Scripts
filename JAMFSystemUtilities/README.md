@@ -1,6 +1,6 @@
 ## JAMF System Utilities    
 
-This script is designed to extract all of several items from your JAMF server.  Why do you want to do this?
+This script is designed to backup/extract several items from your JAMF server.  Why do you want to do this?
 
 1.  Make a backup of your scripts, configurations & icons in case your existing backup files is missing/corrupted (or you don't have one!)
 2.  You inhereited a JAMF server from another person, and this can do a "brain dump" so you can review the settings.
