@@ -82,7 +82,7 @@ Export (and clear) Failed MDM Commands Process
 Backup System Scripts Process
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-Scripts.png)
 
-Computer Two System Policies
+Compare Two System Policies
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-CompareProfiles.png)
 
 Backup Computer Extension Attributes Process
