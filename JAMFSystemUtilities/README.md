@@ -8,29 +8,45 @@ This script is designed to extract all of several items from your JAMF server.  
 
 The following items are available to be backed up:
 
-1.  Self Service Icons - Great to have a back when JAMF starts showing generic icons in Self Service.
-2.  Failed MDM Commands - Export systems that have failed MDM commands so you can review them and optionally clear the failures
-3.  System Scripts - Everything that is stored in Settings > Scripts
-4.  Computer Extension Attributes - Export all of the computer extension attributes
-5.  Configuration Profiles - Export all of the configuration profiles to .mobileconfig files
-6.  Export Emails to VCF - Export all of the email addresses to a VCF file, which can be imported into Contacts.app or other applications.
-7.  Smart / Static Computer Groups - Export all of the smart and static computer groups:
+--- Computer Based Actions ---
+
+1.  Backup Computer Policies - Export all of the computer policies
+2.  Computer Extension Attributes - Export all of the computer extension attributes
+3.  Configuration Profiles - Export all of the configuration profiles to .mobileconfig files
+
+4.  Smart / Static Computer Groups - Export all of the members of a smart / static computer groups:
    - Smart Computer Groups will export the paramaters and criteria to a .txt file
    - Static Computer Groups will export the members to a .txt file
-8.  Export VCF cards of the members of a Smart / Static Computer Group.
-9.  Compose an email to the members of a Smart / Static Computer Group.
+5.  Failed MDM Commands - Export systems that have failed MDM commands so you can review them and optionally clear the failures
+6.  Compare Two Configuation Profiles - Useful to see exact the differences between the two
 
 
-This script is fully multitasking, so will execute each task pretty quickly.  It will create the folder structure for you and then download the items to the appropriate folders. 
+--- User Based Actions ---
+
+7.  Export Emails to VCF - Export all of the email addresses to a VCF file, which can be imported into Contacts.app or other applications. 
+   - Export VCF cards of the members of a Smart / Static Computer Group.
+   - Compose an email to the members of a Smart / Static Computer Group.
+8.  Application Usage - Export log history from a given time period from any group
+9.  Export list of users with multiple systems assigned to them
+
+--- System Based Actions ---
+
+10. Self Service Icons - Great to have a backup when JAMF starts showing generic icons in Self Service.
+11. System Scripts - Everything that is stored in Settings > Scripts
+
+This script is fully multitasking, so it will execute each task pretty quickly.  It will create the folder structure for you and then download the items to the appropriate folders. 
 
 **File Formats**
 
 1. Icons have a .png extension.
 2. Scripts have a .sh extension.
 3. Computer Extension Attributes have a .sh extension.
-4. Configuration Profiles have a .mobileconfig extension.
-5. Emails have a .vcf extension.
-6. Smart / Static Computer Groups have a .txt extension.
+4. Computer Poiicies will have a .xml extension
+5. Comparison fils will have a .txt extension
+6. Configuration Profiles have a .mobileconfig extension.
+7. Emails have a .vcf extension.
+8. Smart / Static Computer Groups have a .txt extension.
+9. Applicaiton Usage will have a .csv extension
 
 **Folder Structure**
 
@@ -60,11 +76,14 @@ Welcome Screen
 Backup SS Icons Process
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-BackupIcons.png)
 
-Export Failed MDM Commands Process
+Export (and clear) Failed MDM Commands Process
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-failedmdm.png)
 
 Backup System Scripts Process
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-Scripts.png)
+
+Computer Two System Policies
+![](/JAMFSystemUtilities/JAMFSystemUtilities-CompareProfiles.png)
 
 Backup Computer Extension Attributes Process
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-ComputerEA.png)
@@ -73,18 +92,28 @@ Backup Configuration Profiles Process
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-Profiles.png)
 
 VCF (Emails) options
+![](/JAMFSystemUtilities/JAMFSystemUtilities-ContactsMenu.png)
 
-![](/JAMFSystemUtilities/JAMFSystemUtilities-VCFOptions.png)
-
-Export Emails Process
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-Contacts.png)
+
+Computer Usage Report
+![](/JAMFSystemUtilities/JAMFSystemUtilities-ComputerUsageMenu.png)
+
+![](/JAMFSystemUtilities/JAMFSystemUtilities-ComputerUsage.png)
+
+
+If you are going to use the Token based API roles, you need to set these roles
 
 JAMF Roles
 ![](/JAMFSystemUtilities/JAMFSystemUtilities-API_Roles.png
 )
 
-##### _v1.0 - Initial Commit_
-##### 2.0 - Added options to export Smart /Static groups, 
-#####      export VCF cards for specific groups
-#####      send email to specific groups
-#####      added support for JAMF Pro OAuth API
+#### 1.0 - Initial
+#### 2.0 - Added options to export Smart /Static groups, / export VCF cards for specific groups / send email to specific groups / added support for JAMF Pro OAuth API
+#### 2.1 - Added variable EMAIL_APP to allow users to choose which email app to use (have to use the bundle identifier)
+#### 2.2 - Added option to export Application Usage
+#### 2.3 - Fixed error logged and stored the error log in working directory
+#### 2.4 - Fixed a typo in line #1233..changed "frst" to "first" / Delete the error log from previous runs before script starts / Chaged checkbox style to switch so the list is now scrollable / Better error log report during failures
+#### 2.5 - used modern API for comoputer EAs
+#### 2.6 - Added option for export of multiple users per system / Added option for export of Computer Policie
+#### 2.7 - Added option to compare two configuration profiles / Reworked home screen to show switch style options
