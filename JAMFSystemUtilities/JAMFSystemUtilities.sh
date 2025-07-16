@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/03/2025
-# Last updated: 06/03/2025
+# Last updated: 07/16/2025
 #
 # Script Purpose: This script will extract all of the email addresses from your JAMF server and store them in local folder in a VCF format.
 #
@@ -24,12 +24,12 @@
 # 2.5 - used modern API for comoputer EAs
 # 2.6 - Added option for export of multiple users per system
 #     - Added option for export of Computer Policie
+# 2.7 - Added option to compare two configuration profiles
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Gobal "Common" variables (do not change these!)
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -43,10 +43,7 @@ MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'ra
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -56,8 +53,13 @@ SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
-JQ_INSTALL_POLICY="install_jq"
+
+JSON_DIALOG_BLOB=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
+DIALOG_CMD_FILE=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
+/bin/chmod 666 $JSON_DIALOG_BLOB
+/bin/chmod 666 $DIALOG_CMD_FILE
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ###################################################
 #
@@ -65,23 +67,30 @@ JQ_INSTALL_POLICY="install_jq"
 #
 ###################################################
 
-BACKGROUND_TASKS=20 # Number of background tasks to run in parallel
+BACKGROUND_TASKS=20                 # Number of background tasks to run in parallel
+EMAIL_APP='com.microsoft.outlook'   # Use the bundle identifier of your email app. you can find it by this command "osascript -e 'id of app "<appname>"' "
+
+# Support / Log files location
+
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+LOG_DIR="${SUPPORT_DIR}/logs"
+LOG_FILE="${LOG_DIR}/JAMFSystemUtilities.log"
+
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+
+# Display items (banner / icon)
 
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF System Admin Tools"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/JAMFSystemUtilities.log"
-SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 OVERLAY_ICON="/Applications/Self Service.app"
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
-DIALOG_CMD_FILE=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
+SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
 
-# Use the bundle identifier of your email app. you can find it by this command "osascript -e 'id of app "<appname>"' "
-EMAIL_APP='com.microsoft.outlook'
-/bin/chmod 666 $JSON_DIALOG_BLOB
-/bin/chmod 666 $DIALOG_CMD_FILE
+# Trigger installs for Images & icons
 
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+JQ_INSTALL_POLICY="install_jq"
 
 ##################################################
 #
@@ -510,11 +519,12 @@ function construct_dropdown_list_items ()
     # PURPOSE: Construct the list of items for the dropdowb menu
     # RETURN: formatted list of items
     # EXPECTED: None
-    # PARMS: $1 - XML variable to parse 
-    declare xml_blob
+    # PARMS: $1 - JSON variable to parse
+    #        $2 - JSON Blob name
+    declare json_blob
     declare line
-    xml_blob=$(echo -E $1 |jq -r '.computer_groups[] | "\(.id) - \(.name)"')
-    echo $xml_blob | while IFS= read -r line; do
+    json_blob=$(echo -E $1 |jq -r ' '${2}' | "\(.id) - \(.name)"')
+    echo $json_blob | while IFS= read -r line; do
         # Remove the <name> and </name> tags from the line and trailing spaces
         line="${${line#*<name>}%</name>*}"
         line=$(echo $line | sed 's/[[:space:]]*$//')
@@ -754,10 +764,10 @@ function backup_ss_icons ()
 {
     declare tasks=()
     declare logMsg
-
+    declare JAMF_API_KEY="JSSResource/policies"
     # PURPOSE: Backup all of the Self Service icons from JAMF
     logMe "Backing up Self Service icons"
-    PolicyList=$(JAMF_retrieve_data_blob "JSSResource/policies" "xml" )
+    PolicyList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY" "xml" )
     create_listitem_list "The following Self Service icons are being downloaded from JAMF" "xml" "name" "$PolicyList" "SF=app.badge"
 
     iconIDList=$(echo $PolicyList | xmllint --xpath '//id' - 2>/dev/null)
@@ -803,8 +813,9 @@ function backup_ss_icons_detail ()
     declare ss_iconName
     declare ss_iconURI
     declare formatted_ss_policy_name
+    declare JAMF_API_KEY="JSSResource/policies"
 
-    JAMF_retrieve_data_blob_global "JSSResource/policies/id/$1" "xml"
+    JAMF_retrieve_data_blob_global "$JAMF_API_KEY/id/$1" "xml"
     # Extract the policy name, icon ID, icon filename, and icon URI from the XML blob
     PolicyName=$(extract_data_blob $xmlBlob "name" | head -n 1)
     ss_icon=$(extract_data_blob $xmlBlob "self_service_icon/id")
@@ -1143,9 +1154,10 @@ function backup_configuration_profiles ()
     declare processed_tasks=0
     declare tasks=()
     declare logMsg
+    declare JAMF_API_KEY="JSSResource/osxconfigurationprofiles"
     # PURPOSE: Backup all of the configuration profiles from JAMF
     logMe "Backing up configuration profiles"
-    ProfileList=$(JAMF_retrieve_data_blob "JSSResource/osxconfigurationprofiles" "json")
+    ProfileList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY" "json")
     create_listitem_list "The following configuration profiles are being downloaded from JAMF" "json" ".os_x_configuration_profiles[].name" "$ProfileList" "SF=gear.circle.fill,color=brown"
 
     ProfileIDs=($(echo -E $ProfileList | jq -r '.os_x_configuration_profiles[].id'))
@@ -1183,10 +1195,11 @@ function extract_profile_details ()
     declare profileContents
     declare formatted_profileName
     declare exported_filename
+    declare JAMF_API_KEY="JSSResource/osxconfigurationprofiles"
 
     [[ -z "${1}" ]] && return 0
 
-    JAMF_retrieve_data_blob_global "JSSResource/osxconfigurationprofiles/id/$1" "json"
+    JAMF_retrieve_data_blob_global "$JAMF_API_KEY/id/$1" "json"
 
     profileName=$(extract_data_blob $xmlBlob ".os_x_configuration_profile.general.name" "json"| head -n 1)
     profileContents=$(extract_data_blob $xmlBlob ".os_x_configuration_profile.general.payloads" "json")
@@ -1288,6 +1301,62 @@ function extract_computer_policies_details ()
 
 ###############################################
 #
+# Compare Compugter Policy functions
+#
+###############################################
+
+function compare_profiles_menu ()
+{
+    declare -a array
+    declare JAMF_API_KEY="JSSResource/osxconfigurationprofiles"
+    message="**Compare Configuration Profiles**<br><br>Please select two configuration profiles to compare.  This comparison only does the payload part of the profiles.<br><br>The comparison results will be displayed in a TextEdit window.  Any line with a '|' seperator denotes a difference between the two files."
+
+    construct_header_settings "$message" > "${JSON_DIALOG_BLOB}"
+    create_dropdown_message_body "" "" "first"
+    # Read in the JAMF configuration profiles and create a dropdown list of them
+    GroupList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY" "json")
+    array=$(construct_dropdown_list_items $GroupList '.os_x_configuration_profiles[]')
+    create_dropdown_message_body "Select 1st Profile:" "$array"
+    create_dropdown_message_body "Select 2nd Profile:" "$array"
+    create_dropdown_message_body "" "" "last"
+	echo '}' >> "${JSON_DIALOG_BLOB}"
+
+	temp=$(${SW_DIALOG} --json --jsonfile "${JSON_DIALOG_BLOB}") 2>/dev/null
+    returnCode=$?
+    [[ "$returnCode" == "2" ]] && cleanup_and_exit
+
+    menu_compareFirstProfile=$( echo $temp | jq -r '.["Select 1st Profile:"].selectedValue')
+    menu_compareSecondProfile=$( echo $temp | jq -r '.["Select 2nd Profile:"].selectedValue')
+    menu_compareSave=$( echo $temp  | jq -r '.saveresults')
+}
+function compare_profiles ()
+{
+    declare logBody
+    declare JAMF_API_KEY="JSSResource/osxconfigurationprofiles"
+    firstGroupID=$(echo $menu_compareFirstProfile | awk -F "-" '{print $1}' | xargs)
+    firstGroupName=$(echo $menu_compareFirstProfile | awk -F "-" '{print $2}' | xargs)
+    secondGroupID=$(echo $menu_compareSecondProfile | awk -F "-" '{print $1}' | xargs)
+    secondGroupName=$(echo $menu_compareSecondProfile | awk -F "-" '{print $2}' | xargs)
+
+    firstFile="${location_CompareConfigFiles}/${firstGroupName}.txt"
+    secondFile="${location_CompareConfigFiles}/${secondGroupName}.txt"
+
+    # Look up each config profile, extract the data and store it in a temp file
+
+    firstConfig=$(JAMF_retrieve_data_blob "$JAMF_API_KEY/id/$firstGroupID" "xml")
+    firstConfig=$(echo $firstConfig | xmllint --xpath 'string(//os_x_configuration_profile/general/payloads)' - | xmllint --format -)
+    secondConfig=$(JAMF_retrieve_data_blob "$JAMF_API_KEY/id/$secondGroupID" "xml")
+    secondConfig=$(echo $secondConfig | xmllint --xpath 'string(//os_x_configuration_profile/general/payloads)' - | xmllint --format -)
+
+    echo $firstConfig > "${firstFile}"
+    echo $secondConfig > "${secondFile}"
+
+    diff -y "${firstFile}" "${secondFile}" > "${location_CompareConfigFiles}/Diff Results.txt"
+    open "${location_CompareConfigFiles}/Diff Results.txt" &
+}
+
+###############################################
+#
 # Create VCF Card functions
 #
 ###############################################
@@ -1311,7 +1380,7 @@ function create_vcf_cards_menu ()
     create_dropdown_message_body "" "" "first"
     # Read in the JAMF groups and create a dropdown list of them
     GroupList=$(JAMF_retrieve_data_blob "JSSResource/computergroups" "json")
-    array=$(construct_dropdown_list_items $GroupList)
+    array=$(construct_dropdown_list_items $GroupList '.computer_groups[]')
     create_dropdown_message_body "Select Groups:" "$array"
     create_dropdown_message_body "" "" "last"
 	echo '}' >> "${JSON_DIALOG_BLOB}"
@@ -1516,9 +1585,10 @@ function export_computer_groups ()
     declare processed_tasks=0
     declare tasks=()
     declare logMsg
+    declare JAMF_API_KEY="JSSResource/computergroups"
     # PURPOSE: Export all of the computer groups from JAMF
     logMe "Export computer groups from JAMF"
-    GroupList=$(JAMF_retrieve_data_blob "JSSResource/computergroups" "xml")
+    GroupList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY" "xml")
     
     create_listitem_list "The following Smart / Static groups are being exported from the JAMF server" "xml" "name" $GroupList "SF=person.3.fill"
     GroupIDs=$(echo $GroupList | xmllint --xpath '//id' - 2>/dev/null)
@@ -1554,8 +1624,9 @@ function export_computer_group_details ()
     # EXPECTED: xmlBlob should be globally defined
     declare managed && managed=true
     declare groupName
+    declare JAMF_API_KEY="JSSResource/computergroups"
 
-    JAMF_retrieve_data_blob_global "JSSResource/computergroups/id/$1" "json"
+    JAMF_retrieve_data_blob_global "$JAMF_API_KEY/id/$1" "json"
 
     groupName=$(extract_data_blob $xmlBlob ".computer_group.name" "json" | head -n 1)
     if [[ -z $groupName ]]; then
@@ -1633,7 +1704,7 @@ function export_usage_menu ()
     declare xml_blob
     declare -a array
 
-    message="**Export Usage Additional Options**<br><br>You have selected to export Application Usage<br>from the JAMF server.  There are some additional items to select:"
+    message="**Export Usage Additional Options**<br><br>You have selected to export Application Usage from the JAMF server.<br><br>There are some additional items to select:"
     construct_header_settings "$message" > "${JSON_DIALOG_BLOB}"
     create_textfield_message_body "StartDate" "Starting date for report:" "first"
     create_textfield_message_body "EndDate" "Enter Ending date:" "last"
@@ -1643,7 +1714,7 @@ function export_usage_menu ()
     # Read in the JAMF groups and create a dropdown list of them
     # create_listitem_list "The following Smart / Static groups are being exported from the JAMF server" "xml" "name" $GroupList
     GroupList=$(JAMF_retrieve_data_blob "JSSResource/computergroups" "json")
-    array=$(construct_dropdown_list_items $GroupList)
+    array=$(construct_dropdown_list_items $GroupList '.computer_groups[]')
     create_dropdown_message_body "Select Groups:" "$array"
     create_dropdown_message_body "" "" "last"
 	echo '}' >> "${JSON_DIALOG_BLOB}"
@@ -1899,7 +1970,7 @@ function display_welcome_msg ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --width 890
-        --height 720
+        --height 840
         --ignorednd
         --json
         --moveable
@@ -1916,7 +1987,8 @@ function display_welcome_msg ()
         --checkbox "Backup Computer Extension Attributes (*.sh)",checked,name=BackupComputerExtensions
         --checkbox "Backup Configuration Profiles (*.mobileconfig)",checked,name=BackupConfigurationProfiles
         --checkbox "Backup Smart Groups & Static Groups (*.txt)",checked,name=BackupSmartGroups
-        --checkbox "Exported failed MDM commands (*.txt) +",checked,name=BackupFailedMDMCommands
+        --checkbox "Export failed MDM commands (*.txt) +",checked,name=BackupFailedMDMCommands
+        --checkbox "Compare two Configuration Profiles (*.txt) +",checked,name=CompareConfigProfiles
         --checkbox "------- User Based Actions -------",disabled
         --checkbox "Create VCF cards or send emails from Groups (*.vcf) +",checked,name=createVCFcards
         --checkbox "Export Application Usage from Users / Groups (*.csv) +",checked,name=exportApplicationUsage
@@ -1941,11 +2013,13 @@ function display_welcome_msg ()
     menu_exportApplicationUsage=$( echo $temp | jq -r '.exportApplicationUsage' )
     menu_backupComputerPolicies=$( echo $temp | jq -r '.BackupComputerPolicy' )
     menu_UsersMultipleSystems=$( echo $temp | jq -r '.exportUsersMultipleSystems' )
+    menu_CompareConfigProfiles=$( echo $temp | jq -r '.CompareConfigProfiles')
     
     [[ $menu_backupFailedMDM == "true" ]] && export_failed_mdm_commands_menu
+    [[ $menu_CompareConfigProfiles == "true" ]] && compare_profiles_menu
     [[ $menu_createVCFcards == "true" ]] && create_vcf_cards_menu
     [[ $menu_exportApplicationUsage == "true" ]] && export_usage_menu
-    
+
 }
 
 function show_backup_errors ()
@@ -1995,6 +2069,7 @@ function check_directories ()
     location_ApplicationUsage="${menu_storageLocation}/AppUsage"
     location_UsersMultipleSystems="${menu_storageLocation}/MutipleComputerUsers"
     location_ComputerPolicies="${menu_storageLocation}/ComputerPolicies"
+    location_CompareConfigFiles="${menu_storageLocation}/CompareConfigFiles"
 
     for make_directory (
         "$menu_storageLocation"
@@ -2009,6 +2084,7 @@ function check_directories ()
         "$location_backupSmartGroups/Smart"
         "$location_backupSmartGroups/Static"
         "$location_ApplicationUsage"
+        "$location_CompareConfigFiles"
         "$location_UsersMultipleSystems"
         ) { [[ ! -d "${make_directory}" ]] && {  /bin/mkdir "${make_directory}" ;  logMe "Created directory: ${make_directory}" ; }}
 
@@ -2078,6 +2154,7 @@ declare menu_startDateUsage
 declare menu_endDdateUsage
 declare menu_groupAppUsage
 declare menu_UsersMultipleSystems
+declare menu_CompareConfigProfiles
 declare location_SSIcons
 declare location_JAMFScripts
 declare location_ComputerEA
@@ -2087,6 +2164,7 @@ declare location_FailedMDM
 declare location_UsersMultipleSystems
 declare jamfpro_version
 declare location_ComputerPolicies
+declare location_CompareConfigFiles
 
 declare -a MDMfailures && MDMfailures=()
 
@@ -2111,6 +2189,7 @@ check_directories
 [[ "${menu_configurationProfiles}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; backup_configuration_profiles;}
 [[ "${menu_backupSmartGroups}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; export_computer_groups;}
 [[ "${menu_backupFailedMDM}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; export_failed_mdm_devices;}
+[[ "${menu_CompareConfigProfiles}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; compare_profiles;}
 [[ "${menu_createVCFcards}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; create_vcf_cards;}
 [[ "${menu_exportApplicationUsage}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; export_usage;}
 [[ "${menu_UsersMultipleSystems}" == "true" ]] && {[[ $JAMF_TOKEN = "new" ]] && JAMF_get_access_token; export_user_multiple;}
