@@ -70,7 +70,6 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-JSON_OPTIONS=$(mktemp /var/tmp/PPPCNudge.XXXXX)
 
 ###################################################
 #
