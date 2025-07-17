@@ -58,6 +58,7 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 
 [[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
+SD_INFO_BOX_MSG=""
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
@@ -69,6 +70,7 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+JSON_OPTIONS=$(mktemp /var/tmp/PPPCNudge.XXXXX)
 
 ###################################################
 #
@@ -80,18 +82,16 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
 LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/JAMFSystemUtilities.log"
+LOG_FILE="${LOG_DIR}/PPCNudge.log"
 
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-
-# Display items (banner / icon)
+# Display items (banner / icon / help icon, etc)
 
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF System Admin Tools"
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Privacy & Security Settings"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 OVERLAY_ICON="/Applications/Self Service.app"
 SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
+HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 # Trigger installs for Images & icons
 
@@ -111,24 +111,6 @@ TCC_KEY="${5}" #The TCC service(s) to modify.  If you pass in multiple items sep
 MAX_ATTEMPTS="${6}" #How many attempts at prompting the user before giving up.
 SLEEP_TIME="${7}" #How many seconds to wait between user prompts. 
 DISPLAY_TYPE=${8:-"MINI"}
-
-###################################################
-#
-# App Specfic variables (Feel free to change these)
-#
-###################################################
-
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Privacy & Security Settings"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/PPCNudge.log"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
-OVERLAY_ICON="/Applications/Self Service.app"
-JSON_OPTIONS=$(mktemp /var/tmp/PPPCNudge.XXXXX)
-
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
-
 
 ####################################################################################################
 #
