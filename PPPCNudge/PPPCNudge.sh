@@ -47,7 +47,7 @@
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Gobal "Common" variables (do not change these!)
 #
 ######################################################################################################
 
@@ -58,19 +58,59 @@ OS_PLATFORM=$(/usr/bin/uname -p)
 
 [[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
+
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+MIN_SD_REQUIRED_VERSION="2.5.0"
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
+###################################################
+#
+# App Specfic variables (Feel free to change these)
+#
+###################################################
+
+# Support / Log files location
+
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+LOG_DIR="${SUPPORT_DIR}/logs"
+LOG_FILE="${LOG_DIR}/JAMFSystemUtilities.log"
+
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+
+# Display items (banner / icon)
+
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF System Admin Tools"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+OVERLAY_ICON="/Applications/Self Service.app"
+SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
+
+# Trigger installs for Images & icons
+
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
+##################################################
+#
+# Passed in variables
+# 
+#################################################
+
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
+APP_PATH="${4}"
+TCC_KEY="${5}" #The TCC service(s) to modify.  If you pass in multiple items seperate each item with a space.
+MAX_ATTEMPTS="${6}" #How many attempts at prompting the user before giving up.
+SLEEP_TIME="${7}" #How many seconds to wait between user prompts. 
+DISPLAY_TYPE=${8:-"MINI"}
 
 ###################################################
 #
@@ -89,19 +129,6 @@ JSON_OPTIONS=$(mktemp /var/tmp/PPPCNudge.XXXXX)
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
-##################################################
-#
-# Passed in variables
-# 
-#################################################
-
-JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
-APP_PATH="${4}"
-TCC_KEY="${5}" #The TCC service(s) to modify.  If you pass in multiple items seperate each item with a space.
-MAX_ATTEMPTS="${6}" #How many attempts at prompting the user before giving up.
-SLEEP_TIME="${7}" #How many seconds to wait between user prompts. 
-DISPLAY_TYPE=${8:-"MINI"}
 
 ####################################################################################################
 #
