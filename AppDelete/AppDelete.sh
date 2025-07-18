@@ -259,7 +259,7 @@ function construct_display_list ()
 function choose_files_to_delete ()
 {
 	MainDialogBody=(
-        --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. Please choose the application(s) and/or folder(s) that you want to remove from your system.  Applications can be installed again from Self Service."
+		--message "$SD_DIALOG_GREETING $SD_FIRST_NAME. Please choose the application(s) and/or folder(s) that you want to remove from your system.  Applications can be installed again from Self Service."
 		--messageposition top
 		--icon "${SD_ICON_FILE}"
 		--overlayicon "${OVERLAY_ICON}"
@@ -267,7 +267,7 @@ function choose_files_to_delete ()
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--titlefont shadow=1
 		--bannertitle "${SD_WINDOW_TITLE}"
-        --helpmessage "Choose which applications you want to remove. <br>They can be installed again from Self Service."
+		--helpmessage "Choose which applications you want to remove. <br>They can be installed again from Self Service."
 		--width 920
 		--height 750
 		--ontop
@@ -276,7 +276,7 @@ function choose_files_to_delete ()
 		--jsonfile "${JSON_OPTIONS}"
 		--quitkey 0
 		--button1text "Next"
-        --button2text "Cancel"
+		--button2text "Cancel"
 		--json
     )
 
