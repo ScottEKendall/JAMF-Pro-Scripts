@@ -217,13 +217,13 @@ function build_file_list_array ()
 
 	for i in "${FILES_LIST[@]}"; do [[ -n "$i" ]] && tmp_array+=("${i}") ; done
 
-	# copy the newly created array back into the working array
-
-	FILES_LIST=(${tmp_array[@]})
-
 	# Add in any allowed folders into the array
 
-	for i in "${ALLOWED_FOLDERS[@]}"; do [[ -e "/Applications/${i}" ]] && FILES_LIST+=("${i}") ; done
+	for i in "${ALLOWED_FOLDERS[@]}"; do [[ -e "/Applications/${i}" ]] && tmp_array+=("${i}") ; done
+
+	# And finally sort the array alphabetically
+
+	FILES_LIST=("${(@o)tmp_array[@]}")
 }
 
 function construct_display_list ()
