@@ -4,7 +4,7 @@
 # Purpose: Allow end users to delete apps / folders using Swift Dialog
 #
 # Written: 8/3/2022
-# Last updated: 07/18/2025
+# Last updated: 07/22/2025
 #
 # 1.0 - Initial Release
 # 1.1 - Major code cleanup & documentation
@@ -14,6 +14,7 @@
 #		NEW: Added option to allow folders to be deleted (ALLOWED_FOLDERS)
 #		Put shadows in the banner text
 # 		Reordered sections to better show what can be modified
+# 2.1 - Added option to sort array (case insensitive) after the application scan & folders added 
 ######################################################################################################
 #
 # Gobal "Common" variables (do not change these!)
@@ -221,9 +222,9 @@ function build_file_list_array ()
 
 	for i in "${ALLOWED_FOLDERS[@]}"; do [[ -e "/Applications/${i}" ]] && tmp_array+=("${i}") ; done
 
-	# And finally sort the array alphabetically
+	# And finally sort the array alphabetically (case insensitive)
 
-	FILES_LIST=("${(@o)tmp_array[@]}")
+	FILES_LIST=("${(@f)$(print -l -- $tmp_array | sort -f)}")
 }
 
 function construct_display_list ()
