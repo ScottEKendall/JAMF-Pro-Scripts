@@ -224,7 +224,7 @@ function build_file_list_array ()
 
 	# And finally sort the array alphabetically (case insensitive)
 
-	FILES_LIST=("${(@f)$(print -l -- $tmp_array | sort -f)}")
+	FILES_LIST=(${(U)tmp_array[@]})
 }
 
 function construct_display_list ()
