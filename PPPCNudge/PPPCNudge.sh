@@ -393,7 +393,7 @@ if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
 fi
 
 # See if the application has been isntalled...if not then exit gracefully 
-if [[ -e "${APP_PATH}" ]]
+if [[ ! -e "${APP_PATH}" ]]
     logMe "INFO: Specified Application not installed"
     cleanup_and_exit 0
 fi
