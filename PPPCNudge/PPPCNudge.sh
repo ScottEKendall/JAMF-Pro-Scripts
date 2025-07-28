@@ -392,12 +392,6 @@ if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
     cleanup_and_exit 0
 fi
 
-# See if the application has been isntalled...if not then exit gracefully 
-if [[ ! -e "${APP_PATH}" ]]
-    logMe "INFO: Specified Application not installed"
-    cleanup_and_exit 0
-fi
-
 create_log_directory
 check_swift_dialog_install
 check_support_files
@@ -406,8 +400,14 @@ check_support_files
 TCC_KEY_ARRAY=($(echo $TCC_KEY))
 
 # Make sure that the passed app has the .app extension
-# eand xtract just the app name from the path that was passed in
+# and extract just the app name from the path that was passed in
 [[ ! "$APP_PATH" == *".app" ]] && APP_PATH+=".app"
+
+# See if the application has been installed...if not then exit gracefully 
+if [[ ! -e "${APP_PATH}" ]]
+    logMe "INFO: Specified Application not installed"
+    cleanup_and_exit 0
+fi
 APP_NAME="${APP_PATH:t:r}"
 SD_ICON_FILE=$APP_PATH
 
