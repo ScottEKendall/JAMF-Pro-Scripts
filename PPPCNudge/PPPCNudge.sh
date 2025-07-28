@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/26/2025
-# Last updated: 07/02/2025
+# Last updated: 07/28/2025
 #
 # Script Purpose: check the PPPC Database to see if the requested item is turned off for a particular app, and prompt user if necessasry
 #
@@ -18,6 +18,7 @@
 # 1.3 - Added support for multiple TCC checks (seperate each key with a space)
 # 1.4 - Made the UserTCC keys a "static" array so that it can be checked against bundles better
 # 1.5 - Code clean up and better determination of mode of TCC Key
+# 1.6 - Check for existance of application before proceeding
 #
 # Here is a list of the System Settings Prefpanes that can be opened from terminal
 #
@@ -388,6 +389,12 @@ autoload 'is-at-least'
 
 if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
     logMe "INFO: No user logged in"
+    cleanup_and_exit 0
+fi
+
+# See if the application has been isntalled...if not then exit gracefully 
+if [[ -e "${APP_PATH}" ]]
+    logMe "INFO: Specified Application not installed"
     cleanup_and_exit 0
 fi
 
