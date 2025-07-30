@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 04/29/2025
-# Last updated: 05/28/2025
+# Last updated: 07/30/2025
 #
 # Script Purpose: Selectively remove Adobe apps from a users system
 #
@@ -15,11 +15,11 @@
 # 1.3 - Add option for "silent" remove (no prompt) and which apps than can be removed 3D & CC or CC only
 # 1.4 - Move some functions calls to the top to make sure they get execute for both types of removal
 # 1.5 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.6 - Modified section headers for better organization
 #
-
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Gobal "Common" variables (do not change these!)
 #
 ######################################################################################################
 
@@ -29,7 +29,6 @@ USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ prin
 OS_PLATFORM=$(/usr/bin/uname -p)
 
 [[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
@@ -37,10 +36,7 @@ MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareData
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -48,24 +44,11 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
-JQ_FILE_INSTALL_POLICY="install_jq"
-ADOBE_UNINSTALLER="/usr/local/bin/AdobeUninstaller"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 
-###################################################
-#
-# App Specfic variables (Feel free to change these)
-#
-###################################################
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Remove Adobe Apps"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/RemoveAdobeApps.log"
-SD_ICON_FILE="/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"
-OVERLAY_ICON="SF=trash.fill, color=black, weight=light"
+# Temp files used by this app
 TMP_FILE_STORAGE=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
 JSON_OPTIONS=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
@@ -73,8 +56,35 @@ DIALOG_COMMAND_FILE=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
 chmod 666 ${JSON_OPTIONS}
 chmod 666 ${JSON_DIALOG_BLOB}
 chmod 666 ${DIALOG_COMMAND_FILE}
+chmod 666 ${TMP_FILE_STORAGE}
 
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+###################################################
+#
+# App Specfic variables (Feel free to change these)
+#
+###################################################
+
+# Support / Log files location
+
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+LOG_FILE="${SUPPORT_DIR}/logs/AppDelete.log"
+
+# Display items (banner / icon / help icon, etc)
+
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Remove Adobe Apps"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+SD_INFO_BOX_MSG=""
+SD_ICON_FILE="/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"
+OVERLAY_ICON="SF=trash.fill, color=black, weight=light"
+HELP_DESK_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
+
+# Trigger installs for Images & icons
+
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+JQ_FILE_INSTALL_POLICY="install_jq"
+ADOBE_UNINSTALLER="/usr/local/bin/AdobeUninstaller"
 ADOBE_SUPPORT_FILE="install_adobeuninstaller"
 
 ##################################################
@@ -83,12 +93,11 @@ ADOBE_SUPPORT_FILE="install_adobeuninstaller"
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 ADOBE_CURRENT_YEAR=$4
 SCRIPT_METHOD="${5:-"Prompt"}"                  # 'Silent' or 'Prompt'
 REMOVAL_METHOD="${6:-"All"}"                    # 'All' or 'CConly'
-HELP_DESK_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 ####################################################################################################
 #
@@ -104,6 +113,7 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
+    LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
