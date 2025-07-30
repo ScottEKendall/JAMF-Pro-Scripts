@@ -404,8 +404,8 @@ TCC_KEY_ARRAY=($(echo $TCC_KEY))
 [[ ! "$APP_PATH" == *".app" ]] && APP_PATH+=".app"
 
 # See if the application has been installed...if not then exit gracefully 
-if [[ ! -e "${APP_PATH}" ]]
-    logMe "INFO: Specified Application not installed"
+if [[ ! -e "${APP_PATH}" ]]; then
+    logMe "INFO: The Application $APP_PATH is not installed"
     cleanup_and_exit 0
 fi
 APP_NAME="${APP_PATH:t:r}"
