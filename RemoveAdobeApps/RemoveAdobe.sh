@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 04/29/2025
-# Last updated: 07/30/2025
+# Last updated: 08/01/2025
 #
 # Script Purpose: Selectively remove Adobe apps from a users system
 #
@@ -16,6 +16,7 @@
 # 1.4 - Move some functions calls to the top to make sure they get execute for both types of removal
 # 1.5 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 1.6 - Modified section headers for better organization
+# 1.7 - Fix line #468 to force check lowercase parameter
 #
 ######################################################################################################
 #
@@ -464,7 +465,7 @@ function create_file_list ()
 
         #create_checkbox_message_body "$app [$version - $baseCode]" "$icon" "$checked" "$disabled"
     done
-    if [[ "${SCRIPT_METHOD}" == "prompt" ]]; then
+    if [[ "${SCRIPT_METHOD:l}" == "prompt" ]]; then
         # If we are going to show this list to the user (prompt) then we need to properly complete the JSON array
         create_checkbox_message_body "" "" "" "" "last"
     fi
