@@ -31,10 +31,10 @@ OVERLAY_ICON="/Applications/Self Service.app"
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SD_IMAGE_POLICY="install_passwordSS"```
+SD_IMAGE_POLICY="install_passwordSS"
 ```
 
-The ```SUPPORT_DIR``` is the starting directory of where you want to store all of your logs, images, screenshots, etc.  Currently this is how I format my stucture
+The ```SUPPORT_DIR``` is the starting directory of where you want to store all of your logs, images, screenshots, etc.  Currently this is how I format my stucture (mine starts at /Library/Appllication Support/GiantEagle)
 
 ![](/README-FileStructure.png)
 
@@ -88,7 +88,7 @@ SD_TIMER="${11-120}"
 SD_ICON_PRIMARY="${ICON_FILES}${SD_ICON_PRIMARY}"
 ```
 
-Some of my scripts will used passed in variables from the script paramter page, you can also set defaults on variables if they are not passed in (this is referred to as ZSH Parameter Expansion)
+Some of my scripts will used passed in variables from the script paramater page, you can also set defaults on variables if they are not passed in (this is referred to as ZSH Parameter Expansion)
 
 The above example is taken from the DialogMsg script:
 
