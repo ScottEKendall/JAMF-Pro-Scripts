@@ -36,13 +36,13 @@ SD_IMAGE_POLICY="install_passwordSS"```
 
 The ```SUPPORT_DIR``` is the starting directory of where you want to store all of your logs, images, screenshots, etc.  Currently this is how I format my stucture
 
-![](/JAMF-Pro-Scripts/README-FileStructure.png)
+![](/README-FileStructure.png)
 
 ```LOG_FILES```: location & name of the file you want to store your log files
 
 ```BANNER_TEXT_PADDING```: I create window banners with a logo in the left corner, so I need to offset the text so it looks centered.
 
-```SD_WINDOW_TITLE```: Title of the windoww that you are displaying
+```SD_WINDOW_TITLE```: Title of the window that you are displaying
 
 ```SD_BANNER_IMAGE```: Location & name of the banner that you want to display
 
@@ -56,7 +56,7 @@ All of my scripts will check for specific items (Swift Dialog, Banner Images, jq
 
 The policy listing for Swift Dialog: (Make sure to scope it to all users)
 
-![](/JAMF-Pro-Scripts/README-JAMFPolicy.png)
+![](/README-JAMFPolicy.png)
 
 The details of the policy itself.  Notice the trigger name in the "Custom" seciton
 
