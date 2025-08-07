@@ -73,11 +73,7 @@ EMAIL_APP='com.microsoft.outlook'   # Use the bundle identifier of your email ap
 # Support / Log files location
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_DIR="${SUPPORT_DIR}/logs"
-LOG_FILE="${LOG_DIR}/JAMFSystemUtilities.log"
-
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+LOG_FILE="${SUPPORT_DIR}/logs/AppDelete.log"
 
 # Display items (banner / icon)
 
@@ -88,6 +84,7 @@ OVERLAY_ICON="/Applications/Self Service.app"
 SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
 
 # Trigger installs for Images & icons
+# Create a policy in JAMF that will install the necessary files and make sure to given it a custom name that matches this trigger name
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 JQ_INSTALL_POLICY="install_jq"
@@ -117,7 +114,7 @@ function create_log_directory ()
     # do not then create them and set the permissions.
     #
     # RETURN: None
-
+    LOG_DIR=${LOG_FILE%/*}
 	# If the log directory doesnt exist - create it and set the permissions
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
