@@ -5,7 +5,7 @@
 # Purpose: Provide user notifications of a password expiration.
 #
 # Created: 04/18/2024
-# Last updated: 07/02/2025
+# Last updated: 08/07/2025
 #
 # v1.0 - Initial Release
 # v1.1 - Major code cleanup & documentation
@@ -13,6 +13,7 @@
 # v1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # v1.3 - Fixed pasword age calculation
 # 		 Add support for 'on demand' viewing of password
+# v1.4 - Changed variable declarations around for better readability
 #
 # Expected Paramaters: 
 # $4 - Password Expiration in Days
@@ -20,38 +21,30 @@
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Gobal "Common" variables (do not change these!)
 #
 ######################################################################################################
-
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ###################################################
 #
@@ -59,19 +52,28 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 #
 ###################################################
 
+JSS_FILE="/Library/Managed Preferences/com.gianteagle.jss.plist"
+SD_TIMER="240"
+
+# Support / Log files location
+
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+LOG_FILE="${SUPPORT_DIR}/PasswordExpireNotice.log"
+
+# Display items (banner / icon)
+
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Password Expiration Notice"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/PasswordExpireNotice.log"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+SD_IMAGE_TO_DISPLAY="${SUPPORT_DIR}/SupportFiles/PasswordChange.png"
 OVERLAY_ICON="/Applications/Self Service.app"
+SD_ICON_FILE=${ICON_FILES}"ToolbarCustomizeIcon.icns"
 
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-JSS_FILE="/Library/Managed Preferences/com.gianteagle.jss.plist"
-SD_IMAGE_TO_DISPLAY="/Library/Application Support/GiantEagle/SupportFiles/PasswordChange.png"
+# Trigger installs for Images & icons
+
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SD_IMAGE_POLICY="install_passwordSS"
-SD_TIMER="240"
-SD_ICON_PRIMARY="${ICON_FILES}AlertNoteIcon.icns"
 
 ##################################################
 #
@@ -98,6 +100,7 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
+    LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -163,7 +166,6 @@ function display_msg ()
 {
     SD_ICON_PRIMARY="/System/Applications/Utilities/Keychain access.app"
     if is-at-least "15" "${MACOS_VERSION}"; then    #File location change in Sequoia and higher
-        #SD_ICON_PRIMARY="/System/Library/CoreServices/Applications/Keychain Access.app"
         SD_ICON_PRIMARY="/System/Applications/Passwords.app"
     fi
 	MainDialogBody=(
@@ -269,8 +271,8 @@ create_infobox_message
 passwordAge=$(get_password_info)
 logMe "INFO: Users passsword age is: "$passwordAge
 
-if [[ ${passwordAge} -ge 8 && ${PASSWORD_CHECK:l} == "no" ]]; then
-    SD_WELCOME_MSG="Your are receiving this notice because your password is about to expire within the next ${passwordAge} days.  You can click on the 'Change Password...' option in **JAMF Connect** to change your password.  You will receive further notices when your password is about to expire within the next 7 days."
+if [[ ${passwordAge} -le 8 && ${PASSWORD_CHECK:l} == "no" ]]; then
+    SD_WELCOME_MSG="Your are receiving this notice because your password is about to expire within the next ${passwordAge} days.  You can click on the 'Unlock / Reset Network Password...' option in **JAMF Connect** to change your password.  You will receive further notices when your password is about to expire within the next 7 days."
 	logMe "INFO: Display prompt for user that password will expire in ${passwordAge} days"
 	display_msg
 else
