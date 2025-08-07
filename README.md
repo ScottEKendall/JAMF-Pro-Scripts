@@ -60,11 +60,11 @@ The policy listing for Swift Dialog: (Make sure to scope it to all users)
 
 The details of the policy itself.  Notice the trigger name in the "Custom" seciton
 
-![](/JAMF-Pro-Scripts/README-JAMFTrigger.png)
+![](/README-JAMFTrigger.png)
 
 And what gets installed during the policy execution.  
 
-![](/JAMF-Pro-Scripts/README_JAMFPackage.png)
+![](/README_JAMFPackage.png)
 
 
 ### Passed in Variables ###
