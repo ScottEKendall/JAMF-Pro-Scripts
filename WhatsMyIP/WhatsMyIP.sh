@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 9/20/2023
-# Last updated: 05/28/2025
+# Last updated: 08/13/2025
 #
 # Script Purpose: Display the IP address on all adapters as well as Cisco VPN if they are connected
 #
@@ -13,46 +13,39 @@
 # 1.1 - Code cleanup to be more consistant with all apps
 # 1.2 - Reworked logic for all physical adapters to accomodate for older macs
 # 1.3 - Included logic to display Wifi name if found
-# 1.4 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore... / code cleanup
+# 1.4 - Changed logic for Wi-Fi name to accomodate macOS 15.6 changes
+#       Reworked top section for better idea of what can be modified
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Gobal "Common" variables (do not change these!)
 #
 ######################################################################################################
-
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
 [[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_MODEL=$(ioreg -l | grep "product-name" | awk -F ' = ' '{print $2}' | tr -d '<>"')
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-TOTAL_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Total Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
-MAC_LOCALNAME=$(scutil --get LocalHostName)
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
-JQ_FILE_INSTALL_POLICY="install_jq"
-JSS_FILE="/Library/Managed Preferences/com.gianteagle.jss.plist"
+
+# Make some temp files for this app
+
+JSON_OPTIONS=$(mktemp /var/tmp/NetworkIP.XXXXX)
+/bin/chmod 666 $JSON_OPTIONS
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ###################################################
 #
@@ -60,15 +53,23 @@ JSS_FILE="/Library/Managed Preferences/com.gianteagle.jss.plist"
 #
 ###################################################
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}What's my IP?"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/NetworkIP.log"
-SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
-JSON_OPTIONS=$(mktemp /var/tmp/ViewInventory.XXXXX)
-chmod 666 ${JSON_OPTIONS}
+# Support / Log files location
 
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+LOG_FILE="${SUPPORT_DIR}/Logs/NetworkIP.log"
+
+# Display items (banner / icon)
+
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_WINDOW_TITLE=$BANNER_TEXT_PADDING"What's my IP?"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+OVERLAY_ICON="/System/Applications/App Store.app"
+SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
+
+# Trigger installs for Images & icons
+
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
 
 ##################################################
 #
@@ -76,7 +77,7 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 ####################################################################################################
@@ -84,6 +85,9 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 # Functions
 #
 ####################################################################################################
+
+typeset -a adapter
+typeset -a ip_address
 
 function create_log_directory ()
 {
@@ -93,6 +97,7 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
+    LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -181,7 +186,7 @@ function get_nic_info
 
         [[ -z $currentip ]] && continue
         adapter+="$sname"
-        [[ $sname == *"Wi-Fi"* ]] && wifiName="_($(sudo wdutil info | grep "SSID" | head -1 | awk -F ":" '{print $2}' | xargs))_" || wifiName=""        
+        [[ $sname == *"Wi-Fi"* ]] && wifiName="_($( system_profiler SPAirPortDataType | awk '/Current Network Information:/ { getline; print substr($0, 13, (length($0) - 13)); exit }' ))_"      
         ip_address+="**$currentip** $wifiName"
     done <<< "$(networksetup -listnetworkserviceorder | grep 'Hardware Port')"
 
@@ -248,9 +253,6 @@ function display_welcome_message()
 # Main Program
 #
 ##############################
-typeset -a adapter
-typeset -a ip_address
-
 autoload 'is-at-least'
 
 create_log_directory
