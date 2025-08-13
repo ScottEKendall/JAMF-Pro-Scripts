@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/03/2025
-# Last updated: 07/16/2025
+# Last updated: 08/13/2025
 #
 # Script Purpose: This script will extract all of the email addresses from your JAMF server and store them in local folder in a VCF format.
 #
@@ -25,6 +25,7 @@
 # 2.6 - Added option for export of multiple users per system
 #     - Added option for export of Computer Policie
 # 2.7 - Added option to compare two configuration profiles
+# 2.8 - Changed variable declarations around for better readability
 ######################################################################################################
 #
 # Gobal "Common" variables (do not change these!)
@@ -34,9 +35,7 @@
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
@@ -52,7 +51,6 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.5.0"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
 
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
 DIALOG_CMD_FILE=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
@@ -86,6 +84,7 @@ SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_aut
 # Trigger installs for Images & icons
 # Create a policy in JAMF that will install the necessary files and make sure to given it a custom name that matches this trigger name
 
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 JQ_INSTALL_POLICY="install_jq"
 
