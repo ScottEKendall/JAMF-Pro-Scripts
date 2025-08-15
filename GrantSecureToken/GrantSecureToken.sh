@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/11/25
-# Last updated: 05/28/25
+# Last updated: 08/15/25
 #
 # Script Purpose: GUI Prompt to set the Secure Token to any user
 #
@@ -14,41 +14,42 @@
 #
 # 1.0 - Initial
 # 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.2 - Reworked top section for better idea of what can be modified
+#       Swift Dialog version is now 2.5.0
+#       Added title font shadow to display box
+#       Put proper quoting around variables to deal with special characters better
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Gobal "Common" variables (do not change these!)
 #
 ######################################################################################################
-
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+SD_INFO_BOX_MSG=""
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+
+# Make some temp files for this app
+
+JSON_OPTIONS=$(mktemp /var/tmp/AppDelete.XXXXX)
+/bin/chmod 666 $JSON_OPTIONS
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ###################################################
 #
@@ -56,18 +57,23 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 #
 ###################################################
 
-JSON_OPTIONS=$(mktemp /var/tmp/SecureToken.XXXXX)
+# Support / Log files location
 
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+LOG_FILE="${SUPPORT_DIR}/Logs/GrantSecureToken.log"
+
+# Display items (banner / icon)
+
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Grant Secure Token"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+OVERLAY_ICON="/System/Applications/App Store.app"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/GrantSecureToken.log"
-SD_ICON="${ICON_FILES}UserIcon.icns"
+# Trigger installs for Images & icons
 
-USERS_ON_SYSTEM=$( dscl . ls /Users | grep -v '_' | grep -v 'root' | grep -v 'daemon'| grep -v 'nobody' | tr '\n' ',' )
-USERS_ON_SYSTEM=${USERS_ON_SYSTEM:0:-1} # remove the last , from the list so it doesn't create a blank SD entry
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
 
 ##################################################
 #
@@ -75,7 +81,7 @@ USERS_ON_SYSTEM=${USERS_ON_SYSTEM:0:-1} # remove the last , from the list so it 
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 ####################################################################################################
@@ -92,6 +98,7 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
+    LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -158,12 +165,12 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##\n"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
@@ -188,8 +195,9 @@ function display_msg ()
 
 	MainDialogBody=(
         --message "${message}"
+        --titlefont shadow=1
 		--ontop
-		--icon "$SD_ICON"
+		--icon "$SD_ICON_FILE"
 		--overlayicon "$4"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
@@ -275,6 +283,9 @@ declare newTokenUser
 declare adminPassword
 declare userPassword
 
+USERS_ON_SYSTEM=$( dscl . ls /Users | grep -v '_' | grep -v 'root' | grep -v 'daemon'| grep -v 'nobody' | tr '\n' ',' )
+USERS_ON_SYSTEM=${USERS_ON_SYSTEM:0:-1} # remove the last , from the list so it doesn't create a blank SD entry
+
 check_swift_dialog_install
 check_support_files
 create_infobox_message
@@ -310,21 +321,21 @@ display_msg "Enter the passwords for the following users" "password" "OK" "cauti
     
 
 # Test the entered admin password
-passCheck=$(dscl /Local/Default -authonly ${adminUser} "${adminPassword}")
+passCheck=$(dscl /Local/Default -authonly "${adminUser}" "${adminPassword}")
 
 # If the credentials pass, continue, if not, tell user password is incorrect and exit.
-[[ -z "$passCheck" ]] && logMe "Password Verified" || display_msg "Password verification failed for $adminUser.  Please try again" "password" "Retry" "warning"
+[[ -z "${passCheck}" ]] && logMe "Password Verified" || display_msg "Password verification failed for $adminUser.  Please try again" "password" "Retry" "warning"
     
 logMe "Granting secure token."
 
 # Grant the token
 
-eval "sysadminctl -secureTokenOn ${newTokenUser} -password '${userPassword}' -adminUser ${adminUser} -adminPassword '${adminPassword}'" 2> $JSON_OPTIONS
+eval "sysadminctl -secureTokenOn '${newTokenUser}' -password '${userPassword}' -adminUser '${adminUser}' -adminPassword '${adminPassword}'" 2> $JSON_OPTIONS
 
 message=$(more $JSON_OPTIONS | awk -F "]" '{print $2}')
 
-if [[ ${message} != *"Done"* ]]; then
-    logMe "Errors encounted: "$message
+if [[ "${message}" != *"Done"* ]]; then
+    logMe "Errors encountered: "$message
     display_msg "An error has occured!  Results: "$message "Done" "Done" "warning"
     cleanup_and_exit 1
 
@@ -333,7 +344,7 @@ fi
 # Check for bootstrap token escrowed with Jamf Pro
 bootstrap=$(profiles status -type bootstraptoken)
 
-if [[ $bootstrap == *"escrowed to server: YES"* ]]; then
+if [[ "${bootstrap}" == *"escrowed to server: YES"* ]]; then
     message+="  Secure Token & Bootstrap token verified with JAMF Pro."
     logMe "Bootstrap token already escrowed with Jamf Pro!"
 else
