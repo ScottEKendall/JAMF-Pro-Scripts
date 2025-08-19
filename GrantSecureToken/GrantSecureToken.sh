@@ -232,8 +232,8 @@ function display_msg ()
         newTokenUser=$(echo $returnval | grep "needs" | grep -v "index" | awk -F ":" '{print $2}' | tr -d '"' | xargs )
 
     elif [[ "$2" == "password" ]]; then
-        adminPassword=$(echo $returnval | grep "$adminUser" | awk -F ":" '{print $2}' | tr -d '"' | tr -d "," | xargs )
-        userPassword=$(echo $returnval | grep "$newTokenUser" | awk -F ":" '{print $2}' | tr -d '"' | tr -d "," | xargs )
+        adminPassword=$(echo $returnval | grep "$adminUser" | awk -F ":" '{print $2}' | xargs )
+        userPassword=$(echo $returnval | grep "$newTokenUser" | awk -F ":" '{print $2}' | xargs )
     fi
 }
 
