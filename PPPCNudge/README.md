@@ -20,15 +20,15 @@ Example screen using the "mini" mode
 
 **Example screen for accessability**
 
-[[(PPPCNudge-Accessibility.png]]
+![](./PPPCNudge-Accessibility.png)
 
 Example screen using the "mini" mode
 
-[[PPPCNudge-Accessibility-mini.png]]
+![](./PPPCNudge-Accessibility-mini.png)
 
 **Script Parameters**
 
-[[PPPCNudge-Parameters.png]]
+![](./PPPCNudge-Parameters.png)
 
 
 I developed this script from the one found on this site:
