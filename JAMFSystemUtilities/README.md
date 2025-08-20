@@ -99,7 +99,7 @@ VCF (Emails) options
 Computer Usage Report
 ![](./JAMFSystemUtilities-ComputerUsageMenu.png)
 
-![](./JAMFSystemUtilities-ComputerUsage.png)
+![](./JAMFSystemUtilities-ComputerUsage.png) 
 
 
 If you are going to use the Token based API roles, you need to set these roles
