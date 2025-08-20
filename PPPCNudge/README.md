@@ -10,11 +10,11 @@ This can be modified to handle any TCC Key value that is present on the system. 
 
 **Example screen for Screen & Audio recording**
 
-![](https://github.com/ScottEKendall/JAMF-Pro-Scripts/tree/main/PPPCNudge/PPPCNudge-Screen.png)
+![](./PPPCNudge-Screen.png)
 
 Example screen using the "mini" mode
 
-![](https://github.com/ScottEKendall/JAMF-Pro-Scripts/tree/main/PPPCNudge-Screen-mini.png)
+![](./PPPCNudge-Screen-mini.png)
 
 
 
