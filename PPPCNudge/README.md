@@ -14,7 +14,7 @@ This can be modified to handle any TCC Key value that is present on the system. 
 
 Example screen using the "mini" mode
 
-[[PPPCNudge-Screen-mini.png]]
+![](https://github.com/ScottEKendall/JAMF-Pro-Scripts/tree/main/PPPCNudge-Screen-mini.png)
 
 
 
