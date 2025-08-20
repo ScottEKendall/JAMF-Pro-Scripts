@@ -71,41 +71,41 @@ When creating the roles, you can now use the OAuth API to create the roles.  Thi
 ------------------------------------
 
 Welcome Screen
-![Welcome](/JAMFSystemUtilities/JAMFSystemUtilities-Welcome.png)
+![Welcome](./JAMFSystemUtilities-Welcome.png)
 
 Backup SS Icons Process
-![](/JAMFSystemUtilities/JAMFSystemUtilities-BackupIcons.png)
+![](./JAMFSystemUtilities-BackupIcons.png)
 
 Export (and clear) Failed MDM Commands Process
-![](/JAMFSystemUtilities/JAMFSystemUtilities-failedmdm.png)
+![](.JAMFSystemUtilities-failedmdm.png)
 
 Backup System Scripts Process
-![](/JAMFSystemUtilities/JAMFSystemUtilities-Scripts.png)
+![](./JAMFSystemUtilities-Scripts.png)
 
 Compare Two System Policies
-![](/JAMFSystemUtilities/JAMFSystemUtilities-CompareProfiles.png)
+![](./JAMFSystemUtilities-CompareProfiles.png)
 
 Backup Computer Extension Attributes Process
-![](/JAMFSystemUtilities/JAMFSystemUtilities-ComputerEA.png)
+![](./JAMFSystemUtilities-ComputerEA.png)
 
 Backup Configuration Profiles Process
-![](/JAMFSystemUtilities/JAMFSystemUtilities-Profiles.png)
+![](./JAMFSystemUtilities-Profiles.png)
 
 VCF (Emails) options
-![](/JAMFSystemUtilities/JAMFSystemUtilities-ContactsMenu.png)
+![](./JAMFSystemUtilities-ContactsMenu.png)
 
-![](/JAMFSystemUtilities/JAMFSystemUtilities-Contacts.png)
+![](./JAMFSystemUtilities-Contacts.png)
 
 Computer Usage Report
-![](/JAMFSystemUtilities/JAMFSystemUtilities-ComputerUsageMenu.png)
+![](./JAMFSystemUtilities-ComputerUsageMenu.png)
 
-![](/JAMFSystemUtilities/JAMFSystemUtilities-ComputerUsage.png)
+![](./JAMFSystemUtilities-ComputerUsage.png)
 
 
 If you are going to use the Token based API roles, you need to set these roles
 
 JAMF Roles
-![](/JAMFSystemUtilities/JAMFSystemUtilities-API_Roles.png
+![](./JAMFSystemUtilities-API_Roles.png
 )
 
 #### 1.0 - Initial
