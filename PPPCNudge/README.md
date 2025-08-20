@@ -10,25 +10,25 @@ This can be modified to handle any TCC Key value that is present on the system. 
 
 **Example screen for Screen & Audio recording**
 
-![](/PPPCNudge/PPPCNudge-Screen.png)
+![](PPPCNudge-Screen.png)
 
 Example screen using the "mini" mode
 
-![](/PPPCNudge/PPPCNudge-Screen-mini.png)
+![](PPPCNudge-Screen-mini.png)
 
 
 
 **Example screen for accessability**
 
-![](/PPPCNudge/PPPCNudge-Accessibility.png)
+![](PPPCNudge-Accessibility.png)
 
 Example screen using the "mini" mode
 
-![](/PPPCNudge/PPPCNudge-Accessibility-mini.png)
+![](PPPCNudge-Accessibility-mini.png)
 
 **Script Parameters**
 
-![](/PPPCNudge/PPPCNudge-Parameters.png)
+![](\/PPPCNudge-Parameters.png)
 
 
 I developed this script from the one found on this site:
