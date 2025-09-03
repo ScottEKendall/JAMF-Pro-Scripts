@@ -1,4 +1,4 @@
-## Disk Usage Scanner
+## Create / Change FileVault Recovery Key
 
  If your MDM server shows that a user doesn't have a key assigned, you can have the user run this script and it will create (or change) the key and escrow it to the server.
 
