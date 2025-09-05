@@ -5,7 +5,7 @@ The first thing that I have to deal with is what state each user is in regards t
 
 EA's used for InTune Registration
 
-[EA for Registration](/JAMF-Pro-EAs/InTune%20Registration%20Status.sh)
+[EA for Registration](https://github.com/ScottEKendall/JAMF-Pro-EAs/blob/main/InTune%20Registration%20Status.sh)
 
 From there you can create Smart Groups based off of registration status and take appropriate actions.  A Sample output might be:
 
@@ -20,7 +20,7 @@ The next thing that I do is to retreive (from inTune) the users last password ch
 
 The code to retrieve the password info is located here.  I also calculate the password Age as well.  That is used later on... 
 
-[Script to retreive Password Change Date](/JAMF-Pro-System-Scripts/Maintenance%20-%20Passwords%20-%20Populate%20Plist%20File%20(InTune).sh)
+[Script to retreive Password Change Date](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20Passwords%20-%20Populate%20Plist%20File%20(inTune).sh)
 
 A few things to note here:
  - I store these keys in each users `~/Library/Application Support/*.plist`.  These two variables control where the file is located and the plist file name
