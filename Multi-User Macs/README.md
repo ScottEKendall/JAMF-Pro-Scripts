@@ -9,7 +9,7 @@ EA's used for InTune Registration
 
 From there you can create Smart Groups based off of registration status and take appropriate actions.  A Sample output might be:
 
-![](/Single-User%20Registration.png)
+![](/Multi-User%20Macs/Mult-UserSingle-User%20Registration.png)
 
 The next thing that I do is to retreive (from inTune) the users last password change date (the field is `LastPasswordChangedDateTime` from the MS Graph API)
 
@@ -23,7 +23,7 @@ The code to retrieve the password info is located here.  I also calculate the pa
 [Script to retreive Password Change Date](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20Passwords%20-%20Populate%20Plist%20File%20(inTune).sh)
 
 A few things to note here:
- - I store these keys in each users `~/Library/Application Support/*.plist`.  These two variables control where the file is located and the plist file name
+ - I store these keys in each users `~/Library/Application Support/` folder.  These two variables control where the file is located and the plist file name
     - `SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"`
     - `JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"`
 - Both password last change date andd password age are stored in this file
@@ -44,11 +44,12 @@ Password Age:
 
 Here is what a sample out of a single user mac would show:
 
-![](/JAMF-Pro-Scripts/Multi-User%20Macs/Single-User%20Password.png)
+![](/Multi-User%20Macs/Single-User%20Password.png)
+
 
 and this is a sample output of a shared mac: (it will show the user name as well as their password info)
 
-![](/JAMF-Pro-Scripts/Multi-User%20Macs/Multi-User%20Password.png)
+![](/Multi-User%20Macs/Multi-User%20Password.png)
 
 At the beginning of each EA is where to find the plist file:
 
