@@ -23,7 +23,8 @@ The code to retrieve the password info is located here.  I also calculate the pa
 [Script to retreive Password Change Date](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20Passwords%20-%20Populate%20Plist%20File%20(inTune).sh)
 
 A few things to note here:
- - I store these keys in each users `~/Library/Application Support/` folder.  These two variables control where the file is located and the plist file name
+ - I store these keys in each users `~/Library/Application Support/` folder.
+ - These two variables control where the file is located and the plist file name
     - `SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"`
     - `JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"`
 - Both password last change date andd password age are stored in this file
@@ -36,16 +37,15 @@ The next thing I need to do create EAs for the users password last change date &
 
 Password Last Change Date:
 
-[](/JAMF-Pro-EAs/Password%20Plist%20Entry.sh)
+[Last Chang Date](https://github.com/ScottEKendall/JAMF-Pro-EAs/blob/main/Password%20Plist%20Entry.sh)
 
 Password Age:
 
-[](/JAMF-Pro-EAs/Password%20Age.sh)
+[Password Age](https://github.com/ScottEKendall/JAMF-Pro-EAs/blob/main/Password%20Age.sh)
 
 Here is what a sample out of a single user mac would show:
 
 ![](/Multi-User%20Macs/Single-User%20Password.png)
-
 
 and this is a sample output of a shared mac: (it will show the user name as well as their password info)
 
@@ -55,3 +55,10 @@ At the beginning of each EA is where to find the plist file:
 
 `SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"`
 `JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"`
+
+So...why do I store the password age seperately, instead of calculate it each time?  I display a notificaton to the user if their password is within 14 days of expiration:
+
+[Notification for Password Expire](https://github.com/ScottEKendall/JAMF-Pro-Scripts/tree/main/PasswordExpire)
+
+
+As I find more JAMF functionality for multi-user macs, I will post updates here.
