@@ -3,8 +3,6 @@ The following post is designed for Micosoft EntraID based environments, but coul
 
 The first thing that I have to deal with is what state each user is in regards to their EntraID status:
 
-EA's used for InTune Registration
-
 [EA for Registration](https://github.com/ScottEKendall/JAMF-Pro-EAs/blob/main/InTune%20Registration%20Status.sh)
 
 From there you can create Smart Groups based off of registration status and take appropriate actions.  A Sample output might be:
