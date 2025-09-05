@@ -50,6 +50,7 @@ and this is a sample output of a shared mac: (it will show the user name as well
 At the beginning of each EA is where to find the plist file:
 
 `SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"`
+
 `JSS_FILE="$SUPPORT_DIR/com.GiantEagleEntra.plist"`
 
 So...why do I store the password age seperately, instead of calculate it each time?  I display a notificaton to the user if their password is within 14 days of expiration:
