@@ -35,13 +35,9 @@ This script is run once a day to populate the file in the users folder.  If the 
 
 The next thing I need to do is create EAs for the user's password last change date & password Age.  Those scripts can be found here:
 
-Password Last Change Date:
+Password Last Change Date: [Last Chang Date](https://github.com/ScottEKendall/JAMF-Pro-EAs/blob/main/Password%20Plist%20Entry.sh)
 
-[Last Chang Date](https://github.com/ScottEKendall/JAMF-Pro-EAs/blob/main/Password%20Plist%20Entry.sh)
-
-Password Age:
-
-[Password Age](https://github.com/ScottEKendall/JAMF-Pro-EAs/blob/main/Password%20Age.sh)
+Password Age: [Password Age](https://github.com/ScottEKendall/JAMF-Pro-EAs/blob/main/Password%20Age.sh)
 
 Here is what a sample out of a single user mac would show:
 
