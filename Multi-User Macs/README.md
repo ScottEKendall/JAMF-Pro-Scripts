@@ -29,6 +29,10 @@ A few things to note here:
 - I decided to put this in each users folder, so if the user gets removed from the system, their password info gets removed as well
 - You can put anything in this file you want...espcially handy if you need to stored server related items that could be used later, it is a simple .plist file
 
+Here is a sample output during script execution:
+
+![](/Multi-User%20Macs/ScriptResults.png)
+
 This script is run once a day to populate the file in the users folder.  If the file doesn't exist, it will be created automatically
 
 The next thing I need to do is create EAs for the user's password last change date & password Age.  Those scripts can be found here:
