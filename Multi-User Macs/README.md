@@ -9,7 +9,7 @@ EA's used for InTune Registration
 
 From there you can create Smart Groups based off of registration status and take appropriate actions.  A Sample output might be:
 
-![](/Multi-User%20Macs/Mult-UserSingle-User%20Registration.png)
+![](/Multi-User%20Macs/Single-User%20Registration.png)
 
 The next thing that I do is to retreive (from inTune) the users last password change date (the field is `LastPasswordChangedDateTime` from the MS Graph API)
 
