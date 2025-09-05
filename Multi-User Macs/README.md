@@ -59,5 +59,9 @@ So...why do I store the password age seperately, instead of calculate it each ti
 
 [Notification for Password Expire](https://github.com/ScottEKendall/JAMF-Pro-Scripts/tree/main/PasswordExpire)
 
+Speaking of inTune...here is a handy script to sync the local user's profile pic to their inTune picture.
+
+[Sync Profile Picture](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20inTune%20-%20SyncEntraPic.sh)
+
 
 As I find more JAMF functionality for multi-user macs, I will post updates here.
