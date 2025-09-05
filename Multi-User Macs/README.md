@@ -1,5 +1,5 @@
 If your environment has multi-user (shared) macs, then these scripts might come in handy. 
-The follow post was designed for Micosoft EntraID based environment, but could probably be adapted easily for other environments.  I will will point out the specific EntraID code in this document.
+The following post is designed for Micosoft EntraID based environments, but could probably be adapted easily for other environments.  I will will point out the specific EntraID code in this document.
 
 The first thing that I have to deal with is what state each user is in regards to their EntraID status:
 
@@ -9,7 +9,7 @@ EA's used for InTune Registration
 
 From there you can create Smart Groups based off of registration status and take appropriate actions.  A Sample output might be:
 
-![](/JAMF-Pro-Scripts/Multi-User%20Macs/Single-User%20Registration.png)
+![](/Single-User%20Registration.png)
 
 The next thing that I do is to retreive (from inTune) the users last password change date (the field is `LastPasswordChangedDateTime` from the MS Graph API)
 
