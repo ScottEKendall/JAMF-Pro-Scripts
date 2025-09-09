@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 07//2025
+# Last updated: 09/09/2025
 #
 # Script Purpose: Main Library containing all of my commonly used fuctions.
 #
@@ -17,6 +17,7 @@
 # 1.4 - Added listitem, textbox, checkbox and dropdown functions
 # 1.5 - Reworked top section for better idea of what can be modified
 #       New create_log_direcotry check routine that parses the path and checks the directory structure
+# 1.6 - Add several new MS Graph API routines
 
 ######################################################################################################
 #
@@ -178,7 +179,18 @@ function cleanup_and_exit ()
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
+	exit $1
+}
+
+function check_for_sudo_access () 
+{
+  # Check if the effective user ID is 0.
+  if [[ $EUID -ne 0 ]]; then
+    # Print an error message to standard error.
+    echo "This script must be run with root privileges. Please use sudo." >&2
+    # Exit the script with a non-zero status code.
+    cleanup_and_exit 1
+  fi
 }
 
 function welcomemsg ()
@@ -221,6 +233,7 @@ function welcomemsg ()
 ####################################################################################################
 autoload 'is-at-least'
 
+check_for_sudo_access
 create_log_directory
 check_swift_dialog_install
 check_support_files
@@ -547,6 +560,127 @@ function execute_in_parallel ()
 
     # Wait for any remaining jobs
     for pid in "${pids[@]}"; do wait $pid; done
+}
+
+###########################
+#
+# MS-GRAPH API functions
+#
+###########################
+
+function msgraph_getdomain ()
+{
+    # PURPOSE: construct the domain from the jamf.plist file
+    # PARAMETERS: None
+    # RETURN: None
+    # EXPECTED: MS_DOMAIN
+
+    local url
+    url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
+
+    # Extract the desired part using Zsh parameter expansion
+    tmp=${url#*://}  # Remove the protocol part
+    MS_DOMAIN=${tmp%%.*}".com"  # Remove everything after the first dot and add '.com' to the end
+}
+
+function msgraph_get_access_token ()
+{
+    # PURPOSE: obtain the MS inTune Graph API Token
+    # PARAMETERS: None
+    # RETURN: access_token
+    # EXPECTED: TENANT_ID, CLIENT_ID, CLIENT_SECRET
+
+    token_response=$(curl -s -X POST "https://login.microsoftonline.com/$TENANT_ID/oauth2/v2.0/token" \
+    -H "Content-Type: application/x-www-form-urlencoded" -d "grant_type=client_credentials&client_id=$CLIENT_ID&client_secret=$CLIENT_SECRET&scope=https://graph.microsoft.com/.default")
+
+    MS_ACCESS_TOKEN=$(echo "$token_response" | jq -r '.access_token')
+
+    if [[ "$MS_ACCESS_TOKEN" == "null" ]] || [[ -z "$MS_ACCESS_TOKEN" ]]; then
+        echo "Failed to acquire access token"
+        echo "$token_response"
+        exit 1
+    fi
+    echo "Valid Token Acquired"
+}
+
+function msgraph_upn_sanity_check ()
+{
+    # PURPOSE: format the user name to make sure it is in the format <first.last>@domain.com
+    # RETURN: None
+    # PARAMETERS: $1 = User name
+    # EXPECTED: LOGGED_IN_USER, MS_DOMAIN, MS_USER_NAME
+
+    # if the local name already contains “@”, then it should be good
+    if [[ "$LOGGED_IN_USER" == *"@"* ]]; then
+        echo "$LOGGED_IN_USER"
+        return 0
+    fi
+    # if it ends with the domain without the “@” → we add the @ sign
+    if [[ "$LOGGED_IN_USER" == *"$MS_DOMAIN" ]]; then
+        CLEAN_USER=${LOGGED_IN_USER%$MS_DOMAIN}
+        MS_USER_NAME="${CLEAN_USER}@${MS_DOMAIN}"
+    else
+        # 3) normal short name → user@domain
+        MS_USER_NAME="${LOGGED_IN_USER}@${MS_DOMAIN}"
+    fi
+}
+
+function msgraph_get_group_data ()
+{
+    # PURPOSE: Retrieve the user's Graph API group membership
+    # PARAMETERS: None
+    # RETURN: None
+    # EXPECTED: MS_USER_NAME, MS_ACCESS_TOKEN, MSGRAPH_GROUP
+
+    response=$(curl -s -X GET "https://graph.microsoft.com/v1.0/users/$MS_USER_NAME/memberOf" -H "Authorization: Bearer $MS_ACCESS_TOKEN" | jq -r '.value[].displayName')
+
+    # Use a while loop to read and handle the line break delimiter - store the final list into an array
+    MSGRAPH_GROUPS=()
+    while IFS= read -r line; do
+        MSGRAPH_GROUPS+=("$line")
+    done <<< "$response"   
+}
+
+function msgraph_get_password_data ()
+{
+    # PURPOSE: Retrieve the user's Graph API Record
+    # RETURN: last_password_change
+    # EXPECTED: MS_USER_NAME, MS_ACCESS_TOKEN
+
+    user_response=$(curl -s -X GET "https://graph.microsoft.com/v1.0/users/$MS_USER_NAME?\$select=lastPasswordChangeDateTime" -H "Authorization: Bearer $MS_ACCESS_TOKEN")
+    last_password_change=$(echo "$user_response" | jq -r '.lastPasswordChangeDateTime')
+    echo $last_password_change
+
+}
+
+function msgraph_get_user_photo_etag ()
+{
+    # PURPOSE: Retrieve the user's Graph API Record
+    # RETURN: last_password_change
+    # EXPECTED: MS_USER_NAME, ms_access_token
+
+    user_response=$(curl -s -X GET "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo" -H "Authorization: Bearer $ms_access_token")
+    echo "$user_response" | jq -r '."@odata.mediaEtag"'
+}
+
+function msgraph_get_user_photo_jpeg ()
+{
+    # PURPOSE: Retrieve the user's Graph API JPEG photo
+    # PARAMETERS: $1 - Photo file to store download file
+    # RETURN: None
+    # EXPECTED: MS_USER_NAME, ms_access_token
+
+    curl -s -L -H "Authorization: Bearer ${ms_access_token}" "https://graph.microsoft.com/v1.0/users/${MS_USER_NAME}/photo/\$value" --output "$$1"
+    [[ ! -s "$1" ]] && { echo "ERROR: Downloaded file empty"; cleanup_and_exit 1; }
+}
+
+function create_photo_dir ()
+{
+    # Store retrieved file to perm location  
+    PERM_PHOTO_FILE="${PERM_PHOTO_DIR}/${LOGGED_IN_USER}.jpg"
+    /bin/mkdir -p "$PERM_PHOTO_DIR"
+    /bin/cp "$PHOTO_FILE" "$PERM_PHOTO_FILE"
+    /bin/chmod 644 "$PERM_PHOTO_FILE"
 }
 
 ###########################
