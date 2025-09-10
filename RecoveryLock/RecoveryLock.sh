@@ -90,7 +90,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/JAMF_RecoveryLock.log"
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Set/Clear Recovery Lock"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-OVERLAY_ICON="/Applications/Self Service.app"
+OVERLAY_ICON=""
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
 # Trigger installs for Images & icons
@@ -219,6 +219,7 @@ function display_welcome_message ()
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --icon "${SD_ICON_FILE}"
+        --overlayicon "${OVERLAY_ICON}"
         --titlefont shadow=1
         --iconsize 128
         --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial or hostname of the device you want to set or clear the recovery lock on.  Please Note: This only works on Apple Silicon Macs."
@@ -301,6 +302,16 @@ function display_failure_message ()
     buttonpress=$?
     invalidate_JAMF_Token
     cleanup_and_exit
+}
+
+function JAMF_which_self_service ()
+{
+    # PURPOSE: Function to see which Self service to use (SS / SS+)
+    # RETURN: None
+    # EXPECTED: None
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
+    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    echo $retval
 }
 
 function JAMF_check_connection ()
@@ -480,7 +491,7 @@ declare redeploy_resonse
 
 autoload 'is-at-least'
 
-
+OVERLAY_ICON=$(JAMF_which_self_service)
 create_log_directory
 check_swift_dialog_install
 check_support_files
