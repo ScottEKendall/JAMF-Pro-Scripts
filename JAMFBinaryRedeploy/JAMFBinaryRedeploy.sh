@@ -300,6 +300,7 @@ function JAMF_get_deviceID ()
     # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server.
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - search identifier to use (serial or Hostname)
+    #        $2 - Device name/serial # to search for
 
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
     ID=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc&filter=$type=='$2'"| jq -r '.results[].id')
