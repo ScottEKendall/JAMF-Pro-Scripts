@@ -212,7 +212,7 @@ function cleanup_and_exit ()
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
 	exit 0
 }
-MAC-KTCYX6K7XV
+
 function display_welcome_message ()
 {
      MainDialogBody=(
@@ -439,14 +439,23 @@ function JAMF_get_deviceID ()
     # PURPOSE: uses the serial number or hostname to get the device ID (UDID) from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
     # RETURN: the device ID (UDID) for the device in question.
     # PARMS: $1 - search identifier to use (Serial or Hostname)
+    #        $2 - Device name/serial # to search for
 
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-
-    ID=$(/usr/bin/curl -sf --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" -H "Accept: application/json" | jq -r '.results[0].general.managementId')
+    ID=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc&filter=$type=='$2'"| jq -r '.results[].id')
 
     # if ID is not found, display a message or something...
-    [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* || -z "$ID" ]] && display_failure_message
     logMe "Device ID #$ID"
+}
+function JAMF_get_deviceID ()
+{
+    # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server.
+    # RETURN: the device ID for the device in question.
+    # PARMS: $1 - search identifier to use (serial or Hostname)
+
+    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
+    ID=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc&filter=$type=='$2'"| jq -r '.results[].id')
+    echo $ID
 }
 
 function JANMF_send_recovery_lock_command()
@@ -502,7 +511,8 @@ display_welcome_message
 JAMF_check_connection
 JAMF_get_server
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token
-JAMF_get_deviceID ${search_type}	
+ID=$(JAMF_get_deviceID "${search_type}" ${computer_id})
+[[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* || -z "$ID" ]] && display_failure_message
 [[ $lockMode == "Set" ]] && JANMF_send_recovery_lock_command "$LOCK_CODE" || JANMF_send_recovery_lock_command ""
 display_status_message
 JAMF_invalidate_token
