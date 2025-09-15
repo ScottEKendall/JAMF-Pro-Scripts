@@ -3,7 +3,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 05/28/2025
+# Last updated: 09/15/2025
 #
 # Script Purpose: This script retrieves the Mac Hardware UUID, fetches the corresponding Computer ID from Jamf Pro, 
 # checks for any failed MDM commands, and clears them if found.
@@ -18,42 +18,38 @@
 # 1.1 - Changed wording of results screen to include device ID
 # 1.2 - Added support for jq to pase results.  Also put in logic to install JQ from JAMF if missing
 # 1.3 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.4 - Verified working agains JAMF API 11.20
+#       Added option to detect which SS/SS+ we are using a grab the appropriate icon
+#       Change variable declare section around for better readability
+#       Bumped Swift Dialog to v2.5.0
 #
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Gobal "Common" variables (do not change these!)
 #
 ######################################################################################################
-
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
-JQ_FILE_INSTALL_POLICY="install_jq"
+
+# Make some temp files for this app
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ###################################################
 #
@@ -61,13 +57,24 @@ JQ_FILE_INSTALL_POLICY="install_jq"
 #
 ###################################################
 
+# Support / Log files location
+
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+LOG_FILE="${SUPPORT_DIR}/ClearFailedMDMCommands.log"
+
+# Display items (banner / icon)
+
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Clear Failed MDM Commands"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/ClearFailedMDMCommands.log"
-SD_ICON="/Applications/Self Service.app"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+OVERLAY_ICON="/System/Applications/App Store.app"
+SD_ICON=""
 
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+# Trigger installs for Images & icons
+
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+JQ_FILE_INSTALL_POLICY="install_jq"
 
 ##################################################
 #
@@ -79,6 +86,8 @@ JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID="$4"
 CLIENT_SECRET="$5"
+
+[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
 
 ####################################################################################################
 #
@@ -94,6 +103,7 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
+    LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -161,12 +171,12 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##\n"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
@@ -242,6 +252,16 @@ function display_status_message ()
     [[ $buttonpress == 2 ]] && JAMF_clear_failed_mdm_commands "$ID"
 }
 
+function JAMF_which_self_service ()
+{
+    # PURPOSE: Function to see which Self service to use (SS / SS+)
+    # RETURN: None
+    # EXPECTED: None
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
+    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    echo $retval
+}
+
 function JAMF_check_connection()
 {
     # PURPOSE: Function to check connectivity to the Jamf Pro server
@@ -255,7 +275,7 @@ function JAMF_check_connection()
     logMe "JSS connection active!"
 }
 
-function JAMF_get_server  () 
+function JAMF_get_server () 
 {
     jamfpro_url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
     logMe "JAMF Pro server is: $jamfpro_url"
@@ -298,16 +318,16 @@ function JAMF_get_access_token ()
     token_expiration_epoch=$((current_epoch + token_expires_in - 1))
 }
 
-function JAMF_get_device_id ()
+function JAMF_get_deviceID ()
 {
-    # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
-    # RETURN: the device ID for the device in question.
-    # PARMS: $1 - search identifier to use (serial or Hostname)
+    # PURPOSE: uses the serial number or hostname to get the device ID (UDID) from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
+    # RETURN: the device ID (UDID) for the device in question.
+    # PARMS: $1 - search identifier to use (Serial or Hostname)
+    #        $2 - Device name/serial # to search for
 
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-
-    ID=$(/usr/bin/curl -sf --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" -H "Accept: application/json" | /usr/bin/plutil -extract results.0.id raw -)
-    logMe "Device ID #$ID"
+    ID=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc&filter=$type=='$2'"| jq -r '.results[].id')
+    echo $ID
 }
 
 function JAMF_validate_token()
@@ -333,7 +353,6 @@ function JAMF_get_failed_commands()
     # RETURN: None
     # PARAMTERS: $1=Computer ID
     # Expected jamfpro_url, api_token
-    
     
     failed_commands=$(curl -s -X GET "${jamfpro_url}JSSResource/computerhistory/id/$1/subset/commands" -H "Authorization: Bearer $api_token" | grep -c "<failed>")
     if [[ "$failed_commands" -gt 0 ]]; then
@@ -378,15 +397,16 @@ create_log_directory
 check_swift_dialog_install
 check_support_files
 create_infobox_message
+SD_ICON=$(JAMF_which_self_service)
+JAMF_check_connection
+JAMF_get_server
+[[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token
 welcomemsg
 
 # Perform JAMF API calls to locate device and clear MDM failures
 
-JAMF_check_connection
-JAMF_get_server 
-JAMF_get_classic_api_token
-JAMF_get_device_id ${search_type}
+ID=$(JAMF_get_deviceID "${search_type}" ${computer_id})
+logMe "Device ID #"${ID}
 JAMF_get_failed_commands ${ID}
 JAMF_validate_token
-
-exit 0
+cleanup_and_exit
