@@ -19,7 +19,8 @@
 # 1.2 - Added support for jq to pase results.  Also put in logic to install JQ from JAMF if missing
 # 1.3 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 1.4 - Verified working agains JAMF API 11.20
-#       Added option to detect which SS/SS+ we are using a grab the appropriate icon
+#       Added option to detect which SS/SS+ we are using and grab the appropriate icon
+#       Now works with JAMF Client/Secret or Username/password authentication
 #       Change variable declare section around for better readability
 #       Bumped Swift Dialog to v2.5.0
 #
