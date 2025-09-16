@@ -3,7 +3,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 08/10/2025
+# Last updated: 08/19/2025
 
 # Script to Set/Remove Recovery Lock on Apple Silicon Macs using the Jamf API.
 # Works based on the 'lockMode' variable (Set/Remove) to configure Recovery Lock.
@@ -39,7 +39,11 @@
 # 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 1.2 - Reworked top section for better idea of what can be modified
 #       renamed all JAMF functions to begin with JAMF_
-#       added support for JAMF Pro OAuth API
+# 1.3 - Verified working agains JAMF API 11.20
+#       Added option to detect which SS/SS+ we are using and grab the appropriate icon
+#       Now works with JAMF Client/Secret or Username/password authentication
+#       Change variable declare section around for better readability
+#       Bumped Swift Dialog to v2.5.0
 #
 ######################################################################################################
 #
@@ -434,19 +438,6 @@ function JAMF_invalidate_token ()
     fi    
 }
 
-function JAMF_get_deviceID ()
-{
-    # PURPOSE: uses the serial number or hostname to get the device ID (UDID) from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
-    # RETURN: the device ID (UDID) for the device in question.
-    # PARMS: $1 - search identifier to use (Serial or Hostname)
-    #        $2 - Device name/serial # to search for
-
-    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-    ID=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc&filter=$type=='$2'"| jq -r '.results[].id')
-
-    # if ID is not found, display a message or something...
-    logMe "Device ID #$ID"
-}
 function JAMF_get_deviceID ()
 {
     # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server.
