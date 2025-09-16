@@ -26,6 +26,11 @@
 #     - Added option for export of Computer Policie
 # 2.7 - Added option to compare two configuration profiles
 # 2.8 - Changed variable declarations around for better readability
+# 2.9 - Verified working agains JAMF API 11.20
+#       Added option to detect which SS/SS+ we are using and grab the appropriate icon
+#       Now works with JAMF Client/Secret or Username/password authentication
+#       Change variable declare section around for better readability
+#       Bumped Swift Dialog to v2.5.0
 ######################################################################################################
 #
 # Gobal "Common" variables (do not change these!)
@@ -78,7 +83,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/AppDelete.log"
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF System Admin Tools"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-OVERLAY_ICON="/Applications/Self Service.app"
+OVERLAY_ICON=""
 SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
 
 # Trigger installs for Images & icons
@@ -558,6 +563,16 @@ function create_checkbox_message_body ()
 # JAMF functions
 #
 ###########################
+
+function JAMF_which_self_service ()
+{
+    # PURPOSE: Function to see which Self service to use (SS / SS+)
+    # RETURN: None
+    # EXPECTED: None
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
+    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    echo $retval
+}
 
 function JAMF_check_connection ()
 {
@@ -1475,7 +1490,7 @@ function create_vcf_cards ()
     execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
 
     # Display how many VCF files were downloaded.
-    DirectoryCount=$(ls $location_Contacts | wc -l | xargs )
+    DirectoryCount=$(ls $location_Contacts/*.vcf | wc -l | xargs )
     logMsg="$DirectoryCount Contacts were downloaded to $location_Contacts."
     logMe $logMsg 
     update_display_list "progress" "" "" "" "$logMsg" 100
@@ -2172,7 +2187,8 @@ JAMF_check_connection
 JAMF_get_server
 # Check if the JAMF Pro server is using the new API or the classic API
 # If the client ID is longer than 30 characters, then it is using the new API
-[[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token    
+[[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
+OVERLAY_ICON=$(JAMF_which_self_service) 
 
 display_welcome_msg
 check_directories
