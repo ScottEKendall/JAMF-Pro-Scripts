@@ -31,6 +31,7 @@
 #       Now works with JAMF Client/Secret or Username/password authentication
 #       Change variable declare section around for better readability
 #       Bumped Swift Dialog to v2.5.0
+#       Increased API search pages results from 100 to 1000
 ######################################################################################################
 #
 # Gobal "Common" variables (do not change these!)
@@ -895,7 +896,7 @@ function export_failed_mdm_devices ()
     declare logMsg
 
     logMe "Exporting failed MDM devices"
-    DeviceList=$(JAMF_retrieve_data_blob "api/v1/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc" "json")
+    DeviceList=$(JAMF_retrieve_data_blob "api/v1/computers-inventory?section=GENERAL&page=0&page-size=1000&sort=general.name%3Aasc" "json")
     create_listitem_list "The following failed MDM devices are being exported from JAMF" "json" ".results[].general.name" "$DeviceList" "SF=desktopcomputer.and.macbook"
     
     DeviceIDs=($(echo $DeviceList | jq -r '.results[].general.name'))
@@ -989,7 +990,7 @@ function backup_jamf_scripts ()
     # PURPOSE: Backup all of the JAMF scripts from JAMF
     logMe "Backing up JAMF scripts"
 
-    scriptList=$(JAMF_retrieve_data_blob "api/v1/scripts?page=0&page-size=100&sort=name%3Aasc" "json")
+    scriptList=$(JAMF_retrieve_data_blob "api/v1/scripts?page=0&page-size=1000&sort=name%3Aasc" "json")
     create_listitem_list "The following JAMF scripts are being downloaded from JAMF" "json" ".results[].name" "$scriptList" "SF=apple.terminal.fill"
     scriptIDs=($(echo -E $scriptList | jq -r '.results[].id' ))
     scriptCount=${#scriptIDs}
@@ -1074,7 +1075,7 @@ function  backup_computer_extensions ()
 
     logMe "Backing up computer Extensions Attributes"
 
-    ExtensionList=$(JAMF_retrieve_data_blob "api/v1/computer-extension-attributes?page=0&page-size=100&sort=name.asc" "json")
+    ExtensionList=$(JAMF_retrieve_data_blob "api/v1/computer-extension-attributes?page=0&page-size=1000&sort=name.asc" "json")
     create_listitem_list "The following Computer EAs are being downloaded from JAMF" "json" ".results[].name" "$ExtensionList" "SF=apple.terminal.fill"
 
     ExtensionIDs=($(extract_data_blob $ExtensionList ".results[].id" "json"))
@@ -1885,7 +1886,7 @@ function export_user_multiple_details ()
 
 	[[ -z "${1}" ]] && return 0
     
-    UserList=$(JAMF_get_inventory_record "GENERAL&page=0&page-size=100" "userAndLocation.email==$1")
+    UserList=$(JAMF_get_inventory_record "GENERAL&page=0&page-size=1000" "userAndLocation.email==$1")
     machineList=($(echo $UserList | jq -r '.results[].general.name'))
     machineCount=$(echo $UserList  | jq -r '.totalCount')
     managedList=($(echo $UserList | jq -r '.results[].general.remoteManagement.managed'))
