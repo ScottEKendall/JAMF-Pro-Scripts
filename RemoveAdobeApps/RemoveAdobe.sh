@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 04/29/2025
-# Last updated: 08/01/2025
+# Last updated: 09/18/2025
 #
 # Script Purpose: Selectively remove Adobe apps from a users system
 #
@@ -17,6 +17,7 @@
 # 1.5 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 1.6 - Modified section headers for better organization
 # 1.7 - Fix line #468 to force check lowercase parameter
+# 1.8 - Added option to allow deletion of current year / fixed Bridge 2025 version #
 #
 ######################################################################################################
 #
@@ -99,6 +100,7 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 ADOBE_CURRENT_YEAR=$4
 SCRIPT_METHOD="${5:-"Prompt"}"                  # 'Silent' or 'Prompt'
 REMOVAL_METHOD="${6:-"All"}"                    # 'All' or 'CConly'
+DELETE_CURRENT_YEAR="${7:-"no"}"                # Yes or No - protect current year from being removed
 
 ####################################################################################################
 #
@@ -435,7 +437,7 @@ function create_file_list ()
 
     # If you want to remove all files (3D & CC) then use first find, otherwise find only CC apps
     if [[ "${REMOVAL_METHOD:l}" == "all" ]]; then
-        find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -v "^Adobe Creative Cloud$" | grep -v "^Adobe XD$" | grep -v "^Adobe Experience Manager*" | grep -v "^Adobe Digital Edition*" | grep -v "^Adobe Acrobat DC*" | sort > $TMP_FILE_STORAGE
+        find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -v "^Adobe Creative Cloud$" | grep -v "^Adobe Experience Manager*" | grep -v "^Adobe Digital Edition*" | grep -v "^Adobe Acrobat DC*" | sort > $TMP_FILE_STORAGE
     else
         find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/||'| grep -E '[0-9]{4}$' | sort > $TMP_FILE_STORAGE
     fi
@@ -458,8 +460,9 @@ function create_file_list ()
         version=$(extract_version_code $appPath $baseCode)
 
         # Don't allow the last found year to be removed
-        [[ $app == *$adobeLatestYearFound* ]] && {checked="false"; disabled="true"; } || {checked="true"; disabled="false"; }
-
+        if [[ "${DELETE_CURRENT_YEAR:l}" == "no" ]]; then 
+            [[ $app == *$adobeLatestYearFound* ]] && {checked="false"; disabled="true"; } || {checked="true"; disabled="false"; }
+        fi
         create_checkbox_message_body "$app" "$appPath" "$checked" "$disabled"
         # If you want to show the baseCode & version # found, the uncomment this line
 
@@ -590,7 +593,7 @@ function extract_version_code ()
             version="14.0.0"
             ;;
         *"Bridge 2025"* )
-            version="14.0.0"
+            version="15.1.1"
             ;;
         *"3D Sampler"* )
             version="3.0.0"
@@ -896,7 +899,6 @@ function remove_apps_prompt ()
         appPath=$(resolve_app_path $app)
         baseCode=$(extract_base_code_from_json $app)
         version=$(extract_version_code $appPath $baseCode)
-        echo $version
         update_display_list "change" "Remove $app" "wait" "Working..." "Removing $app" $((100*app_count/total_apps))
         logMe "Removing $app [$baseCode#$version]"
 
