@@ -474,7 +474,7 @@ JAMF_get_server
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
 OVERLAY_ICON=$(JAMF_which_self_service) 
 
-# See if the portal is installed.  If you do not nee to remove the app, then comment the follow line
+# See if the portal is installed.  If you do not need to remove the app, then comment the following line
 resintall_companyportal
 
 # Check to see if the profile is installed
@@ -518,11 +518,11 @@ until [[ $(getValueOf registrationCompleted "$ssoStatus") == true ]]; do
     now_ts=$(date +%s)
     if (( now_ts - start_ts >= max_wait )); then
         logMe "ERROR: Timed out after ${max_wait}s waiting for PSSO."
-        exit 1
+        cleanup_and_exit 1
     fi
     sleep $interval
     get_sso_status
 done
 logMe "INFO: Registration Finished Successfully"
 echo "quit:" > ${DIALOG_COMMAND_FILE}
-cleanup_and_exit
+cleanup_and_exit 0
