@@ -100,8 +100,7 @@ PORTAL_APP_POLICY="install_mscompanyportal"
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID=${4}                               # user name for JAMF Pro
-CLIENT_SECRET=${5}
-SELF_SERVICE=${7}                      
+CLIENT_SECRET=${5}                   
 
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
 
@@ -387,34 +386,6 @@ function resintall_companyportal ()
         logMe "Company Portal app did not install. Exiting with error..."
         exit 1
     fi
-}
-
-function register_dialog ()
-{
-    message="All required components for Platform Single Sign-on have been installed.\n\nTo begin the registration process, hover your mouse over the Registration Required alert from Notification Center and click **Register**."
-
-    MainDialogBody=(
-    --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-    --titlefont shadow=1, size=24
-    --ontop
-    --appearance light
-    --icon "${SD_ICON_FILE}"
-    --overlayicon "${OVERLAY_ICON}"
-    --bannerimage "${SD_BANNER_IMAGE}"
-    --bannertitle "${SD_WINDOW_TITLE}"
-    --infobox "${SD_INFO_BOX_MSG}"
-    --ignorednd
-    --json
-    --moveable
-    --quitkey 0
-    --button1text "OK"
-    --height 550
-    --width 1000
-    --timer 180
-    )
-    temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
-    returnCode=$?
-	LogMe "User has been instructed to register PSSO when prompted"
 }
 
 function check_for_profile ()
