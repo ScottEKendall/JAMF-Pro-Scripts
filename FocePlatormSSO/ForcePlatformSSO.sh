@@ -69,7 +69,7 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # Support / Log files location
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/JAMFSelfHeal.log"
+LOG_FILE="${SUPPORT_DIR}/logs/pSSORegistration.log"
 
 # Display items (banner / icon)
 
@@ -80,6 +80,7 @@ SD_ICON="/Applications/Self Service.app"
 OVERLAY_ICON="warning"
 SD_ICON_FILE="${SUPPORT_DIR}/SupportFiles/sso.png"
 
+# Provide the NAMES of the local profile and the JAMF group name to remove/add the users to
 MDM_PROFILE="Apps | Microsoft | Platform SSO Extension"
 JAMF_GROUP_NAME="Users | Microsoft | Platform SSO"
 
