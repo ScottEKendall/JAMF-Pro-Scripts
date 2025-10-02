@@ -575,16 +575,25 @@ function get_migration_directory()
 
 		*"External"* )
 
-			construct_dialog_header_settings "Please enter the location to store the files:" > "${JSON_DIALOG_BLOB}"
-			echo '"button2text" : "Cancel", "json" : "true" }' >> "${JSON_DIALOG_BLOB}"
+			while true; do
+				construct_dialog_header_settings "Please enter the location to $backupRestore the files:" > "${JSON_DIALOG_BLOB}"
+				echo '"button2text" : "Cancel", "json" : "true" }' >> "${JSON_DIALOG_BLOB}"
 
-			temp=$( ${SW_DIALOG} --width 800 --height 300 --jsonfile "${JSON_DIALOG_BLOB}" --textfield "Select a storage location",fileselect,filetype=folder)
+				temp=$("${SW_DIALOG}" --width 800 --height 300 --jsonfile "${JSON_DIALOG_BLOB}" --textfield "Select a storage location",fileselect,filetype=folder)
+				
+				[[ "$?" == "2" ]] && cleanup_and_exit
 
-			[[ "$?" == "2" ]] && cleanup_and_exit
-			
-			# Format the Volume name correctly
+				# Extract the location from the response
+				migrationDirectory=$( echo "$temp" | /usr/bin/grep "location" | awk -F ": " '{print $NF}' | tr -d '\' | tr -d '"' )
 
-			migrationDirectory=$( echo $temp | /usr/bin/grep "location" | awk -F ": " '{print $NF}' | tr -d '\' | tr -d '"')
+				# Exit loop if user selected a valid location
+				[[ -n "$migrationDirectory" ]] && break
+
+				# Otherwise, show an error dialog
+				construct_dialog_header_settings "You must select a storage location to continue." > "${JSON_DIALOG_BLOB}"
+				echo '}' >> "${JSON_DIALOG_BLOB}"
+				"${SW_DIALOG}" --width 600 --height 300 --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null
+			done
 			;;
 	esac
 }
@@ -1089,7 +1098,7 @@ check_swift_dialog_install
 check_support_files
 check_for_tech "$@"
 check_for_fulldisk_access
-jsonAppBlobCount=$(($(echo "$jsonAppBlob" | jq 'length')-1))
+jsonAppBlobCount=$(($(echo "$jsonAppBlob" | /usr/bin/jq 'length')-1))
 display_welcome_message
 choose_backup_location
 get_migration_directory
