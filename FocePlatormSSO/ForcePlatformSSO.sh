@@ -15,7 +15,7 @@
 #	2 - Triggers install of Platform SSO for Microsoft Entra ID configuration profile by adding the Mac to 
 #	    Platform Single Sign-on group
 #	3 - Deploys password expiration check to alert users when their password is due to expire in 14 days or less
-#  NOTE: If profile or Company Portal app are found to already be on the computer they are uninstalled and reinstalled.
+#   NOTE: If profile or Company Portal app are found to already be on the computer they are uninstalled and reinstalled.
 
 ######################
 #
@@ -25,7 +25,6 @@
 #
 #   Parameter 4: API client ID
 #   Parameter 5: API client secret
-#   Parameter 6: Run from Self Service (Yes/No)
 #
 # 1.0 - Initial
 
@@ -503,8 +502,8 @@ JAMF_get_server
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
 OVERLAY_ICON=$(JAMF_which_self_service) 
 
-# See if the portal is installed
-#resintall_companyportal
+# See if the portal is installed.  If you do not nee to remove the app, then comment the follow line
+resintall_companyportal
 
 # Check to see if the profile is installed
 installed=(check_for_profile $MDM_PROFILE)
