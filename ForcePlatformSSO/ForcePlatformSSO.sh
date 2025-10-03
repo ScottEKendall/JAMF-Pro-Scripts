@@ -25,8 +25,14 @@
 #
 #   Parameter 4: API client ID
 #   Parameter 5: API client secret
+#   Parameter 6: MDM Profile Name
+#   Parameter 7: JAMF Static Group name (for Platform SSO Users)
 #
 # 1.0 - Initial
+# 1.1 - Made MDM profile and JAMF group mame passed in variables vs hard coded
+#       Make sure that all exit processes go thru the cleanup_and_exit function
+#       Made the psso command run as current user (Thanks Adam N)
+#       Perform a gatherAADInfo command after successful registration
 
 ######################################################################################################
 #
@@ -35,15 +41,13 @@
 ######################################################################################################
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
+USER_ID=$(id -u "$LOGGED_IN_USER")
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
 [[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$(echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 MAC_SERIAL=$(echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
-FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -100,7 +104,9 @@ PORTAL_APP_POLICY="install_mscompanyportal"
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID=${4}                               # user name for JAMF Pro
-CLIENT_SECRET=${5}                   
+CLIENT_SECRET=${5}
+MDM_PROFILE=${6}
+JAMF_GROUP_NAME=${7}               
 
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
 
@@ -175,7 +181,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ ! -e "${PSSO_ICON_POLICY}" ]] && /usr/local/bin/jamf policy -trigger ${PSSO_ICON_POLICY}
+    [[ ! -e "${SD_ICON_FILE}" ]] && /usr/local/bin/jamf policy -trigger ${PSSO_ICON_POLICY}
 
 }
 
@@ -439,16 +445,21 @@ function getValueOf ()
 	echo $2 | grep "$1" | awk -F ":" '{print $2}' | tr -d "," | xargs
 }
 
-function get_sso_status ()
+function get_sso_status()
 {
-	ssoStatus=$(app-sso platform -s)
+	ssoStatus=$(runAsUser app-sso platform -s)
 }
 
 function kill_sso_agent()
 {
 	pkill AppSSOAgent
 	sleep 1
-	app-sso -l > /dev/null 2>&1
+	runAsUser app-sso -l > /dev/null 2>&1
+}
+
+function runAsUser () 
+{  
+    launchctl asuser "$USER_ID" sudo -u "$LOGGED_IN_USER" "$@"
 }
 
 ####################################################################################################
@@ -462,6 +473,12 @@ declare jamfpro_url
 declare ssoStatus
 
 autoload 'is-at-least'
+
+# Make sure the MDM profile and Group name are passed in
+if [[ -z $MDM_PROFILE ]] || [[ -z $JAMF_GROUP_NAME ]]; then
+    logMe "ERROR: Missing Group name or MDM profile name"
+    cleanup_and_exit 1
+fi
 
 create_log_directory
 check_swift_dialog_install
@@ -524,5 +541,8 @@ until [[ $(getValueOf registrationCompleted "$ssoStatus") == true ]]; do
     get_sso_status
 done
 logMe "INFO: Registration Finished Successfully"
+logMe "INFO: running the gatherAADInfo command"
+/usr/local/jamf/bin/jamfAAD gatherAADInfo
+
 echo "quit:" > ${DIALOG_COMMAND_FILE}
 cleanup_and_exit 0
