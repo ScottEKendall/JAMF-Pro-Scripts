@@ -168,10 +168,10 @@ function create_infobox_message()
 
 	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
@@ -615,6 +615,19 @@ function msgraph_upn_sanity_check ()
         echo "$LOGGED_IN_USER"
         return 0
     fi
+    # If the user name doesn't have a "." in it, then it must be formatted correctly so that MS Graph API can find them
+    
+    # if it isn't ormatted correctly, grab it from the users com.microsoft.CompanyPortalMac.usercontext.info
+    if [[ "$CLEAN_USER" != *"."* ]]; then
+        CLEAN_USER=$(/usr/bin/more $SUPPORT_DIR/com.microsoft.CompanyPortalMac.usercontext.info | xmllint --xpath 'string(//dict/key[.="aadUserId"]/following-sibling::string[1])' -)
+    fi
+    
+    # if it still isn't formatted correctly, try the email from the system JSS file
+    
+    if [[ "$CLEAN_USER" != *"."* ]]; then
+        CLEAN_USER=$(/usr/libexec/plistbuddy -c "print 'User Name'" $SYSTEM_JSS_FILE 2>&1)
+    fi
+
     # if it ends with the domain without the “@” → we add the @ sign
     if [[ "$LOGGED_IN_USER" == *"$MS_DOMAIN" ]]; then
         CLEAN_USER=${LOGGED_IN_USER%$MS_DOMAIN}
@@ -623,6 +636,18 @@ function msgraph_upn_sanity_check ()
         # 3) normal short name → user@domain
         MS_USER_NAME="${LOGGED_IN_USER}@${MS_DOMAIN}"
     fi
+}
+
+function msgraph_get_password_data ()
+{
+    # PURPOSE: Retrieve the user's Graph API Record
+    # RETURN: last_password_change
+    # EXPECTED: MS_USER_NAME, MS_ACCESS_TOKEN
+
+    user_response=$(curl -s -X GET "https://graph.microsoft.com/v1.0/users/$MS_USER_NAME?\$select=lastPasswordChangeDateTime" -H "Authorization: Bearer $MS_ACCESS_TOKEN")
+    last_password_change=$(echo "$user_response" | jq -r '.lastPasswordChangeDateTime')
+    echo $last_password_change
+
 }
 
 function msgraph_get_group_data ()
@@ -639,18 +664,6 @@ function msgraph_get_group_data ()
     while IFS= read -r line; do
         MSGRAPH_GROUPS+=("$line")
     done <<< "$response"   
-}
-
-function msgraph_get_password_data ()
-{
-    # PURPOSE: Retrieve the user's Graph API Record
-    # RETURN: last_password_change
-    # EXPECTED: MS_USER_NAME, MS_ACCESS_TOKEN
-
-    user_response=$(curl -s -X GET "https://graph.microsoft.com/v1.0/users/$MS_USER_NAME?\$select=lastPasswordChangeDateTime" -H "Authorization: Bearer $MS_ACCESS_TOKEN")
-    last_password_change=$(echo "$user_response" | jq -r '.lastPasswordChangeDateTime')
-    echo $last_password_change
-
 }
 
 function msgraph_get_user_photo_etag ()
@@ -688,6 +701,16 @@ function create_photo_dir ()
 # JAMF functions
 #
 ###########################
+
+function JAMF_which_self_service ()
+{
+    # PURPOSE: Function to see which Self service to use (SS / SS+)
+    # RETURN: None
+    # EXPECTED: None
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
+    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    echo $retval
+}
 
 function JAMF_check_connection ()
 {
@@ -923,6 +946,36 @@ function JANMF_send_recovery_lock_command()
 EOF
 	)
 	logMe "Recovery Lock ${lockMode} for ${computer_id}"
+}
+
+function JAMF_retreive_static_group_id ()
+{
+    # PURPOSE: Retrieve the ID of a static group
+    # RETURN: ID # of static group
+    # EXPECTED: jamppro_url, api_token
+    # PARMATERS: $1 = JAMF Static group name
+    declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/computergroups")
+    echo $tmp | xmllint --xpath 'string(//computer_group[name="'$1'"]/id)' -
+}
+
+function JAMF_static_group_action ()
+{
+	# PURPOSE: Remove record from JAMF static group
+    # RETURN: None
+    # EXPECTED: jamfpro_url, api_token
+    # PARMATERS: $1 = JAMF Static group id
+    #            $2 - Serial # of device
+    #            $3 = Acton to take "Add/Remove"
+    declare apiData
+
+    if [[ ${3:l} == "remove" ]]; then
+        apiData="<computer_group><computer_deletions><computer><serial_number>${MAC_SERIAL}</serial_number></computer></computer_deletions></computer_group>"
+    else
+        apiData="<computer_group><computer_additions><computer><serial_number>${MAC_SERIAL}</serial_number></computer></computer_additions></computer_group>"
+    fi
+    ## curl call to the API to add the computer to the provided group ID
+    retval=$(curl -f -H "Authorization: Bearer ${api_token}" -H "Content-Type: application/xml" ${jamfpro_url}JSSResource/computergroups/id/${1} -X PUT -d "${apiData}")
+    [[ $retval == *"409"* ]] && echo "ERROR: System not in group" 1>&2
 }
 
 #######################################################################################################
