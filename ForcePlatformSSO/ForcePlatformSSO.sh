@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/02/2025
-# Last updated: 10/02/2025
+# Last updated: 10/03/2025
 #
 # Script Purpose: Deploys Platform Single Sign-on
 #
@@ -33,6 +33,9 @@
 #       Make sure that all exit processes go thru the cleanup_and_exit function
 #       Made the psso command run as current user (Thanks Adam N)
 #       Perform a gatherAADInfo command after successful registration
+# 1.2.  Put in the --silent flag for the curl commands to not clutter the log
+#       changed logic in the detection of SS+...it was not returning expected value
+#       Change the gatherAADInfo to RunAsUser vs root
 
 ######################################################################################################
 #
@@ -198,8 +201,8 @@ function JAMF_which_self_service ()
     # PURPOSE: Function to see which Self service to use (SS / SS+)
     # RETURN: None
     # EXPECTED: None
-    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
-    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
+    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
@@ -361,7 +364,7 @@ function JAMF_static_group_action ()
         apiData="<computer_group><computer_additions><computer><serial_number>${MAC_SERIAL}</serial_number></computer></computer_additions></computer_group>"
     fi
     ## curl call to the API to add the computer to the provided group ID
-    retval=$(curl -f -H "Authorization: Bearer ${api_token}" -H "Content-Type: application/xml" ${jamfpro_url}JSSResource/computergroups/id/${1} -X PUT -d "${apiData}")
+    retval=$(curl -s -f -H "Authorization: Bearer ${api_token}" -H "Content-Type: application/xml" ${jamfpro_url}JSSResource/computergroups/id/${1} -X PUT -d "${apiData}")
     [[ $retval == *"409"* ]] && echo "ERROR: System not in group" 1>&2
 }
 
@@ -542,7 +545,7 @@ until [[ $(getValueOf registrationCompleted "$ssoStatus") == true ]]; do
 done
 logMe "INFO: Registration Finished Successfully"
 logMe "INFO: running the gatherAADInfo command"
-/usr/local/jamf/bin/jamfAAD gatherAADInfo
+runAsUser /usr/local/jamf/bin/jamfAAD gatherAADInfo
 
 echo "quit:" > ${DIALOG_COMMAND_FILE}
 cleanup_and_exit 0
