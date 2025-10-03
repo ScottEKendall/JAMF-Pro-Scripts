@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 09/09/2025
+# Last updated: 10/03/2025
 #
 # Script Purpose: Main Library containing all of my commonly used fuctions.
 #
@@ -18,6 +18,7 @@
 # 1.5 - Reworked top section for better idea of what can be modified
 #       New create_log_direcotry check routine that parses the path and checks the directory structure
 # 1.6 - Add several new MS Graph API routines
+# 1.7 - Add more JAMF API Librarys for Static Group modifications & Checking to see which version of SS/SS+ is being used
 
 ######################################################################################################
 #
