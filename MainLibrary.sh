@@ -227,6 +227,7 @@ function welcomemsg ()
     reason=$(echo $temp | plutil -extract "Reason" 'raw' -)
 }
 
+
 ####################################################################################################
 #
 # Main Script
@@ -563,6 +564,15 @@ function execute_in_parallel ()
     for pid in "${pids[@]}"; do wait $pid; done
 }
 
+function runAsUser()
+{  
+  if [ "$currentUser" != "loginwindow" ]; then
+    launchctl asuser "$UID" sudo -u "$currentUser" "$@"
+  else
+    echo "no user logged in"
+  fi
+}
+
 ###########################
 #
 # MS-GRAPH API functions
@@ -708,8 +718,8 @@ function JAMF_which_self_service ()
     # PURPOSE: Function to see which Self service to use (SS / SS+)
     # RETURN: None
     # EXPECTED: None
-    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
-    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
+    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
