@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/02/2025
-# Last updated: 10/03/2025
+# Last updated: 10/14/2025
 #
 # Script Purpose: Deploys Platform Single Sign-on
 #
@@ -23,7 +23,7 @@
 #
 #####################
 #
-#   Parameter 4: API client ID
+#   Parameter 4: API client ID (Modern or Classic)
 #   Parameter 5: API client secret
 #   Parameter 6: MDM Profile Name
 #   Parameter 7: JAMF Static Group name (for Platform SSO Users)
@@ -33,9 +33,10 @@
 #       Make sure that all exit processes go thru the cleanup_and_exit function
 #       Made the psso command run as current user (Thanks Adam N)
 #       Perform a gatherAADInfo command after successful registration
-# 1.2.  Put in the --silent flag for the curl commands to not clutter the log
+# 1.2 - Put in the --silent flag for the curl commands to not clutter the log
 #       changed logic in the detection of SS+...it was not returning expected value
 #       Change the gatherAADInfo to RunAsUser vs root
+# 1.3 - removed the app-sso -l command...was really needed 
 
 ######################################################################################################
 #
@@ -457,7 +458,6 @@ function kill_sso_agent()
 {
 	pkill AppSSOAgent
 	sleep 1
-	runAsUser app-sso -l > /dev/null 2>&1
 }
 
 function runAsUser () 
