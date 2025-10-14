@@ -36,7 +36,7 @@
 # 1.2 - Put in the --silent flag for the curl commands to not clutter the log
 #       changed logic in the detection of SS+...it was not returning expected value
 #       Change the gatherAADInfo to RunAsUser vs root
-# 1.3 - removed the app-sso -l command...was really needed 
+# 1.3 - removed the app-sso -l command...wasn't really needed 
 
 ######################################################################################################
 #
