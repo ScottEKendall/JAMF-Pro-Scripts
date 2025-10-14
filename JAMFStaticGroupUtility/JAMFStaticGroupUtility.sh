@@ -48,9 +48,7 @@ MIN_SD_REQUIRED_VERSION="2.5.0"
 # Make some temp files for this app
 
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/JAMFStaticGroupModify.XXXXX)
-DIALOG_CMD_FILE=$(mktemp /var/tmp/JAMFStaticGroupModify.XXXXX)
 /bin/chmod 666 $JSON_DIALOG_BLOB
-/bin/chmod 666 $DIALOG_CMD_FILE
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
@@ -619,7 +617,7 @@ function displaymsg ()
     echo "}" >> "${JSON_DIALOG_BLOB}"
 
     # Show the screen and get the results
-    temp=$(${SW_DIALOG} --json --jsonfile "${JSON_DIALOG_BLOB}" --commandfile ${DIALOG_CMD_FILE} --vieworder "dropdown, radiobutton, listitem, textfield") 2>/dev/null
+    temp=$(${SW_DIALOG} --json --jsonfile "${JSON_DIALOG_BLOB}" --vieworder "dropdown, radiobutton, listitem, textfield") 2>/dev/null
     returnCode=$?
 
     selectedGroup=$(echo $temp |  jq -r '."Select Group:".selectedValue')
