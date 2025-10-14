@@ -7,7 +7,7 @@
 # Written: 10/09/2025
 # Last updated: 10/14/2025
 #
-# Script Purpose: Allows view/add/delete of static group memebers 
+# Script Purpose: View, Add or Delete JAMF static group memebers
 #
 
 ######################
@@ -16,9 +16,9 @@
 #
 #####################
 #
-#   Parameter 4: API client ID
+#   Parameter 4: API client ID (Classic or Modern)
 #   Parameter 5: API client secret
-#   Parameter 6: JAMF Static Group name (for Platform SSO Users)
+#   Parameter 6: JAMF Static Group name
 #
 # 1.0 - Initial
 
