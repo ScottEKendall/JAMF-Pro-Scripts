@@ -653,7 +653,6 @@ function convert_to_hex ()
 
 declare api_token
 declare jamfpro_url
-declare ssoStatus
 declare selectedGroup
 declare action
 declare hostName
