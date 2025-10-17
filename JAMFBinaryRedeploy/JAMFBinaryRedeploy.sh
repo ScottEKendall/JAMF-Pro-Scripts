@@ -17,6 +17,8 @@
 # 1.0 - Initial
 # 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 1.3 - Made API changes for JAMF Pro 11.20 and higher
+# 1.4 - Added function to check JAMF credentials are passed
+#       Fixed function to determine which SS/SS+ is being used
 
 ######################################################################################################
 #
@@ -173,6 +175,19 @@ function JAMF_which_self_service ()
     local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
     [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
+}
+
+function JAMF_check_credentials ()
+{
+    # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
+    # RETURN: None
+    # EXPECTED: None
+
+    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
+        logMe "Client/Secret info is not valid"
+        exit 1
+    fi
+    logMe "Valid credentials passed"
 }
 
 function JAMF_check_connection ()
@@ -374,6 +389,7 @@ display_welcome_message
 
 SD_ICON=$(JAMF_which_self_service)
 JAMF_check_connection
+JAMF_check_credentials
 JAMF_get_server
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token
 ID=$(JAMF_get_deviceID "${search_type}" ${computer_id})
