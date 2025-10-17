@@ -23,7 +23,7 @@ If you are using the Modern JAMF API credentials, you need to set:
     - document function details
     - renamed all JAMF functions to start with JAMF.
 - 1.2 - Verified working agains JAMF API 11.20
-    - Added option to detect which SS/SS+ we are using a grab the appropriate icon
+    - Added option to detect which SS/SS+ we are using and grab the appropriate icon
     - Now works with JAMF Client/Secret or Username/password authentication
     - Change variable declare section around for better readability
     - Changed to using JSON blobs vs XML Blobs
