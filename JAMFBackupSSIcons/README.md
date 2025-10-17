@@ -16,6 +16,8 @@ Script Parameters
 
 The is a heavily modified version from Der Flounder's website: https://derflounder.wordpress.com/2022/01/12/backing-up-self-service-icon-graphic-files-from-jamf-pro/.  Just updated with the ability to call it from JAMF, modified for ZSH, and show a status screen during operation.
 
+## JAMF API Information ##
+
 If you are using the Modern JAMF API credentials, you need to set:
 
 * Read Policies
