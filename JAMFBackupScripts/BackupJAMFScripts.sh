@@ -5,12 +5,16 @@
 # by: Scott Kendall
 #
 # Written: 05/28/2025
-# Last updated: 05/30/2025
+# Last updated: 10/17/2025
 #
 # Script Purpose: Exract all of the scripts from the JAMF server and store them on a local drive
 #
 # 1.0 - Initial
 # 1.1 - Created a few new functions to reduce complexity / document function details / renamed all JAMF functions to start with JAMF......
+# 1.2 - Add function to check for valid JAMF credentials
+#       Fixed function to check which SS/SS+ is being used
+#       Reworked top section for better idea of what can be modified
+#       Bumped SwiftDialog min version to 2.5.0
 
 ######################################################################################################
 #
@@ -18,48 +22,27 @@
 #
 ######################################################################################################
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
-
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
+USER_ID=$(id -u "$LOGGED_IN_USER")
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-###################################################
-#
-# App Specfic variables (Feel free to change these)
-#
-###################################################
+# Make some temp files for this app
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF Script Backup"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/JAMFScriptBackup.log"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
-OVERLAY_ICON="/Applications/Self Service.app"
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/JAMFScriptBackup.XXXXX)
 DIALOG_CMD_FILE=$(mktemp /var/tmp/JAMFScriptBackup.XXXXX)
 /bin/chmod 666 $JSON_DIALOG_BLOB
@@ -67,16 +50,42 @@ DIALOG_CMD_FILE=$(mktemp /var/tmp/JAMFScriptBackup.XXXXX)
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
+###################################################
+#
+# App Specfic variables (Feel free to change these)
+#
+###################################################
+
+# Support / Log files location
+
+SUPPORT_DIR="/Library/Application Support/GiantEagle"
+LOG_FILE="${SUPPORT_DIR}/logs/JAMFScriptBackup.log"
+
+# Display items (banner / icon)
+
+BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF Script Backup"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+OVERLAY_ICON="/Applications/Self Service.app"
+SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
+
+# Trigger installs for Images & icons
+
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+
 ##################################################
 #
 # Passed in variables
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER="$3"                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
-CLIENT_ID="$4"
-CLIENT_SECRET="$5"
+CLIENT_ID=${4}                               # user name for JAMF Pro
+CLIENT_SECRET=${5}             
+
+[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
 
 ####################################################################################################
 #
@@ -92,6 +101,7 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
+    LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -161,10 +171,10 @@ function create_infobox_message()
 
 	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
@@ -365,6 +375,29 @@ function make_apfs_safe ()
 # JAMF functions
 #
 ###########################
+
+function JAMF_which_self_service ()
+{
+    # PURPOSE: Function to see which Self service to use (SS / SS+)
+    # RETURN: None
+    # EXPECTED: None
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
+    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    echo $retval
+}
+
+function JAMF_check_credentials ()
+{
+    # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
+    # RETURN: None
+    # EXPECTED: None
+
+    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
+        logMe "Client/Secret info is not valid"
+        exit 1
+    fi
+    logMe "Valid credentials passed"
+}
 
 function JAMF_check_connection ()
 {
@@ -587,11 +620,12 @@ create_log_directory
 check_swift_dialog_install
 check_support_files
 create_infobox_message
-welcomemsg
-
+OVERLAY_ICON=$(JAMF_which_self_service)
 JAMF_check_connection
 JAMF_get_server
-JAMF_get_classic_api_token
+JAMF_check_credentials
+[[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token
+welcomemsg
 
 ScriptList=$(JAMF_retrieve_xml_data_summary "JSSResource/scripts")
 ScriptIDs=$(echo $ScriptList | xmllint --xpath '//id' - 2>/dev/null)

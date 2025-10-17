@@ -8,16 +8,31 @@ This script is designed to extract all of the system scripts from your JAMF serv
 
 Welcome Screen
 
-![Welcome](/BackupJAMFScripts/BackupJAMFScripts-welcome.png)
+![Welcome](./BackupJAMFScripts-welcome.png)
 
 Process Screen
 
-![](/BackupJAMFScripts/BackupJAMFScripts-progress.png)
+![](./BackupJAMFScripts-progress.png)
 
 Errors window
 
-![](/BackupJAMFScripts/BackupJAMFScripts-error.png)
+![](./BackupJAMFScripts-error.png)
 
 At some point, I might combine both this script and my [BackupSSscripts](https://github.com/ScottEKendall/JAMF-Pro-Scripts/tree/main/BackupSSIcons) into one and make a "common" JAMF utility..just wanted to get this out now...
 
-##### _v1.0 - Initial Commit_
+## JAMF API Information ##
+
+If you are using the Modern JAMF API credentials, you need to set:
+
+* Read Scripts
+
+## History ##
+
+ - 1.0 - Initial Commit
+ - 1.1 - Created a few new functions to reduce complexity
+    - document function details
+    - renamed all JAMF functions to start with JAMF.
+- 1.2 - Add function to check for valid JAMF credentials
+    - Fixed function to check which SS/SS+ is being used
+    - Reworked top section for better idea of what can be modified
+    - Bumped SwiftDialog min version to 2.5.0
