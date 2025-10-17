@@ -592,7 +592,6 @@ check_swift_dialog_install
 check_support_files
 create_infobox_message
 OVERLAY_ICON=$(JAMF_which_self_service)
-echo $OVERLAY_ICON
 JAMF_check_connection
 JAMF_get_server
 JAMF_check_credentials
