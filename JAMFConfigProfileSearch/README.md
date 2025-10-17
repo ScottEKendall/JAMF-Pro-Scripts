@@ -12,4 +12,11 @@ Results Screen
 
 ![](JAMFConfigProfileSearch-Results.png)
 
+If you are using the Modern JAMF API credentials, you need to set:
+
+* Read macOS Configuration Policies
+
+## History ##
+
 #### 1.0 - Inital Commit ####
+#### 1.1 - Add function to verify passed credentials ####
