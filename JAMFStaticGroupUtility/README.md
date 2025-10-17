@@ -21,4 +21,12 @@ JAMF Script Parameter Screen
 
 ![](JAMFStaticGroupUtility-Parameters.png)
 
-##### _v1.0 - Initial Commit_
+
+If you are using the Modern JAMF API credentials, you need to set:
+
+* Read Static Computer Groups
+
+## History ##
+
+##### 1.0 - Inital Commit #####
+##### 1.1 - Add function to verify passed credentials #####
