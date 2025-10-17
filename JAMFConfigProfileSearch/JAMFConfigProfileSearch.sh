@@ -10,7 +10,8 @@
 # Script Purpose: Search for strings inside all Configuration Profiles
 #
 # 1.0 - Initial
-# 1.1 - Add functional to make sure Client / Secret are passed into the script
+# 1.1 - Add function to make sure Client / Secret are passed into the script
+
 ######################################################################################################
 #
 # Gobal "Common" variables (do not change these!)
