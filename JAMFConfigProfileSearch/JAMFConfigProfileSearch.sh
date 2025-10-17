@@ -5,12 +5,12 @@
 # by: Scott Kendall
 #
 # Written: 10/16/2025
-# Last updated: 10/16/2025
+# Last updated: 10/17/2025
 #
 # Script Purpose: Search for strings inside all Configuration Profiles
 #
 # 1.0 - Initial
-
+# 1.1 - Add functional to make sure Client / Secret are passed into the script
 ######################################################################################################
 #
 # Gobal "Common" variables (do not change these!)
@@ -418,6 +418,19 @@ function JAMF_get_server ()
     logMe "JAMF Pro server is: $jamfpro_url"
 }
 
+function JAMF_check_credentials ()
+{
+    # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
+    # RETURN: None
+    # EXPECTED: None
+
+    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
+        logMe "Client/Secret info is not valid"
+        exit 1
+    fi
+    logMe "Valid credentials passed"
+}
+
 function JAMF_get_classic_api_token ()
 {
     # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
@@ -689,6 +702,7 @@ check_support_files
 create_infobox_message
 JAMF_check_connection
 JAMF_get_server
+JAMF_check_credentials
 # Check if the JAMF Pro server is using the new API or the classic API
 # If the client ID is longer than 30 characters, then it is using the new API
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
