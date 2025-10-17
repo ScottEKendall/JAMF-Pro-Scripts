@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 05/28/2025
-# Last updated: 09/16/2025
+# Last updated: 10/17/2025
 #
 # Script Purpose: This script will extract all of the email addresses from your JAMF server and store them in local folder in a VCF format.
 # 1.0 - Initial
@@ -16,6 +16,7 @@
 #       Change variable declare section around for better readability
 #       Changed to using JSON blobs vs XML Blobs
 #       Bumped Swift Dialog to v2.5.0
+# 1.3   Add function to check for passed JAMF credentials
 
 ######################################################################################################
 #
@@ -216,7 +217,7 @@ function welcomemsg ()
 	
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     returnCode=$?
-    [[ "$returnCode" == "2" ]] && cleanup_and_exit
+    [[ "$returnCode" == "2" ]] && {JAMF_invalidate_token; cleanup_and_exit; }
 
     ssStoragePath=$( echo $temp | jq -r '.StorageLocation' | tr -d '\\' | tr -d '"')
     ssOnlyManagedUsers=$( echo $temp | jq -r '.OnlyManagedUsers' | tr -d '\\' | tr -d '"')
@@ -375,6 +376,29 @@ function make_apfs_safe ()
 # JAMF functions
 #
 ###########################
+
+function JAMF_which_self_service ()
+{
+    # PURPOSE: Function to see which Self service to use (SS / SS+)
+    # RETURN: None
+    # EXPECTED: None
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
+    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    echo $retval
+}
+
+function JAMF_check_credentials ()
+{
+    # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
+    # RETURN: None
+    # EXPECTED: None
+
+    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
+        logMe "Client/Secret info is not valid"
+        exit 1
+    fi
+    logMe "Valid credentials passed"
+}
 
 function JAMF_check_connection ()
 {
@@ -625,6 +649,7 @@ create_infobox_message
 welcomemsg
 
 JAMF_check_connection
+JAMF_check_credentials
 JAMF_get_server
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token
 
