@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 05/21/2025
-# Last updated: 09/16/2025
+# Last updated: 10/17/2025
 #
 # Script Purpose: Backup JAMF Self service icons to a local folder
 #
@@ -17,6 +17,8 @@
 #       Now works with JAMF Client/Secret or Username/password authentication
 #       Change variable declare section around for better readability
 #       Bumped Swift Dialog to v2.5.0
+# 1.4   Add function to check JAMF credentials were passed
+#       Fixed logic to determine which SS/SS+ is being used
 
 ######################################################################################################
 #
@@ -383,8 +385,8 @@ function JAMF_which_self_service ()
     # PURPOSE: Function to see which Self service to use (SS / SS+)
     # RETURN: None
     # EXPECTED: None
-    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
+    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
@@ -399,6 +401,19 @@ function JAMF_check_connection ()
         exit 1
     fi
     logMe "JSS connection active!"
+}
+
+function JAMF_check_credentials ()
+{
+    # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
+    # RETURN: None
+    # EXPECTED: None
+
+    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
+        logMe "Client/Secret info is not valid"
+        exit 1
+    fi
+    logMe "Valid credentials passed"
 }
 
 function JAMF_get_server ()
@@ -580,6 +595,8 @@ OVERLAY_ICON=$(JAMF_which_self_service)
 echo $OVERLAY_ICON
 JAMF_check_connection
 JAMF_get_server
+JAMF_check_credentials
+
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token
 welcomemsg
 
