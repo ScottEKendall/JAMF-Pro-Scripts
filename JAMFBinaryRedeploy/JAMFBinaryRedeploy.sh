@@ -1,11 +1,11 @@
 #!/bin/zsh
 #
-# JAMFSelfHeal.sh
+# JAMFBinaryRedeploy.sh
 #
 # by: Scott Kendall
 #
 # Written: 03/06/2025
-# Last updated: 05/28/2025
+# Last updated: 10/20/2025
 #
 # Script Purpose: Redeploy the JAMF binary on a device
 #   This script is a combination of documentation taken from here:
@@ -15,10 +15,15 @@
 
 #
 # 1.0 - Initial
-# 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.2 - Now works with JAMF Client/Secret or Username/password authentication
+#     - Change variable declare section around for better readability
 # 1.3 - Made API changes for JAMF Pro 11.20 and higher
 # 1.4 - Added function to check JAMF credentials are passed
 #       Fixed function to determine which SS/SS+ is being used
+# 1.5 - Added option for manual enroll with instructions on how to perform
+#       Moved more items into functions from the main script to clean up things
+#       Moved all "exit" commands into the clean_and_exit funtion to make sure temp files are erased
 
 ######################################################################################################
 #
@@ -166,6 +171,19 @@ function check_support_files ()
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit $1
+}
+
+###########################
+#
+# JAMF functions
+#
+###########################
 
 function JAMF_which_self_service ()
 {
@@ -185,7 +203,7 @@ function JAMF_check_credentials ()
 
     if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
         logMe "Client/Secret info is not valid"
-        exit 1
+        cleanup_and_exit 1
     fi
     logMe "Valid credentials passed"
 }
@@ -198,7 +216,7 @@ function JAMF_check_connection ()
 
     if ! /usr/local/bin/jamf -checkjssconnection -retry 5; then
         logMe "Error: JSS connection not active."
-        exit 1
+        cleanup_and_exit 1
     fi
     logMe "JSS connection active!"
 }
@@ -223,7 +241,7 @@ function JAMF_get_classic_api_token ()
      api_token=$(/usr/bin/curl -X POST --silent -u "${CLIENT_ID}:${CLIENT_SECRET}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
      if [[ "$api_token" == *"Could not extract value"* ]]; then
          logMe "Error: Unable to obtain API token. Check your credentials and JAMF Pro URL."
-         exit 1
+        cleanup_and_exit 1
      else 
         logMe "Classic API token successfully obtained."
     fi
@@ -254,10 +272,10 @@ function JAMF_get_access_token ()
     
     if [[ -z "$returnval" ]]; then
         logMe "Check Jamf URL"
-        exit 1
+        cleanup_and_exit 1
     elif [[ "$returnval" == '{"error":"invalid_client"}' ]]; then
         logMe "Check the API Client credentials and permissions"
-        exit 1
+        cleanup_and_exit 1
     else
         logMe "API token successfully obtained."
     fi
@@ -306,7 +324,7 @@ function JAMF_invalidate_token ()
         logMe "Token already invalid"
     else
         logMe "Unexpected response code: $returnval"
-        exit 1  # Or handle it in a different way (e.g., retry or log the error)
+        cleanup_and_exit 1  # Or handle it in a different way (e.g., retry or log the error)
     fi    
 }
 
@@ -325,9 +343,9 @@ function JAMF_get_deviceID ()
 function JAMF_renew_binary ()
 {
     # PURPOSE: Redeploy the JAMF binary on the device in question.
-    # RETURN: redeploy_resonse
-    redeploy_resonse=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "accept: application/json" "${jamfpro_url}"/api/v1/jamf-management-framework/redeploy/"${1}" -X POST )
-    echo $redeploy_resonse
+    # RETURN: redeploy_response
+    redeploy_response=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "accept: application/json" "${jamfpro_url}"/api/v1/jamf-management-framework/redeploy/"${1}" -X POST )
+    echo $redeploy_response
 }
 
 function display_welcome_message ()
@@ -338,18 +356,20 @@ function display_welcome_message ()
         --icon "${SD_ICON}"
         --titlefont shadow=1
         --iconsize 100
-        --message "${SD_DIALOG_GREETING}, ${SD_FIRST_NAME}.  Please enter the serial or hostname of the device you that you want to redploy the JAMF binary on."
+        --message "${SD_DIALOG_GREETING}, ${SD_FIRST_NAME}.  Please enter the serial or hostname of the device you that you want to redploy the JAMF binary on.<br><br>You can also choose to deploy the JAMF binary manually.  Click on 'Manual Method' for steps."
         --messagefont name=Arial,size=17
         --textfield "Device,required"
         --textfield "Reason,required"
+        --infobuttontext "Manual Method"
         --button1text "Continue"
         --button2text "Quit"
+        --quitoninfo
         --vieworder "dropdown,textfield"
         --selecttitle "Serial,required"
         --selectvalues "Serial Number, Hostname"
         --selectdefault "Hostname"
         --ontop
-        --height 400
+        --height 450
         --json
         --moveable
      )
@@ -357,14 +377,111 @@ function display_welcome_message ()
      message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
 
      buttonpress=$?
-    [[ $buttonpress = 2 ]] && exit 0
+    breakLoop=true
+    [[ $buttonpress = 3 ]] && {breakLoop=false; display_manual_deploy; }
+    [[ $buttonpress = 2 ]] && cleanup_and_exit
 
     search_type=$(echo $message | plutil -extract "SelectedOption" 'raw' -)
     computer_id=$(echo $message | plutil -extract "Device" 'raw' -)
     reason=$(echo $message | plutil -extract "Reason" 'raw' -)
+}
+
+function display_manual_deploy ()
+{
+    displayManualSteps='mkdir -p /usr/local/jamf/bin<br>curl -O '"${jamfpro_url}"'bin/jamf<br>chmod +x jamf<br>mv jamf /usr/local/jamf/bin/<br>/usr/local/jamf/bin/jamf createConf -url '"${jamfpro_url}"'<br>/usr/local/jamf/bin/jamf enroll -prompt<br>/usr/local/jamf/bin/jamf policy'
+    manualSteps=$(echo "$displayManualSteps" | sed 's/<br>/\n/g')
+    MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${SD_ICON}"
+        --titlefont shadow=1
+        --iconsize 100
+        --message "These are the steps that you need to perform on the workstation to manually download the JAMF binary from ther server:<br><br>$displayManualSteps"
+        --messagefont name=Arial,size=17
+        --button1text "Back"
+        --button2text "Quit"
+        --infobuttontext "Copy to clipboard"
+        --quitoninfo
+        --ontop
+        --height 400
+        --json
+        --moveable
+     )
+	
+    message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+
+    buttonpress=$?
+    [[ $buttonpress = 2 ]] && cleanup_and_exit
+    [[ $buttonpress = 3 ]] && echo $manualSteps | pbcopy
 
 }
 
+function inventory_not_found ()
+{
+    dialogarray=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
+        --icon "${SD_ICON}" 
+        --overlayicon ${OVERLAY_ICON}
+        --alignment center
+        --message "**Device inventory not found!** <br><br>Please make sure the device name or serial is correct."
+        --messagefont "name=Arial,size=17"
+        --ontop
+        --moveable
+     )
+
+    $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
+    cleanup_and_exit 1
+}
+
+function confirm_user_choice ()
+{
+
+    # confirm that the user wants to continue
+
+    dialogarray=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${SD_ICON}"
+        --overlayicon ${OVERLAY_ICON}
+        --titlefont shadow=1
+        --message "Sending the command to repair the JAMF binary might enforce the enrollment process to run on system $computer_id.  Are you sure you want to continue?"
+        --messagefont "name=Arial,size=17"
+        --ontop
+        --moveable
+        --button1text "Continue"
+        --button2text "Cancel"
+    )
+
+    $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
+    buttonpress=$?
+
+    [[ $buttonpress = 2 ]] &&cleanup_and_exit 0
+}
+
+function show_results () 
+{
+    logMe "Binary redeploy comamnd send to #$ID"
+
+    # Show the result
+
+    dialogarray=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${SD_ICON}"
+        --titlefont shadow=1
+        --overlayicon "SF=checkmark.circle.fill,color=auto,weight=light,bgcolor=none"
+        --message "The command to repair the JAMF binary for $computer_id has been sent.  This process might also enforce the enrollment process to run."
+        --messagefont "name=Arial,size=17"
+        --ontop
+        --moveable
+    )
+
+    $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
+    cleanup_and_exit 0
+
+}
 ########################
 #
 # Start of Main Program
@@ -378,78 +495,32 @@ declare ID
 declare reason
 declare search_type
 declare computer_id
-declare redeploy_resonse
+declare redeploy_response
 
 autoload 'is-at-least'
+breakLoop=false
 
 create_log_directory
 check_support_files
 check_swift_dialog_install
-display_welcome_message
 
 SD_ICON=$(JAMF_which_self_service)
 JAMF_check_connection
 JAMF_check_credentials
 JAMF_get_server
+while true; do
+    display_welcome_message
+    if [[ $breakLoop == true ]]; then
+        break
+    fi
+done
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token
 ID=$(JAMF_get_deviceID "${search_type}" ${computer_id})
 logMe "Device ID #$ID"
-
-if [[ "${ID}" == "" ]]; then
-     dialogarray=(
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
-        --icon "${SD_ICON}" 
-        --overlayicon ${OVERLAY_ICON}
-        --alignment center
-        --message "**Device inventory not found!** <br><br>Please make sure the device name or serial is correct."
-        --messagefont "name=Arial,size=17"
-        --ontop
-        --moveable
-     )
-
-     $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
-     exit 1
-fi
-
-# confirm that the user wants to continue
-
-dialogarray=(
-    --bannerimage "${SD_BANNER_IMAGE}"
-    --bannertitle "${SD_WINDOW_TITLE}"
-    --icon "${SD_ICON}"
-    --overlayicon ${OVERLAY_ICON}
-    --titlefont shadow=1
-    --message "Sending the command to repair the JAMF binary might enforce the enrollment process to run on system $computer_id.  Are you sure you want to continue?"
-    --messagefont "name=Arial,size=17"
-    --ontop
-    --moveable
-    --button1text "Continue"
-    --button2text "Cancel"
-)
-
-$SW_DIALOG "${dialogarray[@]}" 2>/dev/null
-buttonpress=$?
-
-[[ $buttonpress = 2 ]] && exit 0 #exit if the user cancels
-
+# If not found, then throw an error
+[[ -z "${ID}" ]] && inventory_not_found
+# Confirm they want to contine and do the redeploy command
+confirm_user_choice
 JAMF_renew_binary $ID
-logMe "Binary redeploy comamnd send to #$ID"
-
-# Show the result
-
-dialogarray=(
-    --bannerimage "${SD_BANNER_IMAGE}"
-    --bannertitle "${SD_WINDOW_TITLE}"
-    --icon "${SD_ICON}"
-    --titlefont shadow=1
-    --overlayicon "SF=checkmark.circle.fill,color=auto,weight=light,bgcolor=none"
-    --message "The command to repair the JAMF binary for $computer_id has been sent.  This process might also enforce the enrollment process to run."
-    --messagefont "name=Arial,size=17"
-    --ontop
-    --moveable
-)
-
-$SW_DIALOG "${dialogarray[@]}" 2>/dev/null
-exit 0
+show_results
+cleanup_and_exit 0
