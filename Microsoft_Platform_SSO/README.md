@@ -6,4 +6,4 @@ This section is designed to accomodate everything Micdrosoft Platform SSO relate
 
 In order to prepare for Platform SSO deployment, you must perform the following:
 
-* Deploy Microsoft Company Portal version 5.2404.0 and newer in your prestage enrollment (for new enrollments) or install via policy (to existing users).  Company Portal can be found ![here](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-company-portal-macos)
+* Deploy Microsoft Company Portal version 5.2404.0 and newer in your prestage enrollment (for new enrollments) or install via policy (to existing users).  Company Portal can be found [here](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-company-portal-macos)
