@@ -1,6 +1,6 @@
 ## Plaform SSO Repository ##
 
-This sub-repo section is designed to accomodate everything Micdrosoft Platform SSO related.  My goal is to try and consolidate everything that an admin needs to be aware of when migrating users to Platform SSO for macOS Sequoia and higher.  I am hoping for other contributors in this repo to make this a central repository for everything related to this extension.  I will be posting the information that I have concerning JAMF MDM, but others are welcome to post about coniguration files for other MDMs.
+This sub-repo section is designed to accomodate everything Micdrosoft Platform SSO related.  My goal is to try and consolidate everything that an admin needs to be aware of when migrating users to Platform SSO for macOS Sequoia and higher.  I am hoping for other contributors in this repo to make this a central repository for everything related to this extension.  I will be posting the information that I have concerning JAMF MDM, but others are welcome to post about configuration files / processes for other MDMs.
 
 ### JAMF Configuration ###
 
@@ -74,7 +74,9 @@ Once you have setup your smart/static group for deployment, you can push it to a
 
 And the user will need to proceed with the registration prompts.
 
-In case the users do not see the notification center prompt (or they dismiss it), it will reappear after a period of time (I think around 15 mins), but you can "force" the prompt to reappear again.  You can either have the user logout/login, or you can use a script I created (found [here](/JAMF-Pro-Scripts/ForcePlatformSSO/README.md)) that will force the propmt to reappear and show a nice GUI screen so the users (hopefully) don't miss it again.
+In case the users do not see the notification center prompt (or they dismiss it), it will reappear after a period of time (I think around 15 mins), but you can "force" the prompt to reappear again.  You can either have the user logout/login, or you can use a script I created (found [here](https://github.com/ScottEKendall/JAMF-Pro-Scripts/blob/main/ForcePlatformSSO/README.md) that will force the propmt to reappear and show a nice GUI screen so the users (hopefully) don't miss it again.
+
+![](https://github.com/ScottEKendall/JAMF-Pro-Scripts/raw/main/ForcePlatformSSO/ForcePlatformSSO.png)
 
 JAMF Docs
 * Platform SSO can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html)
