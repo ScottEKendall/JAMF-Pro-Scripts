@@ -19,6 +19,7 @@
 #       New create_log_direcotry check routine that parses the path and checks the directory structure
 # 1.6 - Add several new MS Graph API routines
 # 1.7 - Add more JAMF API Librarys for Static Group modifications & Checking to see which version of SS/SS+ is being used
+# 1.8 - Added option to move some of the "defaults" to a plist file / Also used the variable SCRIPT_for temp files creation & log file cname
 
 ######################################################################################################
 #
@@ -26,6 +27,7 @@
 #
 ######################################################################################################
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+SCRIPT_NAME="MainLibrary"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -46,8 +48,8 @@ MIN_SD_REQUIRED_VERSION="2.5.0"
 
 # Make some temp files for this app
 
-JSON_OPTIONS=$(mktemp /var/tmp/AppDelete.XXXXX)
-TMP_FILE_STORAGE=$(mktemp /var/tmp/AppDelete.XXXXX)
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+TMP_FILE_STORAGE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 /bin/chmod 666 $JSON_OPTIONS
 /bin/chmod 666 $TMP_FILE_STORAGE
 
@@ -59,16 +61,25 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 #
 ###################################################
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/AppDelete.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+fi
 
 # Display items (banner / icon)
 
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Delete Applications"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 OVERLAY_ICON="/System/Applications/App Store.app"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
@@ -721,6 +732,19 @@ function JAMF_which_self_service ()
     local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
     [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
+}
+
+function JAMF_check_credentials ()
+{
+    # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
+    # RETURN: None
+    # EXPECTED: None
+
+    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
+        logMe "Client/Secret info is not valid"
+        exit 1
+    fi
+    logMe "Valid credentials passed"
 }
 
 function JAMF_check_connection ()
