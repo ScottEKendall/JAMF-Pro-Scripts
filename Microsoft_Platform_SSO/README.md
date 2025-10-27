@@ -74,13 +74,21 @@ Once you have setup your smart/static group for deployment, you can push it to a
 
 And the user will need to proceed with the registration prompts.
 
-In case the users do not see the notification center prompt (or they dismiss it), it will reappear after a period of time (I think around 15 mins), but you can "force" the prompt to reappear again.  You can either have the user logout/login, or you can use a script I created (found [here](https://github.com/ScottEKendall/JAMF-Pro-Scripts/blob/main/ForcePlatformSSO/README.md) that will force the propmt to reappear and show a nice GUI screen so the users (hopefully) don't miss it again.
+In case the users do not see the notification center prompt (or they dismiss it), it will reappear after a period of time (I think around 15 mins), but you can "force" the prompt to reappear again.  You can either have the user logout/login, or you can use a script I created (found [here](https://github.com/ScottEKendall/JAMF-Pro-Scripts/blob/main/ForcePlatformSSO/README.md) that will force the prompt to reappear and show a nice GUI screen so the users (hopefully) don't miss it again.
 
 ![](https://github.com/ScottEKendall/JAMF-Pro-Scripts/raw/main/ForcePlatformSSO/ForcePlatformSSO.png)
+
 
 JAMF Docs
 * Platform SSO can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html)
 * Configuration Profiles can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html#ariaid-title9)
 
 Microsoft Links:
-[Company Portal](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-company-portal-macos)
+* Overview of pSSO [here](https://learn.microsoft.com/en-us/entra/identity/devices/macos-psso)
+* Company portal can be found [here](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-company-portal-macos)
+* SSO Plugin for Apple Devices [here](https://learn.microsoft.com/en-us/entra/identity-platform/apple-sso-plugin)
+* Common pSSO scenerios [here](https://learn.microsoft.com/en-us/intune/intune-service/configuration/platform-sso-scenarios)
+
+Other Links:
+
+* Comprehensive guide on configuring inTune for pSSO [here:](https://www.intunemacadmins.com/complete-guide-macos-deployment/configure_macos_platform_sso/)
