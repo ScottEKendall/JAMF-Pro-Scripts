@@ -91,4 +91,5 @@ Microsoft Links:
 
 Other Links:
 
-* Comprehensive guide on configuring inTune for pSSO [here:](https://www.intunemacadmins.com/complete-guide-macos-deployment/configure_macos_platform_sso/)
+* Comprehensive guide on configuring inTune for pSSO / inTune MacAdmins [here:](https://www.intunemacadmins.com/complete-guide-macos-deployment/configure_macos_platform_sso/)
+* How to configure pSSO / SimpleMDM [here](https://simplemdm.com/blog/how-to-configure-platform-single-sign-on/)
