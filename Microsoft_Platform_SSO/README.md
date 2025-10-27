@@ -48,10 +48,19 @@ You will need to make some changes to your ADE (Automated Device Enrollment) set
 
 4. Make sure to add the Company Portal app in the Enrollment Packages section
 
+#### Deliver the pSSO Config Profile ####
+
+Once you have setup your smart/static group for deployment, you can push it to all of the users...once the profile gets installed on their mac, they will see the following in their notification center.
+
+![](https://learn.microsoft.com/en-us/intune/intune-service/configuration/media/platform-sso-macos/platform-sso-macos-registration-required.png)
+
+And the user will need to proceed with the registration prompts.
+
+In case the users do not see the notification center prompt (or they dismiss it), it will reappear after a period of time (I think around 15 mins), but you can "force" the prompt to reappear again.  You can either have the user logout/login, or you can use a script I created (found [here](/JAMF-Pro-Scripts/ForcePlatformSSO/README.md)) that will force the propmt to reappear and show a nice GUI screen so the users (hopefully) don't miss it again.
 
 JAMF Docs
-* Platform SSO can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html){:target="_blank"}
-* Configuration Profiles can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html#ariaid-title9){:target="_blank"}
+* Platform SSO can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html)
+* Configuration Profiles can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html#ariaid-title9)
 
 Microsoft Links:
 [Company Portal](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-company-portal-macos)
