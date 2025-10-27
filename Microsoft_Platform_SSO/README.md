@@ -2,6 +2,10 @@
 
 This sub-repo section is designed to accomodate everything Micdrosoft Platform SSO related.  My goal is to try and consolidate everything that an admin needs to be aware of when migrating users to Platform SSO for macOS Sequoia and higher.  I am hoping for other contributors in this repo to make this a central repository for everything related to this extension.  I will be posting the information that I have concerning JAMF MDM, but others are welcome to post about configuration files / processes for other MDMs.
 
+<p align="center">
+  <img src="./PlatformSSO_Icon.jpg" />
+</p>
+
 ### AI (Gemini) Overview ###
 
 Platform SSO is an OS-level integration that enables single sign-on for apps and websites, often seen with Apple's macOS, while Enterprise SSO is a broader category of services that use an identity provider to grant single sign-on access to multiple applications for an entire organization. Platform SSO builds on Enterprise SSO capabilities to provide a more seamless experience by managing authentication directly at the operating system level, rather than through a browser or separate application. 
