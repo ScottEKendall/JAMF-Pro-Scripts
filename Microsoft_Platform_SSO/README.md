@@ -2,17 +2,38 @@
 
 This sub-repo section is designed to accomodate everything Micdrosoft Platform SSO related.  My goal is to try and consolidate everything that an admin needs to be aware of when migrating users to Platform SSO for macOS Sequoia and higher.  I am hoping for other contributors in this repo to make this a central repository for everything related to this extension.  I will be posting the information that I have concerning JAMF MDM, but others are welcome to post about configuration files / processes for other MDMs.
 
+### AI (Gemini) Overview ###
+
+Platform SSO is an OS-level integration that enables single sign-on for apps and websites, often seen with Apple's macOS, while Enterprise SSO is a broader category of services that use an identity provider to grant single sign-on access to multiple applications for an entire organization. Platform SSO builds on Enterprise SSO capabilities to provide a more seamless experience by managing authentication directly at the operating system level, rather than through a browser or separate application. 
+
+__Platform SSO__
+
+* __Level of integration:__ Works at the operating system level to integrate with the user's local account credentials.
+* __Key benefit:__ Provides a more streamlined and seamless experience, as authentication can happen transparently in the background for both native and web applications on the device.
+*__Example:__ Apple's Platform SSO feature for macOS, which replaces directory binding and synchronizes local account credentials with an identity provider like Microsoft Entra ID. 
+
+__Enterprise SSO__
+
+* __Level of integration:__ A broader concept that provides a centralized authentication service for an entire organization's applications.
+* __Key benefit:__ Simplifies password management, improves security, and reduces help desk tickets across a wide range of business applications.
+* __Example:__ A user logs into an enterprise SSO portal once and is then granted access to all connected applications, including web-based services and legacy apps that may not support modern identity protocols. 
+
+__How they work together__
+* __Platform SSO is an implementation of Enterprise SSO:__ Platform SSO is a specific technology that builds on Enterprise SSO concepts to achieve a deeper level of integration with the operating system.
+* __Platform SSO leverages an Enterprise SSO service:__ It uses an Enterprise SSO service (and its associated identity provider) to handle the authentication, but performs the actual single sign-on process directly on the device.
+* __Example:__ In a macOS environment, Microsoft's Platform SSO uses the Microsoft Entra ID Enterprise SSO plug-in to handle authentication, but integrates with the macOS system to provide background, OS-level sign-on
+
 ### JAMF Configuration ###
 
 In order to prepare for Platform SSO deployment, you must perform the following:
 
-* [Deploy Microsoft Company Portal](#company-portal)
-* [Create the Platform SSO Configuration Profile](#ceate-psso-configuration-profile)
-* [Configure ADE for Simplified Setup](#configure-ade-for-simplied-setup)
-* [Remove any existing SSO Extension Profile](#removing-the-sso-exension)
-* [Enable access to the System Settings](#enable-access-to-system-settings)
-* [Make sure touchID is enabled](#enable-touchid)
-* [Deliver the PlatformSSO Configuration Profile](#deliver-the-psso-config-profile)
+1. [Deploy Microsoft Company Portal](#company-portal)
+2. [Create the Platform SSO Configuration Profile](#ceate-psso-configuration-profile)
+3. [Configure ADE for Simplified Setup](#configure-ade-for-simplied-setup)
+4. [Remove any existing SSO Extension Profile](#removing-the-sso-exension)
+5. [Enable access to the System Settings](#enable-access-to-system-settings)
+6. [Make sure touchID is enabled](#enable-touchid)
+7. [Deliver the PlatformSSO Configuration Profile](#deliver-the-psso-config-profile)
 
 ### Company Portal ###
 
