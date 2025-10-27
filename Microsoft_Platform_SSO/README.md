@@ -6,9 +6,9 @@ This section is designed to accomodate everything Micdrosoft Platform SSO relate
 
 In order to prepare for Platform SSO deployment, you must perform the following:
 
-* Deploy Microsoft Company Portal
-* Create the Platform SSO Configuration Profile
-* Configure ADE for Simplified Setup
+* [Deploy Microsoft Company Portal](#company-portal)
+* [Create the Platform SSO Configuration Profile](#ceate-psso-configuration-profile)
+* [Configure ADE for Simplified Setup](#configure-ade-for-simplied-setup)
 * Deliver the PlatformSSO Configuration Profile
 * Remove any existing SSO Extension Profile
 * Enable access to the System Settings -> Users & Groups.  Inside of there are options to repair the SSO extension for users
@@ -46,12 +46,11 @@ You will need to make some changes to your ADE (Automated Device Enrollment) set
 
 ![](./JAMF_ADE_General.png)
 
-3. In the Configuration Profiles section, make sure that your Platform SSO group is check, so it will get pushed down during new enrollments
+3. In the Configuration Profiles section, make sure that your Platform SSO group is checked, so it will get pushed down during new enrollments
 
 ![](./JAMF_ADE_ConfigProfiles.png)
 
 4. Make sure to add the Company Portal app in the Enrollment Packages section
-
 
 
 Microsoft Links:
