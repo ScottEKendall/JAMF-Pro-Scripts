@@ -112,14 +112,19 @@ You need to make sure that Device Compliance is run after the user(s) registers 
 
 _If you do not run this Device Compliance, the user might get the "register your device" when trying to authenticate._
 
+## Extended Attributes (EA) for JAMF
+
+I have an EA script that I use to determine the status of the User(s) registration status and create groups accordingly.... It is multi-user aware. Script can be found [here](https://github.com/ScottEKendall/JAMF-Pro-EAs/blob/main/InTune%20Registration%20Status.sh)
+
+![](JAMF_EA_Registration.png)
+
 ## Reference Documentation ##
 
-I am trying to stick with the company "official" docs as much as possible, but I do have an "other" section will try to have comprehensive guides if possible.
+I am trying to stick with the company "official" docs as much as possible, but I do have an "other" section, and I will try to have comprehensive guides if possible.
 
 Apple Platform SSO Docs
 
 * pSSO for macOS [here](https://support.apple.com/en-gb/guide/deployment/dep7bbb05313/web)
-
 
 
 JAMF Docs
