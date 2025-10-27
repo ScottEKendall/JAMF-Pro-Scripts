@@ -103,14 +103,14 @@ In case the users do not see the notification center prompt (or they dismiss it)
 
 ## Device Compliance ##
 
-You need to make sure that Device Compliance is run after the users registers with Platform SSO. You can do this one of two ways:
+You need to make sure that Device Compliance is run after the user(s) registers with Platform SSO. You can do this one of two ways:
 
 1.  Deliver a policy that executes the command ```/usr/local/jamf/bin/jamfAAD gatherAADInfo```
 2.  Have the user run your Register with Entra policy from SS / SS+
 
 ![](./JAMF_Device%20Compliance.png)
 
-If you do not do the device compliance, the user might get the "register your device" when then try to authenticate.
+_If you do not run this Device Compliance, the user might get the "register your device" when trying to authenticate._
 
 ## Reference Documentation ##
 
