@@ -102,8 +102,7 @@ And the user will need to proceed with the registration prompts.
 
 In case the users do not see the notification center prompt (or they dismiss it), it will reappear after a period of time (I think around 15 mins), but you can "force" the prompt to reappear again.  You can either have the user logout/login, or you can use a script I created (found [here](https://github.com/ScottEKendall/JAMF-Pro-Scripts/blob/main/ForcePlatformSSO/README.md) that will force the prompt to reappear and show a nice GUI screen so the users (hopefully) don't miss it again.
 
-![](https://github.com/ScottEKendall/JAMF-Pro-Scripts/raw/main/ForcePlatformSSO/ForcePlatformSSO.png)
-
+<img src="https://github.com/ScottEKendall/JAMF-Pro-Scripts/raw/main/ForcePlatformSSO/ForcePlatformSSO.png" width="500" height="400">
 
 ## 8. Device Compliance ##
 
@@ -120,8 +119,7 @@ _If you do not run this Device Compliance, the user might get the "register your
 
 I have an EA script that I use to determine the status of the User(s) registration status and create groups accordingly.... It is multi-user aware. Script can be found [here](https://github.com/ScottEKendall/JAMF-Pro-EAs/blob/main/InTune%20Registration%20Status.sh)
 
-<img src="./JAMF_EA_Registration.png" width="100" height="100">
-
+![](JAMF_EA_Registration.png)
 
 ## Reference Documentation ##
 
