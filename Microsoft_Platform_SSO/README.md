@@ -34,6 +34,7 @@ In order to prepare for Platform SSO deployment, you must perform the following:
 5. [Enable access to the System Settings](#enable-access-to-system-settings)
 6. [Make sure touchID is enabled](#enable-touchid)
 7. [Deliver the PlatformSSO Configuration Profile](#deliver-the-psso-config-profile)
+8. [Run Device Compliance from CompanyPorta]
 
 ### Company Portal ###
 
@@ -99,7 +100,19 @@ In case the users do not see the notification center prompt (or they dismiss it)
 
 ![](https://github.com/ScottEKendall/JAMF-Pro-Scripts/raw/main/ForcePlatformSSO/ForcePlatformSSO.png)
 
-## Reference Docs ##
+
+## Device Compliance ##
+
+You need to make sure that Device Compliance is run after the users registers with Platform SSO. You can do this one of two ways:
+
+1.  Deliver a policy that executes the command ```/usr/local/jamf/bin/jamfAAD gatherAADInfo```
+2.  Have the user run your Register with Entra policy from SS / SS+
+
+![](./JAMF_Device%20Compliance.png)
+
+If you do not do the device compliance, the user might get the "register your device" when then try to authenticate.
+
+## Reference Documentation ##
 
 I am trying to stick with the company "official" docs as much as possible, but I do have an "other" section will try to have comprehensive guides if possible.
 
