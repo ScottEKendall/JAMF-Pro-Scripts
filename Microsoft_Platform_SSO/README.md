@@ -10,7 +10,7 @@ __Platform SSO__
 
 * __Level of integration:__ Works at the operating system level to integrate with the user's local account credentials.
 * __Key benefit:__ Provides a more streamlined and seamless experience, as authentication can happen transparently in the background for both native and web applications on the device.
-*__Example:__ Apple's Platform SSO feature for macOS, which replaces directory binding and synchronizes local account credentials with an identity provider like Microsoft Entra ID. 
+* __Example:__ Apple's Platform SSO feature for macOS, which replaces directory binding and synchronizes local account credentials with an identity provider like Microsoft Entra ID. 
 
 __Enterprise SSO__
 
