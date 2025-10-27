@@ -27,5 +27,14 @@ You need to have a configuration profile for the Platform SSO that can be deploy
 
 ![](./JAMF_Configuration_Policy_Groupings.png)
 
+When setting up the Configuration Profile, you can use either the Microsoft [docs](https://learn.microsoft.com/en-us/intune/intune-service/configuration/use-enterprise-sso-plug-in-macos-with-intune?tabs=prereq-jamf-pro%2Ccreate-profile-jamf-pro) or JAMF [docs](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html#ariaid-title9).  I have included screenshots of my setup for easier reference:
+
+![](./JAMF_Configuration_Policy_Summary.png)
+![](./JAMF_Configuration_Poicy_SSO_Payload1.png)
+![](./JAMF_Configuration_Poicy_SSO_Payload2.png)
+![](JAMF_Configuration_Poicy_SSO_Payload3.png)
+
+Please note: you must configure an Associate Domain payload, but it does NOT need to have anything in it, just conigure it... 
+
 Microsoft Links:
 [Company Portal](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-company-portal-macos)
