@@ -50,8 +50,8 @@ You will need to make some changes to your ADE (Automated Device Enrollment) set
 
 
 JAMF Docs
-* Platform SSO can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html)
-* Configuration Profiles can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html#ariaid-title9)
+* Platform SSO can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html){:target="_blank"}
+* Configuration Profiles can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html#ariaid-title9){:target="_blank"}
 
 Microsoft Links:
 [Company Portal](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-company-portal-macos)
