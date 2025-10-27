@@ -14,11 +14,11 @@ In order to prepare for Platform SSO deployment, you must perform the following:
 * [Make sure touchID is enabled](#enable-touchid)
 * [Deliver the PlatformSSO Configuration Profile](#deliver-the-psso-config-profile)
 
-#### Company Portal ####
+### Company Portal ###
 
 * You need to install v5.2404.0 or newer in your prestage enrollment (for new enrollments) or install via policy (to existing users).  Company Portal can be downloaded [here](https://go.microsoft.com/fwlink/?linkid=853070)
 
-#### Ceate pSSO Configuration Profile ####
+### Ceate pSSO Configuration Profile ###
 
 When setting up the Configuration Profile, you can use either the Microsoft [docs](https://learn.microsoft.com/en-us/intune/intune-service/configuration/use-enterprise-sso-plug-in-macos-with-intune?tabs=prereq-jamf-pro%2Ccreate-profile-jamf-pro) or JAMF [docs](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html#ariaid-title9).  I have included screenshots of my setup for easier reference:
 
@@ -29,7 +29,7 @@ When setting up the Configuration Profile, you can use either the Microsoft [doc
 
 Please note: you must configure an Associate Domain payload, but it does NOT need to have anything in it, just configure it... 
 
-#### Configure ADE for Simplied Setup ####
+### Configure ADE for Simplied Setup ###
 
 You will need to make some changes to your ADE (Automated Device Enrollment) setup to take advantage of pSSO:
 
@@ -44,7 +44,7 @@ You will need to make some changes to your ADE (Automated Device Enrollment) set
 
 4. Make sure to add the Company Portal app in the Enrollment Packages section
 
-#### Removing the SSO Exension ####
+### Removing the (old) SSO Exension ###
 
 You need to have a configuration profile for the Platform SSO that can be deployed.  *IMPORTANT!*  You CANNOT have both SSO Extension and Platform SSO Extension deployed to all users simultaneously.  
 
@@ -52,7 +52,7 @@ The best way to do this is to create groupings and deploy the pSSO to the users 
 
 ![](./JAMF_Configuration_Policy_Groupings.png)
 
-#### Enable Access to System Settings ####
+### Enable Access to System Settings ###
 
 You will need to make sure thate Sytem Settings -> Users & Groups is available to the users.  Inside of there are options to repair the SSO extension for users
 
@@ -60,13 +60,13 @@ You will need to make sure thate Sytem Settings -> Users & Groups is available t
 
 You can use the Repair option to fix any issues found during authentication.
 
-### Enable TouchID ####
+### Enable TouchID ###
 
 You might need to change your existing Configuration Profiles to allow the Touch ID to be accesed/enabled on systems.  If you are not going to use Secure Enclave as the preferred method for pSSO, you can ignore this setting:
 
 ![](JAMF_Touch_ID.png)
 
-#### Deliver the pSSO Config Profile ####
+### Deliver the pSSO Config Profile ###
 
 Once you have setup your smart/static group for deployment, you can push it to all of the users...once the profile gets installed on their mac, they will see the following in their notification center.
 
