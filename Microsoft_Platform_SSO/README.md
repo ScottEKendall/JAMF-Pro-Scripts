@@ -78,6 +78,15 @@ In case the users do not see the notification center prompt (or they dismiss it)
 
 ![](https://github.com/ScottEKendall/JAMF-Pro-Scripts/raw/main/ForcePlatformSSO/ForcePlatformSSO.png)
 
+## Reference Docs ##
+
+I am trying to stick with the company "official" docs as much as possible, but I do have an "other" section will try to have comprehensive guides if possible.
+
+Apple Platform SSO Docs
+
+* pSSO for macOS [here](https://support.apple.com/en-gb/guide/deployment/dep7bbb05313/web)
+
+
 
 JAMF Docs
 * Platform SSO can be found [here](https://learn.jamf.com/en-US/bundle/technical-articles/page/Platform_SSO_for_Microsoft_Entra_ID.html)
