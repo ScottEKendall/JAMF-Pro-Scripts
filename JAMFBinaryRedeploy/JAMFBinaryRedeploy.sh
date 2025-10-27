@@ -24,6 +24,7 @@
 # 1.5 - Added option for manual enroll with instructions on how to perform
 #       Moved more items into functions from the main script to clean up things
 #       Moved all "exit" commands into the clean_and_exit funtion to make sure temp files are erased
+# 1.6 - Added option to move some of the "defaults" to a plist file / Also used the variable SCRIPT_for temp files creation & log file cname
 
 ######################################################################################################
 #
@@ -31,6 +32,7 @@
 #
 ######################################################################################################
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+SCRIPT_NAME="JAMFBinaryRedeploy"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -51,8 +53,8 @@ MIN_SD_REQUIRED_VERSION="2.5.0"
 
 # Make some temp files for this app
 
-JSON_OPTIONS=$(mktemp /var/tmp/AppDelete.XXXXX)
-TMP_FILE_STORAGE=$(mktemp /var/tmp/AppDelete.XXXXX)
+JSON_OPTIONS=$(mktemp /var/tmp/${SCRIPT_NAME}.XXXXX)
+TMP_FILE_STORAGE=$(mktemp /var/tmp/${SCRIPT_NAME}.XXXXX)
 /bin/chmod 666 $JSON_OPTIONS
 /bin/chmod 666 $TMP_FILE_STORAGE
 
@@ -64,16 +66,25 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 #
 ###################################################
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/JAMFSelfHeal.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+fi
 
 # Display items (banner / icon)
 
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF Binary Self Heal"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 SD_ICON="/Applications/Self Service.app"
 OVERLAY_ICON="warning"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
