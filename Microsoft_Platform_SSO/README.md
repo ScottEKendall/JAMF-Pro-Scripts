@@ -23,7 +23,9 @@ JAMF Docs
 
 #### Configuration Profile ####
 
-You need to have a configuration profile for the Platform SSO that can be deployed.  *IMPORTANT!*  You CANNOT have both SSO Extension and Platform SSO Extension deployed to all users.  The best
+You need to have a configuration profile for the Platform SSO that can be deployed.  *IMPORTANT!*  You CANNOT have both SSO Extension and Platform SSO Extension deployed to all users.  The best way to do this is to create groupings and deploy the pSSO to the users in the group, while simultenously excluding them from the SSO Extension group.  Screenshot for exxample:
+
+![](./JAMF_Configuration_Policy_Groupings.png)
 
 Microsoft Links:
 [Company Portal](https://learn.microsoft.com/en-us/intune/intune-service/apps/apps-company-portal-macos)
