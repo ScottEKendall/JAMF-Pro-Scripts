@@ -120,7 +120,8 @@ _If you do not run this Device Compliance, the user might get the "register your
 
 I have an EA script that I use to determine the status of the User(s) registration status and create groups accordingly.... It is multi-user aware. Script can be found [here](https://github.com/ScottEKendall/JAMF-Pro-EAs/blob/main/InTune%20Registration%20Status.sh)
 
-![](JAMF_EA_Registration.png)
+<img src="./JAMF_EA_Registration.png" width="100" height="100">
+
 
 ## Reference Documentation ##
 
