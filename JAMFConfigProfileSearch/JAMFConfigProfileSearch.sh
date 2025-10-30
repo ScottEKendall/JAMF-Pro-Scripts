@@ -12,6 +12,7 @@
 # 1.0 - Initial
 # 1.1 - Add function to make sure Client / Secret are passed into the script
 # 1.2 - Made grep search case insenstive
+#       Added option to read in config variables from a .plist file if exists
 
 ######################################################################################################
 #
@@ -19,6 +20,7 @@
 #
 ######################################################################################################
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+SCRIPT_NAME="JAMFConfigProfileSearch"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -39,8 +41,8 @@ MIN_SD_REQUIRED_VERSION="2.5.0"
 
 # Make some temp files for this app
 
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/JAMFCPSearch.XXXXX)
-DIALOG_CMD_FILE=$(mktemp /var/tmp/JAMFCPSearch.XXXXX)
+JSON_DIALOG_BLOB=$(mktemp /var/tmp/${SCRIPT_NAME}.XXXXX)
+DIALOG_CMD_FILE=$(mktemp /var/tmp/${SCRIPT_NAME}.XXXXX)
 /bin/chmod 666 $JSON_DIALOG_BLOB
 /bin/chmod 666 $DIALOG_CMD_FILE
 
@@ -52,10 +54,20 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 #
 ###################################################
 
-# Support / Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/JAMFConfigProfileSearch.log"
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+fi
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
@@ -623,7 +635,7 @@ function extract_profile_details ()
 
 function welcomemsg ()
 {
-    message="Enter your search criteria below to search thru all of your Configuration Profiles for that key.  Results will be displayed on the next screen."
+    message="Enter your criteria below to search thru all of your Configuration Profiles.  Searches are not case sensitive.  Results will be displayed on the next screen."
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
