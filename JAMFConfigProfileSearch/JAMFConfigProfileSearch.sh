@@ -5,12 +5,13 @@
 # by: Scott Kendall
 #
 # Written: 10/16/2025
-# Last updated: 10/17/2025
+# Last updated: 10/30/2025
 #
 # Script Purpose: Search for strings inside all Configuration Profiles
 #
 # 1.0 - Initial
 # 1.1 - Add function to make sure Client / Secret are passed into the script
+# 1.2 - Made grep search case insenstive
 
 ######################################################################################################
 #
@@ -610,7 +611,7 @@ function extract_profile_details ()
         logMe "Profile ${profileName} not exported due to empty contents"
     else
         update_display_list "Update" "" "${profileName}" "" "wait" "Working..."
-        if [[ $(echo $profileContents | grep $searchString) ]]; then
+        if [[ $(echo $profileContents | grep -i $searchString) ]]; then
             logMe "Found search string in: ${profileName}"
             update_display_list "Update" "" "${profileName}" "" "success" "Found!"
         else
