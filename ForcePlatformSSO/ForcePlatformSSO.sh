@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/02/2025
-# Last updated: 10/14/2025
+# Last updated: 10/31/2025
 #
 # Script Purpose: Deploys Platform Single Sign-on
 #
@@ -37,6 +37,7 @@
 #       changed logic in the detection of SS+...it was not returning expected value
 #       Change the gatherAADInfo to RunAsUser vs root
 # 1.3 - removed the app-sso -l command...wasn't really needed 
+# 1.4 - Added feature to check for focus status and change the alert message accordingly
 
 ######################################################################################################
 #
@@ -66,6 +67,8 @@ MIN_SD_REQUIRED_VERSION="2.5.0"
 DIALOG_COMMAND_FILE=$(mktemp /var/tmp/AppDelete.XXXXX)
 /bin/chmod 666 $DIALOG_COMMAND_FILE
 
+FOCUS_FILE="/Users/${LOGGED_IN_USER}/Library/DoNotDisturb/DB/Assertions.json"
+
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ###################################################
@@ -85,7 +88,7 @@ BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Register Platform Single Sign-on"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 SD_ICON="/Applications/Self Service.app"
-OVERLAY_ICON="warning"
+OVERLAY_ICON="${ICON_FILES}UserIcon.icns"
 SD_ICON_FILE="${SUPPORT_DIR}/SupportFiles/sso.png"
 
 # Provide the NAMES of the local profile and the JAMF group name to remove/add the users to
@@ -420,21 +423,22 @@ function check_for_profile ()
 function displaymsg ()
 {
 	message="When you see this macOS notification appear, please click the register button within the prompt, and go through the registration process."
+    if [[ $focus_status = "On" ]] && message+="<br><br>**Since your focus mode is turned on, you will need to click in the notification center to see this prompt**"
 	MainDialogBody=(
         --message "<br>$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-		--messagealignment "center"
         --titlefont shadow=1 size=24
         --appearance light
         --ontop
         --moveable
         --icon "${SD_ICON_FILE}"
+        --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
 		--commandfile "${DIALOG_COMMAND_FILE}"
 		--image "${SUPPORT_DIR}/SupportFiles/pSSO_Notification.png"
-        --helpmessage ""
-        --width 700
-        --height 410
+        --helpmessage "Contact the TSD or put in a ticket if you are having problems registering your device."
+        --width 740
+        --height 450
         --ignorednd
         --timer 300
         --quitkey 0
@@ -465,6 +469,21 @@ function runAsUser ()
     launchctl asuser "$USER_ID" sudo -u "$LOGGED_IN_USER" "$@"
 }
 
+function check_focus_status ()
+{
+    # PURPOSE: Check to see if the user is in focus mode
+    # RETURN: in focus mode (Off/On)
+    # EXPECTED: None
+    # PARMATERS: None
+
+    results="Off"
+    if [[ -e $FOCUS_FILE ]]; then
+        retval=$(plutil -extract data.0.storeAssertionRecords.0.assertionDetails.assertionDetailsModeIdentifier raw -o - $FOCUS_FILE | grep -ic 'com.apple.')
+        [[ $retval == "1" ]] && results="On"
+    fi
+    echo $results
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -474,6 +493,7 @@ function runAsUser ()
 declare api_token
 declare jamfpro_url
 declare ssoStatus
+declare focus_status
 
 autoload 'is-at-least'
 
@@ -488,11 +508,11 @@ check_swift_dialog_install
 check_support_files
 JAMF_check_connection
 JAMF_get_server
+focus_status=$(check_focus_status)
 
 # Check if the JAMF Pro server is using the new API or the classic API
 # If the client ID is longer than 30 characters, then it is using the new API
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
-OVERLAY_ICON=$(JAMF_which_self_service) 
 
 # See if the portal is installed.  If you do not need to remove the app, then comment the following line
 resintall_companyportal
