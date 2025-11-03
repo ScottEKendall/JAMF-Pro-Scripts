@@ -21,6 +21,11 @@ If the user has focus mode turned on, they will get a slightly different message
 
 ![](./ForcePlatformSSO-Focus.png)
 
+If you are using the Modern JAMF API credentials, you need to set:
+
+* `Update Static Computer Groups`
+
+
 ##### _v1.0 - Initial Commit_
 ##### _1.1 - Made MDM profile and JAMF group mame passed in variables vs hard coded_
 * _Make sure that all exit processes go thru the cleanup_and_exit function_
