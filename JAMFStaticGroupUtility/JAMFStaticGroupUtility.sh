@@ -19,10 +19,12 @@
 #   Parameter 4: API client ID (Classic or Modern)
 #   Parameter 5: API client secret
 #   Parameter 6: JAMF Static Group name
+# 	Parameter 7: Action to take on group (Add/Remove)
+#	Parameter 8: Show the dialog window (Yes/No)
 #
 # 1.0 - Initial
 # 1.1 - Add function to make sure Client / Secret are passed into the script
-# 1.2 - Added options to passing group action (Add/Remove) and whether or not to show to selection window
+# 1.2 - Added options to pass group action (Add/Remove) and whether or not to show to selection window
 
 ######################################################################################################
 #

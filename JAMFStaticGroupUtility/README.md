@@ -30,3 +30,4 @@ If you are using the Modern JAMF API credentials, you need to set:
 
 ##### 1.0 - Inital Commit #####
 ##### 1.1 - Add function to verify passed credentials #####
+##### 1.2 - Add options to pass in group Action and to not show GUI window ####
