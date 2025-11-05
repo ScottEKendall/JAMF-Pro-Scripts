@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/09/2025
-# Last updated: 10/17/2025
+# Last updated: 11/05/2025
 #
 # Script Purpose: View, Add or Delete JAMF static group memebers
 #
@@ -22,6 +22,7 @@
 #
 # 1.0 - Initial
 # 1.1 - Add function to make sure Client / Secret are passed into the script
+# 1.2 - Added options to passing group action (Add/Remove) and whether or not to show to selection window
 
 ######################################################################################################
 #
@@ -37,6 +38,7 @@ USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ prin
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_SERIAL=$(echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
+MAC_HOSTNAME=$(hostname)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -90,7 +92,9 @@ JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID=${4}                               # user name for JAMF Pro
 CLIENT_SECRET=${5}
-JAMF_GROUP_NAME=${6}               
+JAMF_GROUP_NAME=${6}          
+JAMF_GROUP_ACTION=${7:-"Add"}
+SHOW_WINDOW=${8:-"Yes"}  
 
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
 
@@ -685,24 +689,34 @@ JAMF_check_credentials
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
 #OVERLAY_ICON=$(JAMF_which_self_service)
 
-displaymsg
+# If they want to show the window then do so, otherwise set the action to their passed in action
+if [[ "${SHOW_WINDOW:l}" == "yes" ]]; then
+    displaymsg
+else
+    selectedGroup=${JAMF_GROUP_NAME}
+    action=${JAMF_GROUP_ACTION}
+    hostName=${MAC_HOSTNAME}
+fi
 # Convert any special characters in the filter name to hex so that it can be used correctly in the JAMF search
 hexGroupName=$(convert_to_hex $selectedGroup)
 groupID=$(JAMF_retreive_static_group_id "$hexGroupName")
 
-case "${action}" in
-    *"Add"* )
+case "${action:l}" in
+    *"add"* )
         JAMF_static_group_action $groupID $hostName "Add"
         ;;
 
-    *"Remove"* )
+    *"remove"* )
         JAMF_static_group_action $groupID $hostName "Remove"
         ;;
 
-    *"View"* )
+    *"view"* )
         memberList=$(JAMF_retrieve_static_group_members $groupID)
         [[ "${memberList}" == *"${hostName}"* ]] && hostnameFound="is" || hostnameFound="is not"
         create_listitem_list "The following are the members of **$selectedGroup**.<br>The computer *$hostnameFound* in this group." "json" ".computer_group.computers[].name" "$memberList" #"SF=desktopcomputer.and.macbook"
+        ;;
+    *)
+        logMe "No action taken"
         ;;
 esac
 JAMF_invalidate_token
