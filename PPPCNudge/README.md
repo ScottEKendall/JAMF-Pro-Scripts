@@ -34,6 +34,13 @@ Example screen using the "mini" mode
 I developed this script from the one found on this site:
 https://www.macosadventures.com/2023/03/07/screennudge-v1-7/
 
+
+## Mosyle (bash) version
+
+Slack uswer *Prasanna Venkatesh S* has helped delevop a Bash version of this script.  Mosyle cannot handle ZSH (yet), so he helped rewrite the code in Bash.  That scipt can be found [here](./PPPCNudge.bash)
+
+![Mosyle Screenshot](./PPPCNudge-Screen-mosyle.png)
+
 ## What is the TCC Database? ##
 
 The Apple TCC database, short for Transparency, Consent, and Control database, is a critical component of macOS's privacy protection system. It's a SQLite database that stores user-granted permissions for applications accessing sensitive data and system resources. This ensures that applications only access what the user has explicitly allowed, enhancing user privacy and control. 
