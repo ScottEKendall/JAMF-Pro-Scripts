@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 10/17/2025
+# Last updated: 11/14/2025
 
 # Script to Set/Remove Recovery Lock on Apple Silicon Macs using the Jamf API.
 # Works based on the 'lockMode' variable (Set/Remove) to configure Recovery Lock.
@@ -50,6 +50,9 @@
 #       Fixed determination of which SS/SS+ the script should be using
 #       Added function to check and make sure the JAMF credentials are passed
 #       Renamed utility to JAMFRecoveryLock.sh
+# 1.5 - Added option to view recovery password
+#       new APIs for set/clear recovery Lock
+#       Show http results after set/clear command
 #
 ######################################################################################################
 #
@@ -86,20 +89,29 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
 
+
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+fi
 # Support / Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
 LOG_FILE="${SUPPORT_DIR}/logs/JAMF_RecoveryLock.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Set/Clear Recovery Lock"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+BANNER_TEXT_PADDING="      " #5 spaces to accommodate for icon offset
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Recovery Lock Actions"
 OVERLAY_ICON=""
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
@@ -121,7 +133,7 @@ CLIENT_ID="$4"
 CLIENT_SECRET="$5"
 LOCK_CODE="$6"
 
-[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
+[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF credentials we are using
 
 ####################################################################################################
 #
@@ -136,7 +148,7 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesn't exist - create it and set the permissions
     LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
@@ -184,7 +196,7 @@ function check_swift_dialog_install ()
 function install_swift_dialog ()
 {
     # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
+    # PARAMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
     #
     # RETURN: None
 
@@ -220,97 +232,6 @@ function cleanup_and_exit ()
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
 	exit 0
-}
-
-function display_welcome_message ()
-{
-     MainDialogBody=(
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --icon "${SD_ICON_FILE}"
-        --overlayicon "${OVERLAY_ICON}"
-        --titlefont shadow=1
-        --iconsize 128
-        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial or hostname of the device you want to set or clear the recovery lock on.  Please Note: This only works on Apple Silicon Macs."
-        --messagefont name=Arial,size=17
-        --textfield "Device,required"
-        --button1text "Continue"
-        --button2text "Quit"
-        --infobox "${SD_INFO_BOX_MSG}"
-        --vieworder "dropdown,textfield"
-        --selecttitle "Serial,required"
-        --selectvalues "Serial Number, Hostname"
-        --selectdefault "Hostname"
-		--selecttitle "Recovery,required"
-		--selectvalues "Set, Clear"
-		--selectdefault "Set"
-        --ontop
-        --height 460
-        --json
-        --moveable
-     )
-	
-     message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
-
-     buttonpress=$?
-    [[ $buttonpress = 2 ]] && exit 0
-
-    search_type=$(echo $message | jq -r ".Serial.selectedValue")
-    computer_id=$(echo $message | jq -r ".Device")
-    lockMode=$(echo $message | jq -r ".Recovery.selectedValue")
-}
-
-function display_status_message ()
-{
-     MainDialogBody=(
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
-        --icon "${SD_ICON_FILE}"
-        --overlayicon SF="checkmark.circle.fill, color=green,weight=heavy"
-        --infobox "${SD_INFO_BOX_MSG}"
-        --iconsize 128
-        --messagefont name=Arial,size=17
-        --button1text "Quit"
-        --ontop
-        --height 460
-        --json
-        --moveable
-    )
-
-    if [[ $lockMode == "Set" ]]; then
-        MainDialogBody+=(--message "Recovery lock ${lockMode} with '$LOCK_CODE' for ${computer_id}.  You will need to update the inventory record for the changes to reflect on your JAMF server.")
-    else
-        MainDialogBody+=(--message "Recovery lock ${lockMode}ed for ${computer_id}.  You will need to update the inventory record for the changes to reflect on your JAMF server.")
-    fi
-
-    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
-    buttonpress=$?
-}
-
-function display_failure_message ()
-{
-     MainDialogBody=(
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
-        --message "Device ID ${computer_id} was not found.  Please try again."
-        --icon "${SD_ICON_FILE}"
-        --overlayicon warning
-        --infobox "${SD_INFO_BOX_MSG}"
-        --iconsize 128
-        --messagefont name=Arial,size=17
-        --button1text "Quit"
-        --ontop
-        --height 460
-        --json
-        --moveable
-    )
-
-    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
-    buttonpress=$?
-    JAMF_invalidate_token
-    cleanup_and_exit
 }
 
 ###########################
@@ -467,33 +388,166 @@ function JAMF_get_deviceID ()
     # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server.
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - search identifier to use (serial or Hostname)
+    #        $2 - Conputer ID (serial/hostname)
+    #        $3 - Field to return ('managementId' / udid)
 
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-    ID=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc&filter=$type=='$2'"| jq -r '.results[].id')
+    retval=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" \
+        -H "Accept: application/json" \
+        "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc&filter=$type=='$2'")
+
+    ID=$(extract_string $retval $3)
     echo $ID
+    [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* || -z "$ID" ]] && display_failure_message
 }
 
-function JANMF_send_recovery_lock_command()
+function JAMF_send_recovery_lock_command()
 {
     # PURPOSE: send the command to clear or remove the Recovery Lock 
     # RETURN: None
     # PARMS: $1 = Lock code to set (pass blank to clear)
     # Expected jamfpro_url, ap_token, ID
-	local newPassword="$1"
+    echo "New Recovery Lock: "$2
+    httpString='{"clientData": [
+        {"managementId": "'$1'",
+        "clientType": "COMPUTER"}],
+    "commandData": {
+        "commandType": "SET_RECOVERY_LOCK",'
+
+    [[ -z $1 ]] && httpString+='"newPassword": ""}}' || httpString+='"newPassword": "'$2'"}}'
+
+    #echo $httpString 1>&2
+
+    returnval=$(curl -X POST -s "$jamfpro_url/api/v2/mdm/commands" \
+        -H "Authorization: Bearer ${api_token}" \
+        -H "Content-Type: application/json" \
+        --data-raw "$httpString")
+
+    logMe "Recovery Lock ${lockMode} for ${computer_id}"
+    echo $returnval
+}
+
+function JAMF_view_recovery_lock ()
+{
+    retval=$(/usr/bin/curl -s -X 'GET' \
+        "${jamfpro_url}api/v2/computers-inventory/$ID/view-recovery-lock-password" \
+        -H 'accept: application/json' \
+        -H "Authorization: Bearer ${api_token}")
+    retval=$(extract_string $retval '.recoveryLockPassword')
+    echo $retval
+}
+
+####################################################################################################
+#
+# Application Specific functions
+#
+####################################################################################################
+
+function display_welcome_message ()
+{
+     MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${SD_ICON_FILE}"
+        --overlayicon "${OVERLAY_ICON}"
+        --titlefont shadow=1
+        --iconsize 128
+        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial or hostname of the device you want to set or clear the recovery lock on.  Please Note: This only works on Apple Silicon Macs."
+        --messagefont name=Arial,size=17
+        --textfield "Device,required"
+        --button1text "Continue"
+        --button2text "Quit"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --vieworder "dropdown,textfield"
+        --selecttitle "Serial,required"
+        --selectvalues "Serial Number, Hostname"
+        --selectdefault "Hostname"
+		--selecttitle "Action,required"
+		--selectvalues "View, Set, Clear"
+		--selectdefault "View"
+        --ontop
+        --height 440
+        --json
+        --moveable
+     )
 	
-	returnval=$(curl -w "%{http_code}" "$jamfpro_url/api/v2/mdm/commands" \
-		-H "accept: application/json" \
-		-H "Authorization: Bearer ${api_token}"  \
-		-H "Content-Type: application/json" \
-		-X POST -s -o /dev/null \
-		-d @- <<EOF
-		{
-			"clientData": [{ "managementId": "$ID", "clientType": "COMPUTER" }],
-			"commandData": { "commandType": "SET_RECOVERY_LOCK", "newPassword": "$newPassword" }
-		}
-EOF
-	)
-	logMe "Recovery Lock ${lockMode} for ${computer_id}"
+     message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+
+     buttonpress=$?
+    [[ $buttonpress = 2 ]] && exit 0
+
+    search_type=$(echo $message | jq -r ".Serial.selectedValue")
+    computer_id=$(echo $message | jq -r ".Device")
+    lockMode=$(echo $message | jq -r ".Action.selectedValue")
+}
+
+function display_status_message ()
+{
+     MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
+        --icon "${SD_ICON_FILE}"
+        --overlayicon SF="checkmark.circle.fill, color=green,weight=heavy,bgcolor=none"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --iconsize 128
+        --messagefont name=Arial,size=17
+        --button1text "Quit"
+        --ontop
+        --height 440
+        --json
+        --moveable
+    )
+
+    case ${lockMode} in
+        "View" )
+            MainDialogBody+=(--message "Recovery lock for ${computer_id} is <br><br>**$1**")
+            ;;
+        "Set" )
+            MainDialogBody+=(--message "Recovery lock set with '$LOCK_CODE' for ${computer_id}.<br><br>**JAMF Results:** <br><br>$1")
+            ;;
+        "Clear" )
+            MainDialogBody+=(--message "Recovery lock cleared for ${computer_id}.<br><br>**JAMF Results:** <br><br>$1")
+            ;;
+    esac
+
+    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    buttonpress=$?
+}
+
+function display_failure_message ()
+{
+     MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
+        --message "Device ID ${computer_id} was not found.  Please try again."
+        --icon "${SD_ICON_FILE}"
+        --overlayicon warning
+        --infobox "${SD_INFO_BOX_MSG}"
+        --iconsize 128
+        --messagefont name=Arial,size=17
+        --button1text "Quit"
+        --ontop
+        --height 440
+        --json
+        --moveable
+    )
+
+    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    buttonpress=$?
+    JAMF_invalidate_token
+    cleanup_and_exit
+}
+
+function extract_string ()
+{
+    # PURPOSE: Extract (grep) results from a string 
+    # RETURN: parsed string
+    # PARAMS: $1 = String to search in
+    #         $2 = key to extract
+    
+    echo $1 | tr -d '\n' | jq -r "$2"
 }
 
 ####################################################################################################
@@ -522,14 +576,28 @@ check_support_files
 create_infobox_message
 display_welcome_message
 
+logMe "Action Taken: "$lockMode
 # Perform JAMF API calls to locate device and clear MDM failures
 JAMF_check_connection
 JAMF_get_server
 JAMF_check_credentials
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token
-ID=$(JAMF_get_deviceID "${search_type}" ${computer_id})
-[[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* || -z "$ID" ]] && display_failure_message
-[[ $lockMode == "Set" ]] && JANMF_send_recovery_lock_command "$LOCK_CODE" || JANMF_send_recovery_lock_command ""
-display_status_message
+
+case "${lockMode}" in
+    "View" )
+        ID=$(JAMF_get_deviceID "${search_type}" ${computer_id} ".results[].id")
+        results=$(JAMF_view_recovery_lock $ID)        
+        ;;
+    "Set" )
+        ID=$(JAMF_get_deviceID "${search_type}" ${computer_id}  ".results[].general.managementId")
+        results=$(JAMF_send_recovery_lock_command $ID $LOCK_CODE)
+        ;;
+    "Clear" )
+        ID=$(JAMF_get_deviceID "${search_type}" ${computer_id}  ".results[].general.managementId")
+        results=$(JAMF_send_recovery_lock_command $ID "")
+        ;;
+esac
+logMe "JAMF Client ID: "$ID
+display_status_message $results
 JAMF_invalidate_token
 exit 0
