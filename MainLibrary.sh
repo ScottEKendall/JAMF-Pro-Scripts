@@ -5,9 +5,9 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 10/03/2025
+# Last updated: 11/15/2025
 #
-# Script Purpose: Main Library containing all of my commonly used fuctions.
+# Script Purpose: Main Library containing all of my commonly used functions.
 #
 # 1.0 - Initial
 # 1.1 - Code optimization
@@ -16,14 +16,16 @@
 # 1.3 - Changed JAMF function names to be more descriptive
 # 1.4 - Added listitem, textbox, checkbox and dropdown functions
 # 1.5 - Reworked top section for better idea of what can be modified
-#       New create_log_direcotry check routine that parses the path and checks the directory structure
+#       New create_log_directory check routine that parses the path and checks the directory structure
 # 1.6 - Add several new MS Graph API routines
-# 1.7 - Add more JAMF API Librarys for Static Group modifications & Checking to see which version of SS/SS+ is being used
+# 1.7 - Add more JAMF API Libraries for Static Group modifications & Checking to see which version of SS/SS+ is being used
 # 1.8 - Added option to move some of the "defaults" to a plist file / Also used the variable SCRIPT_for temp files creation & log file cname
+# 1.9 - Add more JAMF functions
+#       Add Check for focus mode
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables (do not change these!)
 #
 ######################################################################################################
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
@@ -57,7 +59,7 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
 
@@ -78,7 +80,7 @@ fi
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+BANNER_TEXT_PADDING="      " #5 spaces to accommodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Delete Applications"
 OVERLAY_ICON="/System/Applications/App Store.app"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
@@ -238,6 +240,20 @@ function welcomemsg ()
     reason=$(echo $temp | plutil -extract "Reason" 'raw' -)
 }
 
+function check_focus_status ()
+{
+    # PURPOSE: Check to see if the user is in focus mode
+    # RETURN: in focus mode (Off/On)
+    # EXPECTED: None
+    # PARMATERS: None
+
+    results="Off"
+    if [[ -e $FOCUS_FILE ]]; then
+        retval=$(plutil -extract data.0.storeAssertionRecords.0.assertionDetails.assertionDetailsModeIdentifier raw -o - $FOCUS_FILE | grep -ic 'com.apple.')
+        [[ $retval == "1" ]] && results="On"
+    fi
+    echo $results
+}
 
 ####################################################################################################
 #
@@ -960,27 +976,40 @@ function JAMF_fileVault_recovery_key_retrieval ()
      filevault_recovery_key_retrieved=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" | plutil -extract personalRecoveryKey raw -)   
 }
 
-function JANMF_send_recovery_lock_command()
+function JAMF_send_recovery_lock_command()
 {
     # PURPOSE: send the command to clear or remove the Recovery Lock 
     # RETURN: None
     # PARMS: $1 = Lock code to set (pass blank to clear)
     # Expected jamfpro_url, ap_token, ID
-	local newPassword="$1"
-	
-	returnval=$(curl -w "%{http_code}" "$jamfpro_url/api/v2/mdm/commands" \
-		-H "accept: application/json" \
-		-H "Authorization: Bearer ${api_token}"  \
-		-H "Content-Type: application/json" \
-		-X POST -s -o /dev/null \
-		-d @- <<EOF
-		{
-			"clientData": [{ "managementId": "$ID", "clientType": "COMPUTER" }],
-			"commandData": { "commandType": "SET_RECOVERY_LOCK", "newPassword": "$newPassword" }
-		}
-EOF
-	)
-	logMe "Recovery Lock ${lockMode} for ${computer_id}"
+    echo "New Recovery Lock: "$2
+    httpString='{"clientData": [
+        {"managementId": "'$1'",
+        "clientType": "COMPUTER"}],
+    "commandData": {
+        "commandType": "SET_RECOVERY_LOCK",'
+
+    [[ -z $1 ]] && httpString+='"newPassword": ""}}' || httpString+='"newPassword": "'$2'"}}'
+
+    #echo $httpString 1>&2
+
+    returnval=$(curl -X POST -s "$jamfpro_url/api/v2/mdm/commands" \
+        -H "Authorization: Bearer ${api_token}" \
+        -H "Content-Type: application/json" \
+        --data-raw "$httpString")
+
+    logMe "Recovery Lock ${lockMode} for ${computer_id}"
+    echo $returnval
+}
+
+function JAMF_view_recovery_lock ()
+{
+    retval=$(/usr/bin/curl -s -X 'GET' \
+        "${jamfpro_url}api/v2/computers-inventory/$ID/view-recovery-lock-password" \
+        -H 'accept: application/json' \
+        -H "Authorization: Bearer ${api_token}")
+    retval=$(extract_string $retval '.recoveryLockPassword')
+    echo $retval
 }
 
 function JAMF_retreive_static_group_id ()
