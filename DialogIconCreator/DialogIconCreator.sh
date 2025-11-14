@@ -5,21 +5,22 @@
 # by: Scott Kendall
 #
 # Written: 10/05/2025
-# Last updated: 10/12/2025
+# Last updated: 10/13/2025
 #
 # Script Lightweight script to create icons with overlays using SwiftDialog
 #
 # 1.0 - Initial
+# 1.1 - Added option for custom app file locations to be scanned in
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables (do not change these!)
 #
 ######################################################################################################
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 SCRIPT_NAME="DialogIconCreator"
 
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources"
 
 # Swift Dialog version requirements
 
@@ -38,7 +39,7 @@ DIALOG_COMMAND_FILE_ICON=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
 
@@ -58,7 +59,7 @@ fi
 BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Dialog Icon Creator"
 OVERLAY_ICON="/System/Applications/App Store.app"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+SD_ICON_FILE=$ICON_FILES"/ToolbarCustomizeIcon.icns"
 
 # Trigger installs for Images & icons
 
@@ -300,15 +301,20 @@ function create_textfield_message_body ()
 function read_applications ()
 {
 	# PURPOSE: Build the Array of items that can be removed, delete the items that are not allowed and then add in the folders
-    # PARMS: None
+    # PARAMS: None
     # RETURN: None
 
 	declare -a tmp_array
 	declare saved_IFS=$IFS
 
 	IFS=$'\n'
-	FILES_LIST=( $(/usr/bin/find /Applications/* -maxdepth 0 -type d -iname '*.app' ! -ipath '*Contents*' | /usr/bin/sort -f | /usr/bin/awk -F '/' '{print $NF}' | /usr/bin/awk -F '.app' '{print $1}') )
-	FILES_LIST+=( $(/usr/bin/find /System/Applications/* -maxdepth 0 -type d -iname '*.app' ! -ipath '*Contents*' | /usr/bin/sort -f | /usr/bin/awk -F '/' '{print $NF}' | /usr/bin/awk -F '.app' '{print $1}') )
+
+    # Iterate over each directory in APP_LOCATIONS
+    for dir in "${APP_LOCATIONS[@]}"; do
+        # Look for .app files and .icns files as well
+    	FILES_LIST+=( $(/usr/bin/find ${dir}/* -maxdepth 0 -type d -iname '*.app' ! -ipath '*Contents*' | /usr/bin/sort -f | /usr/bin/awk -F '/' '{print $NF}' )) 2>/dev/null
+        FILES_LIST+=( $(/usr/bin/find ${dir}/*.icns -maxdepth 0 -type f -iname '*.icns' | /usr/bin/sort -f | /usr/bin/awk -F '/' '{print $NF}' )) 2>/dev/null
+    done
 	IFS=$saved_IFS
 
 	# Add only the non-empty items into the tmp_array
@@ -437,8 +443,10 @@ function change_icon_window ()
         elif [[ ! -z $primaryBuiltIn ]]; then #SD Built-in
             primaryIcon=$primaryBuiltIn
         elif [[ ! -z $primaryApp ]]; then #Application
-            [[ -e "/Applications/$primaryApp.app" ]] && appPath="/Applications" || appPath="/System/Applications"
-            primaryIcon=$appPath/$primaryApp.app
+            for dir in "${APP_LOCATIONS[@]}"; do
+                [[ -e "${dir}/${primaryApp}" ]] && appPath=$dir
+                primaryIcon=$appPath/$primaryApp
+            done
         fi
 
         primaryPreviewMessage="--icon '$primaryIcon'"
@@ -455,8 +463,10 @@ function change_icon_window ()
         elif [[ -n $secondaryBuiltIn ]]; then #SD Built-in
             secondaryIcon=$secondaryBuiltIn
         elif [[ -n $SecondaryApps ]]; then #Application
-            [[ -e "/Applications/$SecondaryApps.app" ]] && appPath="/Applications" || appPath="/System/Applications"
-            secondaryIcon="$appPath/$SecondaryApps.app"
+            for dir in "${APP_LOCATIONS[@]}"; do
+                [[ -e "${dir}/${SecondaryApps}" ]] && appPath=$dir
+                secondaryIcon="$appPath/$SecondaryApps"
+            done
         fi
 
         # Send the info the dispalay icon box
@@ -478,7 +488,16 @@ function change_icon_window ()
 autoload 'is-at-least'
 
 declare -a FILES_LIST
+declare -a APP_LOCATIONS
 declare dialog_icon_PID
+
+# Locations of your (app) files to be scanned.
+
+APP_LOCATIONS=("/Applications" 
+        "/System/Applications" 
+        "/System/Applications/Utilities")
+# There is a vast number of icns files located in the ICON_FILES path (Resources folder), uncomment the following line if you want to scan those in
+APP_LOCATIONS+="${ICON_FILES}"
 
 check_swift_dialog_install
 check_support_files

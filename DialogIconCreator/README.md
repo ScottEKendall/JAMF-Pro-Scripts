@@ -14,4 +14,4 @@ Have fun making your own creations!
 
 
 ##### _v1.0 - Initial Commit_
-
+##### _1.1 - Added option for custom app & icns file locations to be scanned in_
