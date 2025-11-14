@@ -497,7 +497,7 @@ APP_LOCATIONS=("/Applications"
         "/System/Applications" 
         "/System/Applications/Utilities")
 # There is a vast number of icns files located in the ICON_FILES path (Resources folder), uncomment the following line if you want to scan those in
-APP_LOCATIONS+="${ICON_FILES}"
+#APP_LOCATIONS+="${ICON_FILES}"
 
 check_swift_dialog_install
 check_support_files
