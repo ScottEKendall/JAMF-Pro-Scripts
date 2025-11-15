@@ -37,12 +37,12 @@ if [[ -e $DEFAULTS_DIR ]]; then
     SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
     SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
     spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
-    repeat $spacing BANNER_TEXT_PADDING+=" "
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    BANNER_TEXT_PADDING="      " #5 spaces to accommodate for icon offset
+    spacing=5 #5 spaces to accommodate for icon offset
 fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
 # Log files location
 
