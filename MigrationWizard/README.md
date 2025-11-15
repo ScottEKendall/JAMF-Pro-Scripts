@@ -2,15 +2,15 @@
 
 In our environment we disable users from being admins, so that also means that you cannot run Apple's Migration Assistant either, so I had to come up with a solution that would work for non-admin users.
 
-![](/MigrationWizard/MigrationWizard-Selection.png)
+![](./MigrationWizard-Selection.png)
 
-![](/MigrationWizard/MIgrationWizard-SpaceCalc.png)
+![](./MIgrationWizard-SpaceCalc.png)
 
-![](/MigrationWizard/MigrationWizard-FileChoices.png)
+![](./MigrationWizard-FileChoices.png)
 
-![](/MigrationWizard/MigrationWizard-Process.png)
+![](./MigrationWizard-Process.png)
 
-Adding or removing items from the migration list is super simple.  Edit the JSON blob (starting at line 996), and add your info in there.  Sample code block:
+Adding or removing items from the migration list is relatively simple.  Edit the JSON blob (starting at line 996), and add your info in there.  Sample code block:
 
 ```{
 "app" : "Chrome Bookmarks",   
@@ -41,6 +41,11 @@ I put in the logic to use the tar command, but can very easily be adapted to use
 NOTE: This app makes heavy use of jq binary and it will detect if it is installed or not.  You should create a JAMF policy that can be triggered from this script to install jq if it is not aleady installed (macOS Sonoma or below).
 
 
-##### _v1.0 - Initial Commit_
-##### _v2.0 - rewrite using JSON blobs for all data content_
+#### 1.0 - Initial code
+#### 2.0 - rewrite using JSON blobs for all data content
+#### 2.1 - Add support to install JQ if it is missing
+#### 2.2 - Code cleanup
+####       Added feature to read in defaults file
+####       removed unnecessary variables.
+####       Fixed typos
 
