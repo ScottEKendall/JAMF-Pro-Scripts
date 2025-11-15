@@ -15,7 +15,7 @@
 # 1.0 - Initial
 # 1,1 - Add a display message (with failure message) if the bootstrap was not successful
 # 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-# 1.4 - Code cleanup
+# 1.3 - Code cleanup
 #       Add verbiage in the window if Grand Perspective is installed.
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
