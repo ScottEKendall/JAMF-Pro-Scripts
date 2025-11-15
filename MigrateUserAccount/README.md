@@ -6,18 +6,22 @@ This script is designed to do (basically) a "rename" of the users home folder, b
 
 Initial Welcome Screen
 
-![](/MigrateUserAccount/MigrateUserAccount_Conversion.png)
+![](./MigrateUserAccount_Conversion.png)
 
 Various sanity checks & errors
 
-![](/MigrateUserAccount/MigrateUserAccount_Failure.png)
+![](./MigrateUserAccount_Failure.png)
 
 Successful transfer of user accounts (restart is necessary if successful)
 
-![](/MigrateUserAccount/MigrateUserAccount_Success.png)
+![](./MigrateUserAccount_Success.png)
 
-
-
-##### _v1.0 - Initial Commit_
-##### _v1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps_
+#### 1.0 - Initial
+#### 1.1 - Code cleanup to be more consistent with all apps
+#### 1.2 - changed the 'create_welcome_dialog' function to use JSON output and parse info differently
+#### 1.3 - Code cleanup
+####       Add verbiage in the window if Grand Perspective is installed.
+####       Added feature to read in defaults file
+####       removed unnecessary variables.
+####       Fixed typos
 
