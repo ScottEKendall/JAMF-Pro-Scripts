@@ -5,11 +5,16 @@
 # by: Scott Kendall
 #
 # Written: 09/03/2025
-# Last updated: 09/03/2025
+# Last updated: 11/15/2025
 #
 # Script Purpose: Change users personal recovery key and escrow to server
 #
 # 1.0 - Initial
+# 1.1 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Bumped min version of SD to 2.5.0
+#       Fixed typos
 
 ######################################################################################################
 #
