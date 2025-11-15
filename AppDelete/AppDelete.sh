@@ -1,26 +1,31 @@
 #!/bin/zsh
 #
-# App Delete
+# AppDelete
 # Purpose: Allow end users to delete apps / folders using Swift Dialog
 #
 # Written: 8/3/2022
-# Last updated: 07/22/2025
+# Last updated: 11/15/2025
 #
 # 1.0 - Initial Release
 # 1.1 - Major code cleanup & documentation
-#		Structred code to be more inline / consistent across all apps
+#		Structured code to be more inline / consistent across all apps
 # 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 2.0 - Bumped Swift Dialog min version to 2.5.0
 #		NEW: Added option to allow folders to be deleted (ALLOWED_FOLDERS)
 #		Put shadows in the banner text
 # 		Reordered sections to better show what can be modified
 # 2.1 - Added option to sort array (case insensitive) after the application scan & folders added 
+# 2.2 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+SCRIPT_NAME="AppDelete"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -36,32 +41,44 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.5.0"
-
-# Make some temp files for this app
-
-JSON_OPTIONS=$(mktemp /var/tmp/AppDelete.XXXXX)
-TMP_FILE_STORAGE=$(mktemp /var/tmp/AppDelete.XXXXX)
-/bin/chmod 666 $JSON_OPTIONS
-/bin/chmod 666 $TMP_FILE_STORAGE
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
+# Make some temp files for this app
+
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+TMP_FILE_STORAGE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+/bin/chmod 666 $JSON_OPTIONS
+/bin/chmod 666 $TMP_FILE_STORAGE
+
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/AppDelete.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Delete Applications"
 SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 OVERLAY_ICON="/System/Applications/App Store.app"
