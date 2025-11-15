@@ -5,34 +5,39 @@
 # Written by: Scott Kendall
 #
 # Created Date: 01/227/2025
-# Last modified: 07/09/2025
+# Last modified: 11/15/2025
 #
 # Script Purpose: Display a generic SWifDialog notification to JAMF users.  Pass in variables to customize display
 #
-# v1.0 - Inital script
-# v1.1 - Code cleanup to be more consistant with all apps
-# v1.2 - the JAMF_LOGGED_IN_USER will default to LOGGED_IN_USER if there is no name present
+# 1.0 - Initial script
+# 1.1 - Code cleanup to be more consistent with all apps
+# 1.2 - the JAMF_LOGGED_IN_USER will default to LOGGED_IN_USER if there is no name present
 #      - Added -ignorednd to make sure that the message is displayed regardless of focus setting
-#      - Will display the infobox items if you can the function first
+#      - Will display the inbox items if you can the function first
 #      - Minimum version of SwiftDialog is now 2.5.0
-# v1.3 - Changed variable declarations around for better readability
+# 1.3 - Changed variable declarations around for better readability
+# 1.4 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
 #
-# Expected Paramaters: 
+# Expected Parameters: 
 # #4 - Title
 # #5 - Full formatted message to display
 # #6 - Alternate language to display (formatted as <2 Digit Lang code> | <message>)
 # #7 - Button1 Text
 # #8 - Image to display
-# #9 - JAMF policy to load image if it doeesn't exist
+# #9 - JAMF policy to load image if it doesn't exist
 # #10 - Notification icon name
 # #11 - Timer (in seconds) to wait until dismissal
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+SCRIPT_NAME="DialogMsg"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -55,19 +60,30 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/DialogNotify.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 SD_IMAGE_TO_DISPLAY="${SUPPORT_DIR}/SupportFiles/PasswordChange.png"
 SD_OVERLAY_ICON="computer"
 
@@ -76,7 +92,7 @@ SD_OVERLAY_ICON="computer"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 
-SD_DEFAULT_LANGUAGE="NL" # Change your default language here!
+SD_DEFAULT_LANGUAGE="EN" # Change your default language here!
 DISPLAY_MESSAGE=""
 
 ##################################################
@@ -171,7 +187,6 @@ function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
     [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -trigger ${SD_IMAGE_POLCIY}
-    /bin/chmod 666 "${SD_IMAGE_TO_DISPLAY}"
 }
 
 function display_msg ()
