@@ -1,27 +1,33 @@
 ## EntraID Registration
 
-We are use Azure/Entra ID & JAMF exclusively in our environmnet, so this script is designed to show the end user the status of their EntraID Registration on their Mac
+We are using Azure/EntraID & JAMF exclusively in our environment, so this script is designed to show the end user the status of their EntraID Registration on their Mac
 
 The user will get the following screens depending on their registration status
 
-If successfull
+If successful
 
-![](/EntraIDRegistration/Entra_Success.png)
+![](./Entra_Success.png)
 
 User registered (WPJ Key in Keychains), but no AAD Plist found
 
-![](/EntraIDRegistration/EntraID_Plist_missing.png)
+![](./EntraID_Plist_missing.png)
 
-User Registered (WPJ Key in Keychiains), but AAD ID Not Accquired
+User Registered (WPJ Key in Keychains), but AAD ID Not Acquired
 
-![](/EntraIDRegistration/EntraID_No_AAD.png)
+![](./EntraID_No_AAD.png)
 
 User not registered at all
 
-![](/EntraIDRegistration/Entra_Failure.png)
+![](./Entra_Failure.png)
 
 
-##### _v1.0 - Initial Commit_
-##### _v1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps_
-##### _v1.2 - Fix problem of Register button not running Policy ID_
-##### _v1.3 - Removed debug code and fix incorrect message on failure dialog_
+#### 1.0 - Initial
+#### 1.1 - Code cleanup to be more consistent with all apps
+#### 1.2 - Fixed issue of Register button not running the JAMF policy
+#### 1.3 - Removed debug code and fix incorrect message on failure dialog
+#### 1.4 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+#### 1.5 - Code cleanup
+####       Added feature to read in defaults file
+####       removed unnecessary variables.
+####       Bumped min version of SD to 2.5.0
+####       Fixed typos
