@@ -13,10 +13,11 @@
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+SCRIPT_NAME="AppDelete"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -35,26 +36,37 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
-# Make some temp files for this app
-
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
+# Make some temp files for this app
+
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/ChangeFVKey.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Change FileVault Key"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 OVERLAY_ICON="SF=wrench.and.screwdriver.fill,color=blue"
 SD_ICON="${ICON_FILES}FileVaultIcon.icns"
 
@@ -200,7 +212,7 @@ function welcomemsg ()
         --infobox "${SD_INFO_BOX_MSG}"
         --helpmessage ""
         --moveable
-        --height 500
+        --height 460
         --width 820
         --ignorednd
         --quitkey 0

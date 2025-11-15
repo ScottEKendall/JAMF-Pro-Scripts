@@ -4,10 +4,19 @@
 
 Message if a user doesn't have a FV Key
 
-![](/ChangeFVKey/ChangeFVKey-Create.png)
+![](./ChangeFVKey-Create.png)
 
 Message if a key exists, with the option to change it
 
-![](/ChangeFVKey/ChangeFVKey-Change.png)
+![](./ChangeFVKey-Change.png)
 
-##### _v1.0 - Initial Commit_
+Successful completion
+
+![](./ChangeFVKey-Success.png)
+
+#### 1.0 - Initial
+#### 1.1 - Code cleanup
+####       Added feature to read in defaults file
+####       removed unnecessary variables.
+####       Bumped min version of SD to 2.5.0
+####       Fixed typos
