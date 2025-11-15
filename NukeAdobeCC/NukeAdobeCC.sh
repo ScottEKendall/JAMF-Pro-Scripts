@@ -5,13 +5,18 @@
 # by: Scott Kendall
 #
 # Written:  09/06/2024
-# Last updated: 05/28/2025
+# Last updated: 11/15/2025
 #
 # Script Purpose: Completely remove Adobe Creative Cloud Suite from a users mac
 #
 # 1.0 - Initial
-# 1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps
+# 1.1 - Major code cleanup & documentation / Structured code to be more inline / consistent across all apps
 # 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.3 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Bumped min version of SD to 2.5.0
+#       Fixed typos
 
 ######################################################################################################
 #
