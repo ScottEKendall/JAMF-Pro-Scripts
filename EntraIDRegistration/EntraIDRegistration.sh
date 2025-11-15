@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/03/2025
-# Last updated: 05/28/2025
+# Last updated: 11/15/2025
 #
 # Script Purpose: Backup the keychain file and delete the current keychain file(s)
 #
