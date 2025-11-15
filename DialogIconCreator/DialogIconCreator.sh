@@ -21,7 +21,7 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 SCRIPT_NAME="DialogIconCreator"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources"
-
+BANNER_TEXT_PADDING=""
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
@@ -49,14 +49,16 @@ if [[ -e $DEFAULTS_DIR ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
     SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    repeat $spacing BANNER_TEXT_PADDING+=" "
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    BANNER_TEXT_PADDING="      " #5 spaces to accommodate for icon offset
 fi
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Dialog Icon Creator"
 OVERLAY_ICON="/System/Applications/App Store.app"
 SD_ICON_FILE=$ICON_FILES"/ToolbarCustomizeIcon.icns"
@@ -418,6 +420,9 @@ function welcomemsg ()
             osascript -e 'tell application "Preview" to activate'
         fi
         # Store the results
+        cat $JSON_DIALOG_BLOB
+        echo "----"
+        echo $JSON_DIALOG_BLOB
         primaryApp=$(echo $temp |  jq -r '."primaryicon".selectedValue')
         primaryBuiltIn=$(echo $temp |  jq -r '."primarybuiltin".selectedValue')
         primaryAlpha=$(echo $temp |  jq -r '."Transparency".selectedValue')
@@ -457,7 +462,7 @@ function change_icon_window ()
         primaryIconAlpha="--iconalpha $primaryAlpha"
         echo "iconalpha: $primaryAlpha" >> $DIALOG_COMMAND_FILE_ICON
 
-        # Next, Chck the overlay icon
+        # Next, Check the overlay icon
         if [[ -n $secondaryTextString ]]; then #textstring first
             secondaryIcon=$secondaryTextString
         elif [[ -n $secondaryBuiltIn ]]; then #SD Built-in
@@ -469,7 +474,7 @@ function change_icon_window ()
             done
         fi
 
-        # Send the info the dispalay icon box
+        # Send the info the display icon box
         [[ -z $secondaryIcon ]] && secondaryPreviewMessage="" || secondaryPreviewMessage="--overlayicon '$secondaryIcon'"
         echo "overlayicon: $secondaryIcon" >> $DIALOG_COMMAND_FILE_ICON
         echo "message: $primaryPreviewMessage $primaryIconSize $primaryIconAlpha<br>$secondaryPreviewMessage" >> $DIALOG_COMMAND_FILE_ICON
