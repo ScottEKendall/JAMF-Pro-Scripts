@@ -1,72 +1,93 @@
 #!/bin/zsh
 #
+# ViewInventory
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 05/28/2025
+# Last updated: 11/15/2025
 
-# Script to view inventory detail of a JAMF record and show pertitent info in SwiftDialog
+# Script to view inventory detail of a JAMF record and show pertinent info in SwiftDialog
 # 
 # 1.0 - Initial code
 # 1.1 - Added addition logic for Mac mini...it isn't formatted the same as regular model names
-# 1.2 - Added feature for compliance reporting, removed unnecessasry functions
+# 1.2 - Added feature for compliance reporting, removed unnecessary functions
 # 1.3 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.4 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Bumped min version of SD to 2.5.0
+#       Fixed typos
 #
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
 
+SCRIPT_NAME="ViewInventory"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
 [[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_MODEL=$(ioreg -l | grep "product-name" | awk -F ' = ' '{print $2}' | tr -d '<>"')
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 TOTAL_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Total Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-
+MAC_MODEL=$(ioreg -l | grep "product-name" | awk -F ' = ' '{print $2}' | tr -d '<>"')
+MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 MAC_LOCALNAME=$(scutil --get LocalHostName)
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
-JQ_FILE_INSTALL_POLICY="install_jq"
-JSS_FILE="/Library/Managed Preferences/com.gianteagle.jss.plist"
-
-###################################################
-#
-# App Specfic variables (Feel free to change these)
-#
-###################################################
-
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Device Information"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/ViewDeviceInventory.log"
-SD_ICON=$ICON_FILES"ToolbarCustomizeIcon.icns"
-JSON_OPTIONS=$(mktemp /var/tmp/ViewInventory.XXXXX)
-chmod 666 ${JSON_OPTIONS}
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-CURRENT_EPOCH=$(date +%s)
+
+# Make some temp files for this app
+
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+chmod 666 ${JSON_OPTIONS}
+
+JSS_FILE="$USER_DIR/Library/Application Support/com.GiantEagleEntra.plist"
+
+###################################################
+#
+# App Specific variables (Feel free to change these)
+#
+###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
+
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# Display items (banner / icon)
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Device Information"
+SD_ICON=$ICON_FILES"ToolbarCustomizeIcon.icns"
+
 HELP_DESK_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 ##################################################
@@ -75,15 +96,17 @@ HELP_DESK_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=22
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID="$4"
 CLIENT_SECRET="$5"
 INVENTORY_MODE=${6:-"local"}
 MIN_OS_VERSION="${7:-"14.4"}" # Minimum version for macOS N
-MIN_HD_SPACE="${8:-"50"}" # Minimum amount of stroage available in gigabytes
-JAMF_CHECKIN_DELTA="${9:-"7"}" #Threshold days since last jamf checkin
+MIN_HD_SPACE="${8:-"50"}" # Minimum amount of storage available in gigabytes
+JAMF_CHECKIN_DELTA="${9:-"7"}" #Threshold days since last jamf check-in
 LAST_REBOOT_DELTA="${10:-"14"}" # Threshold days since last reboot
+
+[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF credentials we are using
 
 ####################################################################################################
 #
@@ -98,7 +121,8 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -155,8 +179,6 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
-
 }
 
 function create_infobox_message()
@@ -167,13 +189,12 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##\n"
-    SD_INFO_BOX_MSG+="**${MAC_MODEL}**<br>"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
-	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Free Space<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
@@ -181,7 +202,7 @@ function cleanup_and_exit ()
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
+	exit $1
 }
 
 function display_device_entry_message ()
@@ -286,7 +307,36 @@ function check_JSS_Connection()
     logMe "JSS connection active!"
 }
 
-function get_JAMF_Server ()
+###########################
+#
+# JAMF functions
+#
+###########################
+
+function JAMF_which_self_service ()
+{
+    # PURPOSE: Function to see which Self service to use (SS / SS+)
+    # RETURN: None
+    # EXPECTED: None
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
+    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    echo $retval
+}
+
+function JAMF_check_connection ()
+{
+    # PURPOSE: Function to check connectivity to the Jamf Pro server
+    # RETURN: None
+    # EXPECTED: None
+
+    if ! /usr/local/bin/jamf -checkjssconnection -retry 5; then
+        logMe "Error: JSS connection not active."
+        exit 1
+    fi
+    logMe "JSS connection active!"
+}
+
+function JAMF_get_server ()
 {
     # PURPOSE: Retreive your JAMF server URL from the preferences file
     # RETURN: None
@@ -296,7 +346,20 @@ function get_JAMF_Server ()
     logMe "JAMF Pro server is: $jamfpro_url"
 }
 
-function get_JamfPro_Classic_API_Token ()
+function JAMF_check_credentials ()
+{
+    # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
+    # RETURN: None
+    # EXPECTED: None
+
+    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
+        logMe "Client/Secret info is not valid"
+        exit 1
+    fi
+    logMe "Valid credentials passed"
+}
+
+function JAMF_get_classic_api_token ()
 {
     # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
     # PARMS: None
@@ -304,10 +367,25 @@ function get_JamfPro_Classic_API_Token ()
     # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
 
      api_token=$(/usr/bin/curl -X POST --silent -u "${CLIENT_ID}:${CLIENT_SECRET}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
+     if [[ "$api_token" == *"Could not extract value"* ]]; then
+         logMe "Error: Unable to obtain API token. Check your credentials and JAMF Pro URL."
+         exit 1
+     else 
+        logMe "Classic API token successfully obtained."
+    fi
 
 }
 
-function get_JAMF_Access_Token()
+function JAMF_validate_token () 
+{
+     # Verify that API authentication is using a valid token by running an API command
+     # which displays the authorization details associated with the current API user. 
+     # The API call will only return the HTTP status code.
+
+     api_authentication_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/auth" --request GET --header "Authorization: Bearer ${api_token}")
+}
+
+function JAMF_get_access_token ()
 {
     # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
     # RETURN: connection stringe (either error code or valid data)
@@ -326,27 +404,41 @@ function get_JAMF_Access_Token()
     elif [[ "$returnval" == '{"error":"invalid_client"}' ]]; then
         logMe "Check the API Client credentials and permissions"
         exit 1
+    else
+        logMe "API token successfully obtained."
     fi
     
     api_token=$(echo "$returnval" | plutil -extract access_token raw -)
 }
 
-function get_JAMF_DeviceID ()
+function JAMF_check_and_renew_api_token ()
 {
-    # PURPOSE: uses the serial number or hostname to get the device ID (UDID) from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
-    # RETURN: the device ID (UDID) for the device in question.
-    # PARMS: $1 - search identifier to use (Serial or Hostname)
+     # Verify that API authentication is using a valid token by running an API command
+     # which displays the authorization details associated with the current API user. 
+     # The API call will only return the HTTP status code.
 
-    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
+     JAMF_validate_token
 
-    jamfID=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" | /usr/bin/plutil -extract results.0.id raw -)
+     # If the api_authentication_check has a value of 200, that means that the current
+     # bearer token is valid and can be used to authenticate an API call.
 
-    # if ID is not found, display a message or something...
-    [[ "$jamfID" == *"Could not extract value"* || "$jamfID" == *"null"* ]] && display_failure_message
-    echo $jamfID
+     if [[ ${api_authentication_check} == 200 ]]; then
+
+     # If the current bearer token is valid, it is used to connect to the keep-alive endpoint. This will
+     # trigger the issuing of a new bearer token and the invalidation of the previous one.
+
+          api_token=$(/usr/bin/curl "${jamfpro_url}/api/v1/auth/keep-alive" --silent --request POST -H "Authorization: Bearer ${api_token}" | plutil -extract token raw -)
+
+     else
+
+          # If the current bearer token is not valid, this will trigger the issuing of a new bearer token
+          # using Basic Authentication.
+
+          JAMF_get_classic_api_token
+     fi
 }
 
-function invalidate_JAMF_Token()
+function JAMF_invalidate_token ()
 {
     # PURPOSE: invalidate the JAMF Token to the server
     # RETURN: None
@@ -362,6 +454,21 @@ function invalidate_JAMF_Token()
         logMe "Unexpected response code: $returnval"
         exit 1  # Or handle it in a different way (e.g., retry or log the error)
     fi    
+}
+
+function get_JAMF_DeviceID ()
+{
+    # PURPOSE: uses the serial number or hostname to get the device ID (UDID) from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
+    # RETURN: the device ID (UDID) for the device in question.
+    # PARMS: $1 - search identifier to use (Serial or Hostname)
+
+    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
+
+    jamfID=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" | /usr/bin/plutil -extract results.0.id raw -)
+
+    # if ID is not found, display a message or something...
+    [[ "$jamfID" == *"Could not extract value"* || "$jamfID" == *"null"* ]] && display_failure_message
+    echo $jamfID
 }
 
 function get_JAMF_InventoryRecord ()
@@ -396,7 +503,12 @@ function get_nic_info ()
 
     adapter=${adapter::-3}
     currentIPAddress=${currentIPAddress::-3}
-    wifiName=$(sudo wdutil info | grep "SSID" | head -1 | awk -F ":" '{print $2}' | xargs)
+    wirelessInterface=$( networksetup -listnetworkserviceorder | sed -En 's/^\(Hardware Port: (Wi-Fi|AirPort), Device: (en.)\)$/\2/p' )
+    ipconfig setverbose 1
+    wifiName=$( ipconfig getsummary "${wirelessInterface}" | awk -F ' SSID : ' '/ SSID : / {print $2}')
+    ipconfig setverbose 0
+    [[ -z "${wifiName}" ]] && wifiName="Not connected"
+
 
 }
 
@@ -518,7 +630,7 @@ function get_zscaler_info ()
  
     tunnel=$( pgrep -i ZscalerTunnel )
 
-    keychainKey=$(su - $LOGGED_IN_USER -c "security find-generic-password -l 'com.zscaler.tray'")
+    keychainKey="" #$(su - $LOGGED_IN_USER -c "security find-generic-password -l 'com.zscaler.tray'")
 
     # If the keychain entry is not found, they haven't logged in
     [[ ! -z $keychainKey ]] && zStatus="Logged In" || zStatus="Not Logged In"
@@ -542,7 +654,6 @@ declare api_token
 declare search_type
 declare computer_id
 declare jamfID
-declare search_type
 declare recordGeneral
 declare recordExtensions
 declare message && message=""
@@ -608,7 +719,7 @@ else
     display_device_entry_message
     check_JSS_Connection
     get_JAMF_Server
-    get_JamfPro_Classic_API_Token
+    [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token 
     jamfID=$(get_JAMF_DeviceID ${search_type})
 
     recordGeneral=$(get_JAMF_InventoryRecord "GENERAL")
@@ -651,7 +762,7 @@ else
     JAMFLastCheckinTime=$(date -j -f "%Y-%m-%dT%H:%M:%S" $JAMFLastCheckinTime +"%Y-%m-%d %H:%M:%S")
 
     lastRebootFormatted=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Last Restart") | .values[]' )
-    lastRebootFormatted=$(date -j -f "%b %d" "$lastRebootFormatted" +"%Y-%m-%d %H:%M:%S")
+    #lastRebootFormatted=$(date -j -f "%b %d" "$lastRebootFormatted" +"%Y-%m-%d %H:%M:%S")
 
     userPassword=$(echo $recordExtensions | jq -r '.extensionAttributes[] | select(.name == "Password Plist Entry") | .values[]' )
 
@@ -674,7 +785,7 @@ passswordAge=$(duration_in_days $userPassword $(date))
 
 # determine falcon status
 
-[[ $falcon_connect_status == "connected" ]] && falcon_connect_status="Connected" || falcon_connect_status="Not Connected"
+[[ $falcon_connect_status == *"Running"* ]] && falcon_connect_status="Connected" || falcon_connect_status="Not Connected"
 
 # determine zScaler status
 if [[ $zScaler_status == *"Logged In"* ]]; then
