@@ -5,13 +5,17 @@
 # by: Scott Kendall
 #
 # Written: 02/01/2025
-# Last updated: 05/20/2025
+# Last updated: 11/15/2025
 #
 # Script Purpose: Change the name of the user folder and migrate data to new folder
 #
 # 1.0 - Initial
 # 1.1 - Code cleanup to be more consistent with all apps
 # 1.2 - changed the 'create_welcome_dialog' function to use JSON output and parse info differently
+# 1.3 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
 ######################################################################################################
 #
 # Global "Common" variables

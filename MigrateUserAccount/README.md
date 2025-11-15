@@ -20,7 +20,6 @@ Successful transfer of user accounts (restart is necessary if successful)
 #### 1.1 - Code cleanup to be more consistent with all apps
 #### 1.2 - changed the 'create_welcome_dialog' function to use JSON output and parse info differently
 #### 1.3 - Code cleanup
-####       Add verbiage in the window if Grand Perspective is installed.
 ####       Added feature to read in defaults file
 ####       removed unnecessary variables.
 ####       Fixed typos
