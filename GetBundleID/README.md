@@ -4,10 +4,14 @@ Handy little utility to retreive all of the bundleIDs from a given directory.  I
 
 Welcome Screen
 
-![](/GetBundleID/GetBundleID-Welcome.png)
+![](./GetBundleID-Welcome.png)
 
 Results screen
 
-![](/GetBundleID/GetBundleID-Results.png)
+![](./GetBundleID-Results.png)
 
-##### _v1.0 - Initial Commit_
+#### 1.0 - Initial
+#### 1.1 - Code cleanup
+####       Added feature to read in defaults file
+####       removed unnecessary variables.
+####       Fixed typos
