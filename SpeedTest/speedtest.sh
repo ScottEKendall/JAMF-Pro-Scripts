@@ -5,77 +5,92 @@
 # by: Scott Kendall
 #
 # Written: 02/27/2025
-# Last updated: 05/28/2025
+# Last updated: 11/15/2025
 #
 # Script Purpose: Use the networkquality command to test the speed of the network
 #
 # 1.0 - Initial 
 # 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.2 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Bumped min version of SD to 2.5.0
+#       Fixed typos
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
 
+SCRIPT_NAME="SpeedTest"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-#JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
+# Make some temp files for this app
+
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+chmod 666 ${JSON_OPTIONS}
+chmod 666 ${DIALOG_COMMAND_FILE}
+
+
 
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# Display items (banner / icon)
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Internet Speed Test"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/SpeedTest.log"
 SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
 OVERLAY_ICON="computer"
-JSON_OPTIONS=$(mktemp /var/tmp/SpeedTest.XXXXX)
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/SpeedTest.XXXXX)
-
-chmod +rw ${JSON_OPTIONS}
-chmod +rw ${DIALOG_COMMAND_FILE}
-
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
  
 ##################################################
 #
 # Passed in variables
 # 
 #################################################
-
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 ####################################################################################################
@@ -91,7 +106,8 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -149,6 +165,31 @@ function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
 }
+
+function create_infobox_message()
+{
+	################################
+	#
+	# Swift Dialog InfoBox message construct
+	#
+	################################
+
+	SD_INFO_BOX_MSG="## System Info ##<br>"
+	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
+	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
+	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
+}
+
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit $1
+}
+
 
 function update_display_list ()
 {
@@ -301,14 +342,6 @@ function update_display_list ()
             ;;
   
     esac
-}
-
-function cleanup_and_exit ()
-{
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
 }
 
 function construct_dialog_header_settings()
