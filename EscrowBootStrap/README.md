@@ -12,22 +12,18 @@ This script will determine the status of the user's BootStrap Token and try to s
 
 Welcome Screen (If user has a valid token already)
 
-![](/EscrowBootStrap/EscrowBootStrap_Success.png)
+![](./EscrowBootStrap_Success.png)
 
 Process if the user needs a token
 
-![](/EscrowBootStrap/EscrowBootStrap_Welcome.png)
+![](./EscrowBootStrap_Welcome.png)
 
 Password Entry
-![](/EscrowBootStrap/EscrowBootStrap_Password.png)
+![](./EscrowBootStrap_Password.png)
 
-Message if token is successfully granted
+Problems updating the token (with error message)
 
-![](/EscrowBootStrap/EscrowBootStrap_Success.png)
-
-Problems updatng the token (with error message)
-
-![](/EscrowBootStrap/EscrowBootStrap_Failure.png)
+![](./EscrowBootStrap_Failure.png)
 
 
 
@@ -35,4 +31,6 @@ Problems updatng the token (with error message)
 
 
 ##### _v1.0 - Initial Commit_
-##### _v1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps_
+##### _v1.1 - Major code cleanup & documentation / Structured code to be more inline / consistent across all apps_
+##### _v1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore..._
+##### _v1.3 - Code cleanup / Add verbiage in the window if Grand Perspective is installed. / Added feature to read in defaults file / removed unnecessary variables. / Fixed typos_
