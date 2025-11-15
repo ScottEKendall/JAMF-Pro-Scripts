@@ -11,6 +11,8 @@
 #
 # 1.0 - Initial
 # 1.1 - Added option for custom app file locations to be scanned in
+# 1.2 - Added option to read in variables from defaults file
+#       Fixed typos
 
 ######################################################################################################
 #
@@ -21,7 +23,6 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 SCRIPT_NAME="DialogIconCreator"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources"
-BANNER_TEXT_PADDING=""
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
@@ -50,12 +51,12 @@ if [[ -e $DEFAULTS_DIR ]]; then
     SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
     SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
     spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
-    repeat $spacing BANNER_TEXT_PADDING+=" "
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    BANNER_TEXT_PADDING="      " #5 spaces to accommodate for icon offset
+    spacing=5 #5 spaces to accommodate for icon offset
 fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
 # Display items (banner / icon)
 
