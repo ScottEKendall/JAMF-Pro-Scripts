@@ -5,12 +5,16 @@
 # by: Scott Kendall
 #
 # Written: 09/01/2023
-# Last updated: 11/15/2025
+# Last updated: 11/16/2025
 #
 # Script Purpose: Clear all cache/cookies from all browsers currently installed
 #
 # 1.0 - Initial
 # 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.2 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
 
 ######################################################################################################
 #
@@ -42,15 +46,17 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
+# Make some temp files for this app
+
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+chrome_tmp_dir=$(mktemp -d /var/tmp/$SCRIPT_NAME.XXXXX)
+edge_tmp_dir=$(mktemp -d /var/tmp/$SCRIPT_NAME.XXXXX)
+
 ###################################################
 #
 # App Specific variables (Feel free to change these)
 #
 ###################################################
-
-JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
-chrome_tmp_dir=$(mktemp -d /var/tmp/$SCRIPT_NAME.XXXXX)
-edge_tmp_dir=$(mktemp -d /var/tmp/$SCRIPT_NAME.XXXXX)
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
@@ -58,10 +64,13 @@ if [[ -e $DEFAULTS_DIR ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
     SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
 fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
 # Log files location
 
