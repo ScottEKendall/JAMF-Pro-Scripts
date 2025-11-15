@@ -5,65 +5,83 @@
 # by: Scott Kendall
 #
 # Written: 9/20/2023
-# Last updated: 05/28/2025
+# Last updated: 11/15/2025
 #
 # Script Purpose: change the permissions on the files in the users directory so that they are the owner of all the files
 #
 # 1.0 - Initial rewrite using Swift Dialog prompts
-# 1.1 - Code cleanup to be more consistant with all apps
+# 1.1 - Code cleanup to be more consistent with all apps
 # 1.2 - Changed logic in get_total_app_count function to use find | wc (much faster)
 # 1.3 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+# 1.4 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Bumped min version of SD to 2.5.0
+#       Fixed typos
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
 
+SCRIPT_NAME="FixProfileOwner"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-###################################################
-#
-# App Specfic variables (Feel free to change these)
-#
-###################################################
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Fix Profile Ownership"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/FixProfileOwner.log"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/FixProfileOwner.XXXXX)
+# Make some temp files for this app
+
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 /bin/chmod 666 "${DIALOG_COMMAND_FILE}"
 
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+###################################################
+#
+# App Specific variables (Feel free to change these)
+#
+###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
+
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# Display items (banner / icon)
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Fix Profile Ownership"
+SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+
 USER_SCAN_START_DIR="${USER_DIR}"
 
 ##################################################
@@ -72,12 +90,12 @@ USER_SCAN_START_DIR="${USER_DIR}"
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=$3                          # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
 ####################################################################################################
 #
-# Global Functions
+# Functions
 #
 ####################################################################################################
 
@@ -88,7 +106,8 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -145,6 +164,30 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+}
+
+function create_infobox_message()
+{
+	################################
+	#
+	# Swift Dialog InfoBox message construct
+	#
+	################################
+
+	SD_INFO_BOX_MSG="## System Info ##<br>"
+	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
+	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
+	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
+}
+
+function cleanup_and_exit ()
+{
+	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+	exit 0
 }
 
 function update_display_list ()
@@ -312,7 +355,7 @@ function show_welcome_message ()
     # Return: None
 
     MainDialogBody=(
-        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}. Please wait while determining which files to analyze...<br>Starting the scan at folder: ${USER_SCAN_START_DIR}"
+        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}. Please wait while determining which files to analyze...<br><br>Starting the scan at folder: ${USER_SCAN_START_DIR}"
         --icon "${SD_ICON_FILE}"
         --iconsize 128
         --overlayicon computer
@@ -371,15 +414,6 @@ function change_permissions ()
     if [[ -e ${UserDir}/.toolsenv ]]; then
         chown root:wheel ${UserDir}/.toolsenv
     fi
-
-}
-
-function cleanup_and_exit ()
-{
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
 }
 
 #############################
