@@ -4,67 +4,48 @@
 #
 # Written by: Scott E. Kendall
 # Created: 01/25/2025
-# Last Modified: 07/09/2025
+# Last Modified: 11/15/2025
 #
 # Script Purpose: Prompt user if battery needs service
 #
 # 1.0 - Initial
-# 1.1 - Code cleanup to be more consistant with all apps
+# 1.1 - Code cleanup to be more consistent with all apps
 # 1.2 - fix the SD_ICON reference in the display prompt
 # 1.3 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 1.4 - Changed the icon(s) and wording / Add Help Desk button if battery critical
-# 1.5 - Swift dialog min requirements now 2.5.0 / Changed wording on critial message / New icons / Added display item for currently charging.
+# 1.5 - Swift dialog min requirements now 2.5.0 / Changed wording on critical message / New icons / Added display item for currently charging.
+# 1.6 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Bumped min version of SD to 2.5.0
+#       Fixed typos
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
 
+SCRIPT_NAME="BatteryInfo"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-OS_PLATFORM=$(/usr/bin/uname -p)
-
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.5.0"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
-
-
-###################################################
-#
-# App Specfic variables (Feel free to change these)
-#
-###################################################
-
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Battery Condition"
-SD_INFO_BOX_MSG=""
-LOG_FILE="${LOG_DIR}/BatteryCondition.log"
-SD_ICON="SF=minus.plus.batteryblock, color=green, weight=normal"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 SYSTEM_PROFILER_BATTERY_BLOB=$( /usr/sbin/system_profiler 'SPPowerDataType')
 
@@ -76,6 +57,38 @@ ChargerConnected=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Connected:" | sed 
 BatteryChargingWattage=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Wattage (W)" | sed 's/.*Wattage (W): //')
 BatteryCharging=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Charging:" | sed 's/.*Charging: //' | head -n 1)
 
+###################################################
+#
+# App Specific variables (Feel free to change these)
+#
+###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing SD_WINDOW_TITLE+=" "
+
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# Display items (banner / icon)
+
+SD_WINDOW_TITLE+="Battery Condition"
+SD_ICON="SF=minus.plus.batteryblock, color=green, weight=normal"
+
+HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
+
+
 ##################################################
 #
 # Passed in variables
@@ -84,7 +97,7 @@ BatteryCharging=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Charging:" | sed 's
 
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}" 
-BATTERY_CONDITION=${4:-""}
+BATTERY_CONDITION=${4:-"info"}
 
 ####################################################################################################
 #
@@ -220,7 +233,7 @@ function welcomemsg ()
 		--button1text 'OK'
 		--buttonstyle center
     )
-    if [[ -z "${BATTERY_CONDITION:l}" ]] && MainDialogBody+=(--button2text "Help Desk Ticket")
+    if [[ "${BATTERY_CONDITION:l}" == "fail" ]] && MainDialogBody+=(--button2text "Help Desk Ticket")
     
 	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
     buttonpress=$?
