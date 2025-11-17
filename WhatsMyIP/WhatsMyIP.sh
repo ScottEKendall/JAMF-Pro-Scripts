@@ -1,33 +1,39 @@
 #!/bin/zsh
 #
-# IP Test
+# WhatsMyIP
 #
 # by: Scott Kendall
 #
 # Written: 9/20/2023
-# Last updated: 08/13/2025
+# Last updated: 11/17/2025
 #
 # Script Purpose: Display the IP address on all adapters as well as Cisco VPN if they are connected
 #
 # 1.0 - Initial rewrite using Swift Dialog prompts
-# 1.1 - Code cleanup to be more consistant with all apps
-# 1.2 - Reworked logic for all physical adapters to accomodate for older macs
+# 1.1 - Code cleanup to be more consistent with all apps
+# 1.2 - Reworked logic for all physical adapters to accommodate for older macs
 # 1.3 - Included logic to display Wifi name if found
-# 1.4 - Changed logic for Wi-Fi name to accomodate macOS 15.6 changes
+# 1.4 - Changed logic for Wi-Fi name to accommodate macOS 15.6 changes
 #       Reworked top section for better idea of what can be modified
+# 1.5 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+SCRIPT_NAME="WhatsMyIP"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
 [[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
+MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
@@ -40,31 +46,42 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
-# Make some temp files for this app
-
-JSON_OPTIONS=$(mktemp /var/tmp/NetworkIP.XXXXX)
-/bin/chmod 666 $JSON_OPTIONS
-
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
+# Make some temp files
+
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+chmod 666 $JSON_OPTIONS
+
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/Logs/NetworkIP.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE=$BANNER_TEXT_PADDING"What's my IP?"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-OVERLAY_ICON="/System/Applications/App Store.app"
 SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
+OVERLAY_ICON="/System/Applications/App Store.app"
 
 # Trigger installs for Images & icons
 
@@ -85,9 +102,6 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 # Functions
 #
 ####################################################################################################
-
-typeset -a adapter
-typeset -a ip_address
 
 function create_log_directory ()
 {
@@ -186,7 +200,13 @@ function get_nic_info
 
         [[ -z $currentip ]] && continue
         adapter+="$sname"
-        [[ $sname == *"Wi-Fi"* ]] && wifiName="_($( system_profiler SPAirPortDataType | awk '/Current Network Information:/ { getline; print substr($0, 13, (length($0) - 13)); exit }' ))_"      
+        if [[ $sname == *"Wi-Fi"* ]]; then
+            wirelessInterface=$( networksetup -listnetworkserviceorder | sed -En 's/^\(Hardware Port: (Wi-Fi|AirPort), Device: (en.)\)$/\2/p' )
+            ipconfig setverbose 1
+            wifiName='('$( ipconfig getsummary "${wirelessInterface}" | awk -F ' SSID : ' '/ SSID : / {print $2}')')'
+            ipconfig setverbose 0
+            [[ -z "${wifiName}" ]] && wifiName="Not connected"
+        fi
         ip_address+="**$currentip** $wifiName"
     done <<< "$(networksetup -listnetworkserviceorder | grep 'Hardware Port')"
 
@@ -222,6 +242,7 @@ function construct_dialog_header_settings()
 		"bannertitle" : "'${SD_WINDOW_TITLE}'",
 		"titlefont" : "shadow=1",
 		"button1text" : "OK",
+        "ontop" : "true",
 		"height" : "375",
 		"width" : "800",
 		"moveable" : "true",
@@ -253,6 +274,10 @@ function display_welcome_message()
 # Main Program
 #
 ##############################
+
+typeset -a adapter
+typeset -a ip_address
+
 autoload 'is-at-least'
 
 create_log_directory
