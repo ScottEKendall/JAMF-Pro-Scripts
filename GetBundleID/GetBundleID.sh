@@ -7,10 +7,13 @@
 # Written: 07/11/2025
 # Last updated: 07/11/2025
 #
-# Script Purpose: Exract the bundle ID of all of the apps found in a given directory
+# Script Purpose: Extract the bundle ID of all of the apps found in a given directory
 #
 # 1.0 - Initial
-
+# 1.1 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
 
 ######################################################################################################
 #
