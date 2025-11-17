@@ -9,15 +9,25 @@ v1.2 adds the option to view your password days until expiration "on demand" so 
 
 **Initial Prompt**
 
-![First Dialog prompt](/PasswordExpire/PasswordExpire.png)
+![First Dialog prompt](./PasswordExpire.png)
 
 **Notification Center prompt**
 
-![Notification Center](/PasswordExpire/PasswordExpireNotification.png)
+![Notification Center](./PasswordExpireNotification.png)
 
 **Script Parameters**
 
-![](/PasswordExpire/PasswordExpire-Parameters.png)
+![](./PasswordExpire-Parameters.png)
 
-##### _v1.0 - Initial Commit_
-##### _v1.2 - Add option for "on demand" viewing of password_
+#### 1.0 - Initial Release
+#### 1.1 - Major code cleanup & documentation
+####		 Structured code to be more inline / consistent across all apps
+#### 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+#### 1.3 - Fixed password age calculation
+#### 		 Add support for 'on demand' viewing of password
+#### 1.4 - Changed variable declarations around for better readability
+#### 1.5 - Code cleanup
+####       Added feature to read in defaults file
+####       removed unnecessary variables.
+####       SD min version is now 2.5.0
+####       Fixed typos
