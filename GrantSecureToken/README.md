@@ -11,21 +11,27 @@ Secure Tokens on macOS are used to allow users to:
 
 Welcome Screen (If user has a valid token already)
 
-![](/GrantSecureToken/GrantSecureToken_NoIssues.png)
+![](./GrantSecureToken_NoIssues.png)
 
 Process if the user needs a token and there is an account on the system that can grant a token
 
-![](/GrantSecureToken/GrantSecureToken_Welcome.png)
-
-![](/GrantSecureToken/GrantSecureToken_Passwords.png)
+![](./GrantSecureToken_Passwords.png)
 
 Message if token is successfully granted
 
-![](/GrantSecureToken/GrantSecureToken_Success.png)
+![](./GrantSecureToken_Success.png)
 
-Problems updatng the token (with error message)
+Problems updating the token (with error message)
 
-![](/GrantSecureToken/GrantSecureToken_Failure.png)
+![](./GrantSecureToken_Failure.png)
 
-##### _v1.0 - Initial Commit_
-##### _v1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps_
+#### 1.0 - Initial
+#### 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+#### 1.2 - Reworked top section for better idea of what can be modified
+####       Swift Dialog version is now 2.5.0
+####       Added title font shadow to display box
+####       Put proper quoting around variables to deal with special characters better
+#### 1.3 - Code cleanup
+####       Added feature to read in defaults file
+####       removed unnecessary variables.
+####       Fixed typos

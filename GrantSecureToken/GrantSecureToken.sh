@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/11/25
-# Last updated: 08/15/25
+# Last updated: 11/17/25
 #
 # Script Purpose: GUI Prompt to set the Secure Token to any user
 #
@@ -18,13 +18,18 @@
 #       Swift Dialog version is now 2.5.0
 #       Added title font shadow to display box
 #       Put proper quoting around variables to deal with special characters better
+# 1.3 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
 
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+
+SCRIPT_NAME="GrantSecureToken"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -36,7 +41,6 @@ MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareData
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
-SD_INFO_BOX_MSG=""
 
 # Swift Dialog version requirements
 
@@ -44,29 +48,40 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
-# Make some temp files for this app
-
-JSON_OPTIONS=$(mktemp /var/tmp/AppDelete.XXXXX)
-/bin/chmod 666 $JSON_OPTIONS
-
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
+# Make some temp files
+
+JSON_OPTIONS=$(mktemp /var/tmp/ExtractBundleIDs.XXXXX)
+chmod 666 $JSON_OPTIONS
+
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/Logs/GrantSecureToken.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Grant Secure Token"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 OVERLAY_ICON="/System/Applications/App Store.app"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
@@ -294,7 +309,7 @@ MissingSecureTokenCheck
 # do some quick tests on the results
 
 [[ "$result" == "UNDEFINED" ]] && { display_msg "I am unable to determine the status of your secure token.  Please create a ticket with the TSD so this can be investigated" "message" "Done" "warning" "welcome"; cleanup_and_exit 0; }
-[[ "$result" == "YES" ]] && { display_msg "Congratulatons!  Your account already has a secure token assigned to it.  No further action is necessary." "message" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy"; cleanup_and_exit 0; }
+[[ "$result" == "YES" ]] && { display_msg "Congratulations!  Your account already has a secure token assigned to it.  No further action is necessary." "message" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy"; cleanup_and_exit 0; }
 
 # if we made it this far, the user doesn't have a token on their account
 
@@ -316,7 +331,7 @@ fi
 
 # Have user select a secure token user they know the password for
 
-display_msg "You are seeing this prompt, becuase you don't have what is called a 'Secure Token' on your computer.  A Secure Token allows you to login after the computer has been restarted, or to install software udpates." "input" "OK" "computer" "welcome"
+display_msg "You are seeing this prompt, because you don't have what is called a 'Secure Token' on your computer.  A Secure Token allows you to login after the computer has been restarted, or to install software updates." "input" "OK" "computer" "welcome"
 display_msg "Enter the passwords for the following users" "password" "OK" "caution"
     
 
