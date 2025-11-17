@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 04/29/2025
-# Last updated: 09/18/2025
+# Last updated: 11/17/2025
 #
 # Script Purpose: Selectively remove Adobe apps from a users system
 #
@@ -18,43 +18,45 @@
 # 1.6 - Modified section headers for better organization
 # 1.7 - Fix line #468 to force check lowercase parameter
 # 1.8 - Added option to allow deletion of current year / fixed Bridge 2025 version #
+# 1.9 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
 #
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
 
+SCRIPT_NAME="RemoveAdobeApps"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
+MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
-OS_PLATFORM=$(/usr/bin/uname -p)
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 MIN_SD_REQUIRED_VERSION="2.5.0"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
-# Temp files used by this app
-TMP_FILE_STORAGE=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
-JSON_OPTIONS=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/RemoveAdobeApps.XXXXX)
+# Make some temp files
+
+TMP_FILE_STORAGE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+JSON_DIALOG_BLOB=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 chmod 666 ${JSON_OPTIONS}
 chmod 666 ${JSON_DIALOG_BLOB}
 chmod 666 ${DIALOG_COMMAND_FILE}
@@ -62,23 +64,34 @@ chmod 666 ${TMP_FILE_STORAGE}
 
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/AppDelete.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
-# Display items (banner / icon / help icon, etc)
+# Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Remove Adobe Apps"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-SD_INFO_BOX_MSG=""
 SD_ICON_FILE="/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"
 OVERLAY_ICON="SF=trash.fill, color=black, weight=light"
+
 HELP_DESK_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 # Trigger installs for Images & icons
@@ -177,7 +190,7 @@ function check_support_files ()
     [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
 }
 
-function create_infobox_message ()
+function create_infobox_message()
 {
 	################################
 	#
@@ -187,10 +200,10 @@ function create_infobox_message ()
 
 	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
