@@ -12,4 +12,4 @@ Sometimes applications in the Microsoft Office suite just refuse to work properl
 ####       removed unnecessary variables.
 ####       Bumped min version of SD to 2.5.0
 ####       Fixed typos
-
+#### 1.4	Add removal for Teams
