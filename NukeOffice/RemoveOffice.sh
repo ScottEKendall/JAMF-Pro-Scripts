@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 04/27/2025
-# Last updated: 05/28/2025
+# Last updated: 11/18/2025
 #
 # Script Purpose:  Purpose: Completely remove MS Office Products from users mac
 #
@@ -17,6 +17,7 @@
 #       removed unnecessary variables.
 #       Bumped min version of SD to 2.5.0
 #       Fixed typos
+# 1.4	Add removal for Teams
 
 ######################################################################################################
 #
@@ -79,9 +80,9 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Remove Microsoft Office"
-SD_ICON_FILE="https://cdn-1.webcatalog.io/catalog/microsoft-office/microsoft-office-icon-filled-256.webp?v=1760921468910"
+SD_ICON_FILE="https://upload.wikimedia.org/wikipedia/commons/thumb/0/0e/Microsoft_365_%282022%29.svg/512px-Microsoft_365_%282022%29.svg.png?20231004051714"
 TSD_TICKET="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
-OVERLAY_ICON="SF=trash.fill,color=black,weight=light,bgcolor=none"
+OVERLAY_ICON="SF=trash.fill,color=black"
 
 ##################################################
 #
@@ -193,10 +194,11 @@ function display_welcome_msg ()
     messagebody="This script is designed to completely remove the below listed applications in\n"
     messagebody+="case you are having issues launching any\n"
     messagebody+="of the office products.\n"
-    messagebody+="* Microsoft Word\n"
-    messagebody+="* Microsoft Excel\n"
-    messagebody+="* Microsoft Outlook\n"
-    messagebody+="* Microsoft Powerpoint\n\n"
+    messagebody+="* Microsoft Word<br>"
+    messagebody+="* Microsoft Excel<br>"
+    messagebody+="* Microsoft Outlook<br>"
+    messagebody+="* Microsoft Powerpoint<br>"
+    messagebody+="* Microsoft Teams<br><br>"
     messagebody+="The entire suite can be reinstalled from Self Service."
 
 	MainDialogBody=(
@@ -204,6 +206,7 @@ function display_welcome_msg ()
         --titlefont shadow=1
 		--ontop
 		--icon "${SD_ICON_FILE}"
+        --iconsize 256
 		--overlayicon "${OVERLAY_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
@@ -235,6 +238,7 @@ function delete_files ()
         "/Applications/Microsoft Powerpoint.app"
         "/Applications/Microsoft Excel.app"
         "/Applications/Microsoft Outlook.app"
+        "/Applications/Microsoft Teams.app"
         "${ContainersPath}com.microsoft.excel"
         "${ContainersPath}com.microsoft.Outlook"
         "${ContainersPath}com.microsoft.Outlook.CalendarWidget"
@@ -251,6 +255,17 @@ function delete_files ()
 		"${GroupContainersPath}UBF8T346G9.ms"
 		"${GroupContainersPath}UBF8T346G9.Office"
 		"${GroupContainersPath}UBF8T346G9.OfficeOsfWebHost"
+        "${USER_DIR}/Library/Caches/com.microsoft.teams"
+        "${USER_DIR}/Library/Caches/com.microsoft.teams.shipit"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/Application Cache/Cache"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/blob_storage"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/Cache"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/databases"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/GPUCache"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/IndexedDB"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/Local Storage"
+        "${USER_DIR}/Library/Application Support/Microsoft/Teams/tmp"
 	) { [[ -e "${CleanUp_Path}" ]] && { logMe "Cleaning up: ${CleanUp_Path}" ; /bin/rm -rf "${CleanUp_Path}" ; }}
 
 }
