@@ -152,4 +152,6 @@ The above example is taken from the DialogMsg script:
 
 ```SD_TIMER```: will default to 120 seconds if nothing is passed in
 
+If you find my work useful, please consider buying me a coffee to keep me writing more scripts!
+
 <a href="https://www.buymeacoffee.com/scottekendall"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=scottekendall&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
