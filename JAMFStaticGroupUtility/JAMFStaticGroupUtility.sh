@@ -277,7 +277,7 @@ function JAMF_validate_token ()
 function JAMF_get_access_token ()
 {
     # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
-    # RETURN: connection stringe (either error code or valid data)
+    # RETURN: connection string (either error code or valid data)
     # PARMS: None
     # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
 
@@ -350,7 +350,7 @@ function JAMF_retrieve_static_group_members ()
     # PURPOSE: Retrieve the members of a static group
     # RETURN: array of members
     # EXPECTED: jamfpro_url, api_token
-    # PARMATERS: $1 = JAMF Static group ID
+    # PARAMETERS: $1 = JAMF Static group ID
     declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}JSSResource/computergroups/id/${1}")
     echo $tmp #| jq -r '.computer_group.computers[].name'
 }
@@ -360,7 +360,7 @@ function JAMF_static_group_action ()
     # PURPOSE: Write out the changes to the static group
     # RETURN: None
     # Expected jamfprourl, api_token, JAMFjson_BLOB
-    # PARMATERS: $1 = JAMF Static group id
+    # PARAMETERS: $1 = JAMF Static group id
     #            $2 - Serial # of device
     #            $3 = Acton to take "Add/Remove"
     declare apiData
@@ -390,22 +390,22 @@ function JAMF_get_inventory_record()
     retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=$1&filter=$filter" 2>/dev/null)
     echo $retval | tr -d '\n'
 }
-    function JAMF_retreive_static_group_id ()
+    function JAMF_retrieve_static_group_id ()
 {
     # PURPOSE: Retrieve the ID of a static group
     # RETURN: ID # of static group
     # EXPECTED: jamfpro_url, api_token
-    # PARMATERS: $1 = JAMF Static group name
+    # PARAMETERS: $1 = JAMF Static group name
     declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computer-groups/static-groups?page=0&page-size=100&sort=id%3Aasc&filter=name%3D%3D%22"${1}%22)
     echo $tmp | jq -r '.results[].id'
 }
-}
+
 
 function JAMF_retrieve_data_blob ()
 {    
     # PURPOSE: Extract the summary of the JAMF conmand results
     # RETURN: XML contents of command
-    # PARAMTERS: $1 = The API command of the JAMF atrribute to read
+    # PARAMETERS: $1 = The API command of the JAMF atrribute to read
     #            $2 = format to return XML or JSON
     # EXPECTED: 
     #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
@@ -551,9 +551,9 @@ function create_radio_message_body ()
 
     # RETURN: None
     # EXPECTED: message
-    # PARMS: $1 - item name (interal reference) 
+    # PARMS: $1 - item name (internal reference) 
     #        $2 - title (Display)
-    #        $3 - first or last - construct appropriate listitem heders / footers
+    #        $3 - first or last - construct appropriate listitem headers / footers
 
     declare line && line=""
 
@@ -653,7 +653,7 @@ function create_textfield_message_body ()
 
     # RETURN: None
     # EXPECTED: message
-    # PARMS: $1 - item name (interal reference) 
+    # PARMS: $1 - item name (internal reference) 
     #        $2 - title (Display)
     #        $3 - first or last - construct appropriate listitem heders / footers
 
