@@ -14,7 +14,7 @@ If you do pass in the group name (not the ID) it will not prompt the user to sel
 
 ![](./JAMFStaticGroupUtility-No%20Group.png)
 
-The reults of viewing membership and if your selected Hostname is in the membership list.
+The results of viewing membership and if your selected Hostname is in the membership list.
 
 ![](./JAMFStaticGroupUtility-Results.png)
 
@@ -33,7 +33,7 @@ If you do parameter passing into the script with the following info it will bypa
 
 1.  Pass in the group NAME
 2.  Pass in the action to take (Add or Remove)
-3.  Set the parmater to Turn off the dialog display window 
+3.  Set the parameter to Turn off the dialog display window 
 
 
 Example:
@@ -49,3 +49,7 @@ sudo ./JAMFStaticGroupUtility.sh "" "" "" "<JAMF Client>>" "<JAMF Secret>>" "Use
 ##### 1.0 - Inital Commit #####
 ##### 1.1 - Add function to verify passed credentials #####
 ##### 1.2 - Add options to pass in group Action and to not show GUI window ####
+##### 1.3 - Code cleanup
+#####       Added feature to read in defaults file
+#####       removed unnecessary variables.
+#####       Fixed typos

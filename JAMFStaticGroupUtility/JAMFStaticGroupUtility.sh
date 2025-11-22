@@ -1,13 +1,13 @@
 #!/bin/zsh --no-rcs
 #
-# JAMFStaticGroupUtilty.sh
+# JAMFStaticGroupUtility.sh
 #
 # by: Scott Kendall
 #
 # Written: 10/09/2025
-# Last updated: 11/05/2025
+# Last updated: 11/22/2025
 #
-# Script Purpose: View, Add or Delete JAMF static group memebers
+# Script Purpose: View, Add or Delete JAMF static group members
 #
 
 ######################
@@ -25,22 +25,27 @@
 # 1.0 - Initial
 # 1.1 - Add function to make sure Client / Secret are passed into the script
 # 1.2 - Added options to pass group action (Add/Remove) and whether or not to show to selection window
+# 1.3 - Code cleanup
+#       Added feature to read in defaults file
+#       removed unnecessary variables.
+#       Fixed typos
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+SCRIPT_NAME="JAMFStaticGroupUtility"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-USER_ID=$(id -u "$LOGGED_IN_USER")
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
 [[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL=$(echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
-MAC_HOSTNAME=$(hostname)
+MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
+MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MAC_HOST_NAME=$(hostname -d)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -50,39 +55,48 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
-# Make some temp files for this app
-
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/JAMFStaticGroupModify.XXXXX)
-/bin/chmod 666 $JSON_DIALOG_BLOB
-
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
+# Make some temp files
+
+JSON_DIALOG_BLOB=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+
+chmod 666 $JSON_DIALOG_BLOB
+
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e $DEFAULTS_DIR ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/JAMFStaticGroupModify.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Static Group Modification"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-SD_ICON="/Applications/Self Service.app"
-OVERLAY_ICON="${ICON_FILES}ToolbarCustomizeIcon.icns"
 SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
+OVERLAY_ICON="${ICON_FILES}ToolbarCustomizeIcon.icns"
 
 # Trigger installs for Images & icons
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
-PSSO_ICON_POLICY="install_psso_icon"
-PORTAL_APP_POLICY="install_mscompanyportal"
 
 ##################################################
 #
@@ -92,13 +106,13 @@ PORTAL_APP_POLICY="install_mscompanyportal"
 
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
-CLIENT_ID=${4}                               # user name for JAMF Pro
-CLIENT_SECRET=${5}
+CLIENT_ID="${4}"           
+CLIENT_SECRET="${5}"
 JAMF_GROUP_NAME=${6}          
 JAMF_GROUP_ACTION=${7:-"Add"}
 SHOW_WINDOW=${8:-"Yes"}  
 
-[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
+[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine which JAMF credentials we are using
 
 ####################################################################################################
 #
@@ -113,7 +127,7 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
     LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
@@ -331,16 +345,6 @@ function JAMF_invalidate_token ()
     fi    
 }
 
-function JAMF_retreive_static_group_id ()
-{
-    # PURPOSE: Retrieve the ID of a static group
-    # RETURN: ID # of static group
-    # EXPECTED: jamfpro_url, api_token
-    # PARMATERS: $1 = JAMF Static group name
-    declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computer-groups/static-groups?page=0&page-size=100&sort=id%3Aasc&filter=name%3D%3D%22"${1}%22)
-    echo $tmp | jq -r '.results[].id'
-}
-
 function JAMF_retrieve_static_group_members ()
 {
     # PURPOSE: Retrieve the members of a static group
@@ -353,9 +357,9 @@ function JAMF_retrieve_static_group_members ()
 
 function JAMF_static_group_action ()
 {
-	# PURPOSE: Remove record from JAMF static group
+    # PURPOSE: Write out the changes to the static group
     # RETURN: None
-    # EXPECTED: jamfpro_url, api_token
+    # Expected jamfprourl, api_token, JAMFjson_BLOB
     # PARMATERS: $1 = JAMF Static group id
     #            $2 - Serial # of device
     #            $3 = Acton to take "Add/Remove"
@@ -367,8 +371,34 @@ function JAMF_static_group_action ()
         apiData="<computer_group><computer_additions><computer><serial_number>${MAC_SERIAL}</serial_number></computer></computer_additions></computer_group>"
     fi
     ## curl call to the API to add the computer to the provided group ID
-    retval=$(curl -s -f -H "Authorization: Bearer ${api_token}" -H "Content-Type: application/xml" ${jamfpro_url}JSSResource/computergroups/id/${1} -X PUT -d "${apiData}")
+    retval=$(/usr/bin/curl -s -f -H "Authorization: Bearer ${api_token}" -H "Content-Type: application/xml" "${jamfpro_url}JSSResource/computergroups/id/${1}" -X PUT -d "${apiData}")
+    # Check API response
     [[ $retval == *"409"* ]] && echo "ERROR: System not in group" 1>&2
+    [[ $? -eq 0 ]] && return 0 || return 1
+}
+
+function JAMF_get_inventory_record()
+{
+    # PURPOSE: Uses the JAMF 
+    # RETURN: The inventory record in JSON format
+    # PARMS:  $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
+    #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
+    #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
+    #        $2 - Filter condition to use for search
+
+    filter=$(convert_to_hex $2)
+    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=$1&filter=$filter" 2>/dev/null)
+    echo $retval | tr -d '\n'
+}
+    function JAMF_retreive_static_group_id ()
+{
+    # PURPOSE: Retrieve the ID of a static group
+    # RETURN: ID # of static group
+    # EXPECTED: jamfpro_url, api_token
+    # PARMATERS: $1 = JAMF Static group name
+    declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computer-groups/static-groups?page=0&page-size=100&sort=id%3Aasc&filter=name%3D%3D%22"${1}%22)
+    echo $tmp | jq -r '.results[].id'
+}
 }
 
 function JAMF_retrieve_data_blob ()
@@ -384,7 +414,37 @@ function JAMF_retrieve_data_blob ()
 
     declare format=$2
     [[ -z "${format}" ]] && format="xml"
-    echo -E $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" )
+    retval=$(echo -E $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" ))
+    echo $retval
+    }
+
+function convert_to_hex ()
+{
+    local input="$1"
+    local length="${#input}"
+    local result=""
+
+    for (( i = 0; i <= length; i++ )); do
+        local char="${input[i]}"
+        if [[ "$char" =~ [^a-zA-Z0-9.] ]]; then
+            hex=$(printf '%x' "'$char")
+            result+="%$hex"
+        else
+            result+="$char"
+        fi
+    done
+
+    echo "$result"
+}
+
+function convert_to_array() 
+{
+    IFS=',' read -r -A array <<< "$1"
+    # Remove surrounding quotes from each element
+    for i in "${!array[@]}"; do
+        array[$i]="${array[$i]//\"/}"
+    done
+    echo "${array[1]}"
 }
 
 #######################################################################################################
@@ -647,29 +707,13 @@ function displaymsg ()
 
 }
 
-function convert_to_hex ()
-{
-    local input="$1"
-    local length="${#input}"
-    local result=""
 
-    for (( i = 0; i <= length; i++ )); do
-        local char="${input[i]}"
-        if [[ "$char" =~ [^a-zA-Z0-9.] ]]; then
-            hex=$(printf '%x' "'$char")
-            result+="%$hex"
-        else
-            result+="$char"
-        fi
-    done
-
-    echo "$result"
-}
 ####################################################################################################
 #
 # Main Script
 #
 ####################################################################################################
+autoload 'is-at-least'
 
 declare api_token
 declare jamfpro_url
@@ -677,7 +721,7 @@ declare selectedGroup
 declare action
 declare hostName
 
-autoload 'is-at-least'
+
 
 create_log_directory
 check_swift_dialog_install
