@@ -1,9 +1,11 @@
 # JAMF-Pro-Scripts
+
 Scripts that I have developed over the years working with JAMF Pro
 
 The information below is a summary of how my support folders are constructed and what the variables are:
 
 ### Application Variables ###
+
 ```
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 SCRIPT_NAME="MainLibrary"
@@ -61,6 +63,7 @@ DIALOG_INSTALL_POLICY="install_SwiftDialog"
 ```
 
 ### SUPPORT_DIR Directory ###
+
 The ```SUPPORT_DIR``` is the starting directory of where you want to store all of your logs, images, screenshots, etc.  Currently this is how I format my structure (mine starts at /Library/Application Support/GiantEagle)
 
 ![](./README-FileStructure.png)
@@ -85,6 +88,7 @@ Some application defaults are stored in `/Library/Managed Preferences/com.giante
   </dict>
 </plist>
 ```
+
 If that file exists, the data is read in, otherwise they have to be declared inside of each app.
 
 `LOG_FILES`: Location & Name of the file you want to store your log files.  As you can see in my above examples, both the Temp files and `LOG_FILES` are a combination of the `SUPPORT_DIR` and `SCRIPT_NAME`, so this is always set, but you can change this if you need to.
@@ -115,8 +119,8 @@ And what gets installed during the policy execution.
 
 ![](./README_JAMFPackage.png)
 
-
 ### Passed in Variables ###
+
 ```
 ##################################################
 #
@@ -147,3 +151,5 @@ The above example is taken from the DialogMsg script:
 ```SD_ICON_PRIMARY```: will use the AlertNote icon if nothing is passed in
 
 ```SD_TIMER```: will default to 120 seconds if nothing is passed in
+
+<a href="https://www.buymeacoffee.com/scottekendall"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=&slug=scottekendall&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&coffee_colour=ffffff" /></a>
