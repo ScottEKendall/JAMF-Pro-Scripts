@@ -22,14 +22,15 @@
 # 1.8 - Added option to move some of the "defaults" to a plist file / Also used the variable SCRIPT_for temp files creation & log file cname
 # 1.9 - Add more JAMF functions
 #       Add Check for focus mode
+# 1.10 - Added static group functions
 
 ######################################################################################################
 #
-# Global "Common" variables (do not change these!)
+# Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
-SCRIPT_NAME="MainLibrary"
+
+SCRIPT_NAME="GetBundleID"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
@@ -48,47 +49,44 @@ SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
-# Make some temp files for this app
-
-JSON_OPTIONS=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
-TMP_FILE_STORAGE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
-/bin/chmod 666 $JSON_OPTIONS
-/bin/chmod 666 $TMP_FILE_STORAGE
-
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
+# Make some temp files
+
+JSON_DIALOG_BLOB=$(mktemp /var/tmp/ExtractBundleIDs.XXXXX)
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/ExtractBundleIDs.XXXXX)
+chmod 666 $JSON_DIALOG_BLOB
+chmod 666 $DIALOG_COMMAND_FILE
 
 ###################################################
 #
 # App Specific variables (Feel free to change these)
 #
 ###################################################
-
-# Log files location
-
-LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
-
+   
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -e $DEFAULTS_DIR ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
     SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
 fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
+
+# Log files location
+
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accommodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Delete Applications"
-OVERLAY_ICON="/System/Applications/App Store.app"
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Extract BundleID"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
-
-# Trigger installs for Images & icons
-
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
+OVERLAY_ICON="/System/Applications/App Store.app"
 
 ##################################################
 #
@@ -97,7 +95,7 @@ DIALOG_INSTALL_POLICY="install_SwiftDialog"
 #################################################
 
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"    
 
 ####################################################################################################
 #
@@ -112,7 +110,7 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions (using zsh paramter expansion to get directory)
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
 	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
@@ -196,15 +194,23 @@ function cleanup_and_exit ()
 	exit $1
 }
 
-function check_for_sudo_access () 
+function test_root_user ()
 {
-  # Check if the effective user ID is 0.
-  if [[ $EUID -ne 0 ]]; then
-    # Print an error message to standard error.
-    echo "This script must be run with root privileges. Please use sudo." >&2
-    # Exit the script with a non-zero status code.
-    cleanup_and_exit 1
-  fi
+	# Ensures that script is run as ROOT
+    if [[ "${UID}" -ne 0 ]]; then
+    	MainDialogBody=(
+        --message "In order for this script to function properly, it must be run as an admin user!"
+		--ontop
+		--icon computer
+		--overlayicon "$STOP_ICON"
+		--bannerimage "${SD_BANNER_IMAGE}"
+		--bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
+		--button1text "OK"
+    )
+    	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+		cleanup_and_exit 1
+	fi
 }
 
 function welcomemsg ()
@@ -921,7 +927,7 @@ function JAMF_get_inventory_record()
     #        $2 - Filter condition to use for search
 
     filter=$(convert_to_hex $2)
-    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory?section=$1&filter=$filter" 2>/dev/null)
+    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=$1&filter=$filter" 2>/dev/null)
     echo $retval | tr -d '\n'
 }
 
@@ -935,7 +941,7 @@ function JAMF_get_inventory_record_byID ()
     #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
     #        $3 - Filter to use for search
 
-    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$1?section=$2" 2>/dev/null)
+    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory/$1?section=$2" 2>/dev/null)
     echo $retval | tr -d '\n'
 }
 
@@ -1012,34 +1018,59 @@ function JAMF_view_recovery_lock ()
     echo $retval
 }
 
-function JAMF_retreive_static_group_id ()
+function JAMF_retrieve_static_group_id ()
 {
     # PURPOSE: Retrieve the ID of a static group
     # RETURN: ID # of static group
-    # EXPECTED: jamppro_url, api_token
-    # PARMATERS: $1 = JAMF Static group name
-    declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/computergroups")
-    echo $tmp | xmllint --xpath 'string(//computer_group[name="'$1'"]/id)' -
+    # EXPECTED: jamfpro_url, api_token
+    # PARAMETERS: $1 = JAMF Static group name
+    declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computer-groups/static-groups?page=0&page-size=100&sort=id%3Aasc&filter=name%3D%3D%22"${1}%22)
+    echo $tmp | jq -r '.results[].id'
 }
 
-function JAMF_static_group_action ()
+function JAMF_retrieve_static_group_members ()
 {
-	# PURPOSE: Remove record from JAMF static group
-    # RETURN: None
+    # PURPOSE: Retrieve the members of a static group
+    # RETURN: array of members
     # EXPECTED: jamfpro_url, api_token
-    # PARMATERS: $1 = JAMF Static group id
+    # PARAMETERS: $1 = JAMF Static group ID
+    declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}JSSResource/computergroups/id/${1}")
+    echo $tmp #| jq -r '.computer_group.computers[].name'
+}
+
+function JAMF_static_group_action_by_serial ()
+{
+    # PURPOSE: Write out the changes to the static group
+    # RETURN: None
+    # Expected jamfprourl, api_token, JAMFjson_BLOB
+    # PARAMETERS: $1 = JAMF Static group id
     #            $2 - Serial # of device
     #            $3 = Acton to take "Add/Remove"
     declare apiData
+    declare tmp
+
 
     if [[ ${3:l} == "remove" ]]; then
-        apiData="<computer_group><computer_deletions><computer><serial_number>${MAC_SERIAL}</serial_number></computer></computer_deletions></computer_group>"
+        apiData="<computer_group><computer_deletions><computer><name>${2}</name></computer></computer_deletions></computer_group>"
     else
-        apiData="<computer_group><computer_additions><computer><serial_number>${MAC_SERIAL}</serial_number></computer></computer_additions></computer_group>"
+        apiData="<computer_group><computer_additions><computer><name>${2}</name></computer></computer_additions></computer_group>"
     fi
+
     ## curl call to the API to add the computer to the provided group ID
-    retval=$(curl -f -H "Authorization: Bearer ${api_token}" -H "Content-Type: application/xml" ${jamfpro_url}JSSResource/computergroups/id/${1} -X PUT -d "${apiData}")
-    [[ $retval == *"409"* ]] && echo "ERROR: System not in group" 1>&2
+    tmp=$(/usr/bin/curl -s -f -H "Authorization: Bearer ${api_token}" -H "Content-Type: application/xml" "${jamfpro_url}JSSResource/computergroups/id/${1}" -X PUT -d "${apiData}")
+    #Evaluate the responses
+    if [[ "$tmp" = *"<id>${1}</id>"* ]]; then
+
+        retval="Successful $3 of $2 on group"
+        logMe "$retval" 1>&2
+    elif [[ $tmp == *"409"* ]]; then
+        retval="$2 Not a member of group"
+        logMe "$retval" 1>&2
+    else
+        retval="API Error #$? has occurred while try to $3 $2 to group"
+        logMe "$retval" 1>&2
+    fi
+    echo $retval
 }
 
 #######################################################################################################
