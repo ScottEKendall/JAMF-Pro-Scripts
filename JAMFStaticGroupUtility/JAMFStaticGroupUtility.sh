@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/09/2025
-# Last updated: 11/22/2025
+# Last updated: 11/24/2025
 #
 # Script Purpose: View, Add or Delete JAMF static group members
 #
@@ -18,9 +18,12 @@
 #
 #   Parameter 4: API client ID (Classic or Modern)
 #   Parameter 5: API client secret
-#   Parameter 6: JAMF Static Group name
-# 	Parameter 7: Action to take on group (Add/Remove)
-#	Parameter 8: Show the dialog window (Yes/No)
+#   Parameter 6: Single / Migrate action
+#   Parameter 7: JAMF Static Group name
+# 	Parameter 8: Action to take on group (Add/Remove)
+#	Parameter 9: Show the dialog window (Yes/No)
+#   Parameter 10: View / Migrate groups
+#   Parameter 11: Admin access (wether or not user can choose any machine)
 #
 # 1.0 - Initial
 # 1.1 - Add function to make sure Client / Secret are passed into the script
@@ -29,6 +32,7 @@
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
 #       Fixed typos
+# 2.0 - Add option to do a copy of group membership from one computer to another
 
 ######################################################################################################
 #
@@ -44,6 +48,7 @@ USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ prin
 SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
 MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
 MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
+MAC_SERIAL=$(echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MAC_HOST_NAME=$(hostname -d)
 
@@ -60,8 +65,9 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # Make some temp files
 
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
-
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 chmod 666 $JSON_DIALOG_BLOB
+chmod 666 $DIALOG_COMMAND_FILE
 
 ###################################################
 #
@@ -89,9 +95,20 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Static Group Modification"
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF Static Group Utility"
 SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
 OVERLAY_ICON="${ICON_FILES}ToolbarCustomizeIcon.icns"
+HELP_MESSAGE="**Single Group Method**<br> \
+1.  Select the group<br> \
+2.  Type in the HOSTNAME of the device<br> \
+3.  Chose Action to perform<br> \
+    1.  (Add) device to group<br> \
+    2.  (Delete) device from group<br> \
+    3.  (View) see if device is group<br><br> \
+**Migrate Options**<br><br> \
+1. Select (Old) System to migrate FROM<br> \
+2. Select (New) system to migrate TO<br>"
+ 
 
 # Trigger installs for Images & icons
 
@@ -108,9 +125,12 @@ JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID="${4}"           
 CLIENT_SECRET="${5}"
-JAMF_GROUP_NAME=${6}          
-JAMF_GROUP_ACTION=${7:-"Add"}
-SHOW_WINDOW=${8:-"Yes"}  
+REQUEST_TYPE=${6:-"single"} # single/migrate
+JAMF_GROUP_NAME=${7}          
+JAMF_GROUP_ACTION=${8:-"Add"}
+SHOW_WINDOW=${9:-"Yes"}  
+ACTION_TAKEN=${10:-"view"} #view or migrate groups
+ACCESS_TYPE=${11:-""} #Wether or not user can choose any machine
 
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine which JAMF credentials we are using
 
@@ -175,7 +195,7 @@ function check_swift_dialog_install ()
 function install_swift_dialog ()
 {
     # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
+    # PARAMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
     #
     # RETURN: None
 
@@ -185,7 +205,22 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+}
 
+function create_infobox_message()
+{
+	################################
+	#
+	# Swift Dialog InfoBox message construct
+	#
+	################################
+
+	SD_INFO_BOX_MSG="## System Info ##<br>"
+	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
+	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
+	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
@@ -251,7 +286,7 @@ function JAMF_check_credentials ()
 function JAMF_get_classic_api_token ()
 {
     # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
-    # PARMS: None
+    # PARAMS: None
     # RETURN: api_token
     # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
 
@@ -277,8 +312,8 @@ function JAMF_validate_token ()
 function JAMF_get_access_token ()
 {
     # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
-    # RETURN: connection string (either error code or valid data)
-    # PARMS: None
+    # RETURN: connection stringe (either error code or valid data)
+    # PARAMS: None
     # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
 
     returnval=$(curl --silent --location --request POST "${jamfpro_url}/api/oauth/token" \
@@ -345,6 +380,16 @@ function JAMF_invalidate_token ()
     fi    
 }
 
+function JAMF_retrieve_static_group_id ()
+{
+    # PURPOSE: Retrieve the ID of a static group
+    # RETURN: ID # of static group
+    # EXPECTED: jamfpro_url, api_token
+    # PARAMETERS: $1 = JAMF Static group name
+    declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computer-groups/static-groups?page=0&page-size=100&sort=id%3Aasc&filter=name%3D%3D%22"${1}%22)
+    echo $tmp | jq -r '.results[].id'
+}
+
 function JAMF_retrieve_static_group_members ()
 {
     # PURPOSE: Retrieve the members of a static group
@@ -355,7 +400,7 @@ function JAMF_retrieve_static_group_members ()
     echo $tmp #| jq -r '.computer_group.computers[].name'
 }
 
-function JAMF_static_group_action ()
+function JAMF_static_group_action_by_serial ()
 {
     # PURPOSE: Write out the changes to the static group
     # RETURN: None
@@ -364,24 +409,37 @@ function JAMF_static_group_action ()
     #            $2 - Serial # of device
     #            $3 = Acton to take "Add/Remove"
     declare apiData
+    declare tmp
+
 
     if [[ ${3:l} == "remove" ]]; then
-        apiData="<computer_group><computer_deletions><computer><serial_number>${MAC_SERIAL}</serial_number></computer></computer_deletions></computer_group>"
+        apiData="<computer_group><computer_deletions><computer><name>${2}</name></computer></computer_deletions></computer_group>"
     else
-        apiData="<computer_group><computer_additions><computer><serial_number>${MAC_SERIAL}</serial_number></computer></computer_additions></computer_group>"
+        apiData="<computer_group><computer_additions><computer><name>${2}</name></computer></computer_additions></computer_group>"
     fi
+
     ## curl call to the API to add the computer to the provided group ID
-    retval=$(/usr/bin/curl -s -f -H "Authorization: Bearer ${api_token}" -H "Content-Type: application/xml" "${jamfpro_url}JSSResource/computergroups/id/${1}" -X PUT -d "${apiData}")
-    # Check API response
-    [[ $retval == *"409"* ]] && echo "ERROR: System not in group" 1>&2
-    [[ $? -eq 0 ]] && return 0 || return 1
+    tmp=$(/usr/bin/curl -s -f -H "Authorization: Bearer ${api_token}" -H "Content-Type: application/xml" "${jamfpro_url}JSSResource/computergroups/id/${1}" -X PUT -d "${apiData}")
+    #Evaluate the responses
+    if [[ "$tmp" = *"<id>${1}</id>"* ]]; then
+
+        retval="Successful $3 of $2 on group"
+        logMe "$retval" 1>&2
+    elif [[ $tmp == *"409"* ]]; then
+        retval="$2 Not a member of group"
+        logMe "$retval" 1>&2
+    else
+        retval="API Error #$? has occurred while try to $3 $2 to group"
+        logMe "$retval" 1>&2
+    fi
+    echo $retval
 }
 
-function JAMF_get_inventory_record()
+function JAMF_get_inventory_record ()
 {
     # PURPOSE: Uses the JAMF 
     # RETURN: The inventory record in JSON format
-    # PARMS:  $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
+    # PARAMS:  $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
     #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
     #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
     #        $2 - Filter condition to use for search
@@ -390,23 +448,14 @@ function JAMF_get_inventory_record()
     retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=$1&filter=$filter" 2>/dev/null)
     echo $retval | tr -d '\n'
 }
-    function JAMF_retrieve_static_group_id ()
-{
-    # PURPOSE: Retrieve the ID of a static group
-    # RETURN: ID # of static group
-    # EXPECTED: jamfpro_url, api_token
-    # PARAMETERS: $1 = JAMF Static group name
-    declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computer-groups/static-groups?page=0&page-size=100&sort=id%3Aasc&filter=name%3D%3D%22"${1}%22)
-    echo $tmp | jq -r '.results[].id'
-}
-
 
 function JAMF_retrieve_data_blob ()
 {    
-    # PURPOSE: Extract the summary of the JAMF conmand results
+    # PURPOSE: Extract the summary of the JAMF command results
     # RETURN: XML contents of command
-    # PARAMETERS: $1 = The API command of the JAMF atrribute to read
+    # PARAMETERS: $1 = The API command of the JAMF attribute to read
     #            $2 = format to return XML or JSON
+    #            $3 = JSON filter to use    
     # EXPECTED: 
     #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
     #   api_token - base64 hex code of your bearer token
@@ -415,8 +464,9 @@ function JAMF_retrieve_data_blob ()
     declare format=$2
     [[ -z "${format}" ]] && format="xml"
     retval=$(echo -E $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" ))
+    [[ ! -z $3 ]] && retval=$(echo -E "$retval" | jq  '[.[] | select('$3')]')
     echo $retval
-    }
+}
 
 function convert_to_hex ()
 {
@@ -437,7 +487,7 @@ function convert_to_hex ()
     echo "$result"
 }
 
-function convert_to_array() 
+function convert_to_array () 
 {
     IFS=',' read -r -A array <<< "$1"
     # Remove surrounding quotes from each element
@@ -453,14 +503,35 @@ function convert_to_array()
 #
 #######################################################################################################
 
+function create_listitem_message_body ()
+{
+    # PURPOSE: Construct the List item body of the dialog box
+    # "listitem" : [
+    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+    # RETURN: None
+    # EXPECTED: message
+    # PARMS: $1 - title 
+    #        $2 - icon
+    #        $3 - status text (for display)
+    #        $4 - status
+    #        $5 - first or last - construct appropriate listitem heders / footers
+
+    declare line && line=""
+
+    [[ "$5:l" == "first" ]] && line+='"button1disabled" : "true", "listitem" : ['
+    [[ ! -z $1 ]] && line+='{"title" : "'$1'", "icon" : "'$2'", "status" : "'$4'", "statustext" : "'$3'"},'
+    [[ "$5:l" == "last" ]] && line+=']}'
+    echo $line >> ${JSON_DIALOG_BLOB}
+}
+
 function create_listitem_list ()
 {
     # PURPOSE: Create the display list for the dialog box
     # RETURN: None
     # EXPECTED: JSON_DIALOG_BLOB should be defined
     # PARMS: $1 - message to be displayed on the window
-    #        $2 - tyoe of data to parse XML or JSON
-    #        #3 - key to parse for list items
+    #        $2 - type of data to parse XML or JSON
+    #        #3 - string / key to parse for list items
     #        $4 - string to parse for list items
     #        $5 - Option icon to show
     # EXPECTED: None
@@ -472,10 +543,10 @@ function create_listitem_list ()
     # Parse the XML or JSON data and create list items
     
     if [[ "$2:l" == "json" ]]; then
-        # If the second parameter is JSON, then parse the XML data
-        xml_blob=$(echo -E $4 | jq -r "${3}")
+        # If the second parameter is JSON, then parse the JSON data
+        xml_blob=$(echo -E $4 | jq -r $3)
     else
-        # If the second parameter is XML, then parse the JSON data
+        # If the second parameter is XML, then parse the XML data
         xml_blob=$(echo $4 | xmllint --xpath '//'$3 - 2>/dev/null)
     fi
 
@@ -493,57 +564,7 @@ function create_listitem_list ()
     ${SW_DIALOG} --json --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null
 }
 
-function create_listitem_message_body ()
-{
-    # PURPOSE: Construct the List item body of the dialog box
-    # "listitem" : [
-    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
-    # RETURN: None
-    # EXPECTED: message
-    # PARMS: $1 - title 
-    #        $2 - icon
-    #        $3 - status text (for display)
-    #        $4 - status
-    #        $5 - first or last - construct appropriate listitem heders / footers
-
-    declare line && line=""
-
-    [[ "$5:l" == "first" ]] && line+='"listitem" : ['
-    [[ ! -z $1 ]] && line+='{"title" : "'$1'", "icon" : "'$2'", "status" : "'$4'", "statustext" : "'$3'"},'
-    [[ "$5:l" == "last" ]] && line+=']}'
-    echo $line >> ${JSON_DIALOG_BLOB}
-}
-
-function construct_dialog_header_settings ()
-{
-    # Construct the basic Switft Dialog screen info that is used on all messages
-    #
-    # RETURN: None
-	# VARIABLES expected: All of the Widow variables should be set
-	# PARMS Passed: $1 is message to be displayed on the window
-
-	echo '{
-    "icon" : "'${SD_ICON_FILE}'",
-    "overlayicon" : "'${OVERLAY_ICON}'",
-    "message" : "'$1'",
-    "bannerimage" : "'${SD_BANNER_IMAGE}'",
-    "bannertitle" : "'${SD_WINDOW_TITLE}'",
-    "infobox" : "'${SD_INFO_BOX_MSG}'",
-    "titlefont" : "shadow=1",
-    "button1text" : "OK",
-    "button2text" : "Cancel",
-    "moveable" : "true",
-    "quitkey" : "0",
-    "ontop" : "true",
-    "width" : 800,
-    "height" : 540,
-    "json" : "true",
-    "quitkey" : "0",
-    "messagefont" : "shadow=1",
-    "messageposition" : "top",'
-}
-
-function create_radio_message_body ()
+function create_dropdown_message_body ()
 {
     # PURPOSE: Construct the List item body of the dialog box
     # "listitem" : [
@@ -551,15 +572,21 @@ function create_radio_message_body ()
 
     # RETURN: None
     # EXPECTED: message
-    # PARMS: $1 - item name (internal reference) 
-    #        $2 - title (Display)
-    #        $3 - first or last - construct appropriate listitem headers / footers
+    # PARMS: $1 - title (Display)
+    #        $2 - values (comma separated list)
+    #        $3 - default item
+    #        $4 - first or last - construct appropriate listitem heders / footers
+    #        $5 - Trailing closure commands
+    #        $6 - Name of dropdown item
 
     declare line && line=""
-
-    [[ "$3:l" == "first" ]] && line+='"selectitems" :[ {"title" : "'$2'", { "values" : ['
-    [[ ! -z $1 ]] && line+='"'$1'",'
-    [[ "$3:l" == "last" ]] && line+='], "style" : "radio"}]'
+  
+    [[ "$4:l" == "first" ]] && line+=' "selectitems" : ['
+    [[ ! -z $1 ]] && line+='{"title" : "'$1'", "values" : ['$2']'
+    [[ ! -z $3 ]] && line+=', "default" : "'$3'"'
+    [[ ! -z $6 ]] && line+=', "name" : "'$6'", "required" : "true", '
+    [[ ! -z $5 ]] && line+="$5"
+    [[ "$4:l" == "last" ]] && line+='],'
     echo $line >> ${JSON_DIALOG_BLOB}
 }
 
@@ -568,8 +595,8 @@ function create_dropdown_list ()
     # PURPOSE: Create the dropdown list for the dialog box
     # RETURN: None
     # EXPECTED: JSON_DIALOG_BLOB should be defined
-    # PARMS: $1 - message to be displayed on the window
-    #        $2 - tyoe of data to parse XML or JSON
+    # PARAMS: $1 - message to be displayed on the window
+    #        $2 - type of data to parse XML or JSON
     #        #3 - key to parse for list items
     #        $4 - string to parse for list items
     # EXPECTED: None
@@ -602,33 +629,12 @@ function create_dropdown_list ()
     update_display_list "Create"
 }
 
-function create_dropdown_message_body ()
-{
-    # PURPOSE: Construct the List item body of the dialog box
-    # "listitem" : [
-    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
-
-    # RETURN: None
-    # EXPECTED: message
-    # PARMS: $1 - title (Display)
-    #        $2 - values (comma separated list)
-    #        $3 - first or last - construct appropriate listitem heders / footers
-    #        $4 - Required (Yes/No)
-
-    declare line && line=""
-
-    [[ "$3:l" == "first" ]] && line+=' "selectitems" : ['
-    [[ ! -z $1 ]] && line+='{"title" : "'$1'", "values" : ['$2']},'
-    [[ "$3:l" == "last" ]] && line+=']'
-    echo $line >> ${JSON_DIALOG_BLOB}
-}
-
 function construct_dropdown_list_items ()
 {
-    # PURPOSE: Construct the list of items for the dropdowb menu
+    # PURPOSE: Construct the list of items for the dropdown menu
     # RETURN: formatted list of items
     # EXPECTED: None
-    # PARMS: $1 - JSON variable to parse
+    # PRAMS: $1 - JSON variable to parse
     #        $2 - JSON Blob name
 
     declare json_blob
@@ -653,9 +659,9 @@ function create_textfield_message_body ()
 
     # RETURN: None
     # EXPECTED: message
-    # PARMS: $1 - item name (internal reference) 
+    # PARAMS: $1 - item name (internal reference) 
     #        $2 - title (Display)
-    #        $3 - first or last - construct appropriate listitem heders / footers
+    #        $3 - first or last - construct appropriate listitem headers / footers
 
     declare line && line=""
     declare today && today=$(date +"%m/%d/%y")
@@ -666,7 +672,197 @@ function create_textfield_message_body ()
     echo $line >> ${JSON_DIALOG_BLOB}
 }
 
-function displaymsg ()
+function create_radio_message_body ()
+{
+    # PURPOSE: Construct the List item body of the dialog box
+    # "listitem" : [
+    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+
+    # RETURN: None
+    # EXPECTED: message
+    # PARAMS: $1 - item name (internal reference) 
+    #        $2 - title (Display)
+    #        $3 - first or last - construct appropriate listitem headers / footers
+
+    declare line && line=""
+
+    [[ "$3:l" == "first" ]] && line+='"selectitems" :[ {"title" : "'$2'", { "values" : ['
+    [[ ! -z $1 ]] && line+='"'$1'",'
+    [[ "$3:l" == "last" ]] && line+='], "style" : "radio"}]'
+    echo $line >> ${JSON_DIALOG_BLOB}
+}
+
+####################################################################################################
+#
+# App Specific Functions
+#
+####################################################################################################
+
+function construct_dialog_header_settings ()
+{
+    # Construct the basic Swift Dialog screen info that is used on all messages
+    #
+    # RETURN: None
+	# VARIABLES expected: All of the Widow variables should be set
+	# PARAMS Passed: $1 is message to be displayed on the window
+
+    case "${REQUEST_TYPE:l}-${ACTION_TAKEN:l}" in
+        "migrate-view" )
+            buttons='"button1text" : "OK",  "button2text" : "Cancel",'
+            ;;
+        "migrate-migrate" )
+            buttons='"button1text" : "Migrate", "button2text" : "Quit",'
+            ;;
+        "single-view" )
+            buttons='"button1text" : "OK",  "button2text" : "Cancel",'
+            ;;
+        * )
+            buttons='"button1text" : "OK",  "button2text" : "Cancel",'
+            ;;
+    esac
+    tmp='{
+    "icon" : "'${SD_ICON_FILE}'",
+    "overlayicon" : "'${OVERLAY_ICON}'",
+    "message" : "'$1'",
+    "bannerimage" : "'${SD_BANNER_IMAGE}'",
+    "bannertitle" : "'${SD_WINDOW_TITLE}'",
+    "infobox" : "'${SD_INFO_BOX_MSG}'",
+    "titlefont" : "shadow=1",
+    "helpmessage" : "'$HELP_MESSAGE'",
+    "moveable" : "true",
+    "quitkey" : "0",
+    "ontop" : "true",
+    "width" : 840,
+    "height" : 660,
+    "json" : "true",
+    "quitkey" : "0",
+    "messageposition" : "top",'
+    tmp+=$buttons
+    echo $tmp
+}
+
+function update_display_list ()
+{
+	# Function to handle various aspects of the Swift Dialog behaviour
+    #
+    # RETURN: None
+	# VARIABLES expected: JSON_DIALOG_BLOB & Window variables should be set
+	# PARMS List
+	#
+	# #1 - Action to be done ("Create, Destroy, "Update", "change")
+	# #2 - Progress bar % (pass as integer)
+	# #3 - Application Title (must match the name in the dialog list entry)
+	# #4 - Progress Text (text to be display on bottom on window)
+	# #5 - Progress indicator (wait, success, fail, pending)
+	# #6 - List Item Text (text to be displayed while updating list entry)
+
+	## i.e. update_display_list "Update" "8" "Google Chrome" "Calculating Chrome" "pending" "Working..."
+	## i.e.	update_display_list "Update" "8" "Google Chrome" "" "success" "Done"
+
+	case "$1:l" in
+
+        "add" )
+  
+            # Add an item to the list
+            #
+            # $2 name of item
+            # $3 Icon status "wait, success, fail, error, pending or progress"
+            # $4 Optional status text
+  
+            /bin/echo "listitem: add, title: ${2}, status: ${3}, statustext: ${4}" >> "${DIALOG_COMMAND_FILE}"
+            ;;
+
+        "listcreate" )
+            /bin/echo "listitem: show" >> "${DIALOG_COMMAND_FILE}"
+            ;;
+
+        "create" )
+
+            #
+            # Create the progress bar
+            #
+
+            ${SW_DIALOG} \
+                --progress \
+                --jsonfile "${JSON_DIALOG_BLOB}" \
+                --commandfile ${DIALOG_COMMAND_FILE} \
+                --height 800 \
+                --width 920 & 
+                dialogPID=$!
+                #/bin/sleep .2
+            ;;
+        "buttonenable" )
+
+                # Enable button 1
+                /bin/echo "button1: enable" >> "${DIALOG_COMMAND_FILE}"
+                ;;
+
+        "destroy" )
+        
+            #
+            # Kill the progress bar and clean up
+            #
+            echo "quit:" >> "${DIALOG_COMMAND_FILE}"
+            ;;
+
+        "buttonchange" )
+
+            # change text of button 1
+            /bin/echo "button1text: ${2}" >> "${DIALOG_COMMAND_FILE}"
+            ;;
+
+        "update" | "change" )
+
+            #
+            # Increment the progress bar by ${2} amount
+            #
+
+            # change the list item status and increment the progress bar
+            /bin/echo "listitem: title: "$3", status: $5, statustext: $6" >> "${DIALOG_COMMAND_FILE}"
+            /bin/echo "progress: $2" >> "${DIALOG_COMMAND_FILE}"
+
+            /bin/sleep .5
+            ;;
+
+        "progress" )
+
+            # Increment the progress bar by static amount ($6)
+            # Display the progress bar text ($5)
+            /bin/echo "progress: ${6}" >> "${DIALOG_COMMAND_FILE}"
+            /bin/echo "progresstext: ${5}" >> "${DIALOG_COMMAND_FILE}"
+            ;;
+
+	esac
+}
+
+function retrieve_user_systems ()
+{
+    # Retrieve all of the systems assigned to the current user
+    #
+    # RETURN: Array of Assigned computers
+    local userName
+    local tmp
+    local -a tmp_array
+
+    if [[ ${ACCESS_TYPE:l} == "admin" ]]; then
+        # Once we have their JAMF username, then scan for all registered devices
+        tmp=$(JAMF_get_inventory_record "GENERAL" "" | jq -r '.results[].general.name')
+    else
+        # Find the current logged in user's serial # and search on that to find their JAMF user name
+        userName=$(JAMF_get_inventory_record "USER_AND_LOCATION" "general.name=='$MAC_HOST_NAME'" | jq -r '.results[].userAndLocation.username')
+
+        # Once we have their JAMF username, then scan for all registered devices belonging to that user
+        tmp=$(JAMF_get_inventory_record "GENERAL" "userAndLocation.username=='$userName'" | jq -r '.results[].general.name')
+    fi
+    # Take the output of the file and convert each element into an array and then format it for SD ("element 1", "element 2, "element 3").  This method will retain spaces in system names
+    while IFS= read -r line; do
+        tmp_array+=("\"$line\"")
+    done <<< "$tmp"
+    tmp_array=$(printf "%s," "${tmp_array[@]}" | sed -E 's/&quot;//g; s/,$//')
+    echo $tmp_array
+}
+
+function display_msg_single ()
 {
     # Retrieve the list of static groups from JAMF
     GroupList=$(JAMF_retrieve_data_blob "api/v2/computer-groups/static-groups?page=0&page-size=100&sort=id%3Aasc" "json")
@@ -675,9 +871,10 @@ function displaymsg ()
     if [[ -z $JAMF_GROUP_NAME ]]; then
         message="Please select the static group from the list below and the action that you want to perform on the members"
         construct_dialog_header_settings "$message" > "${JSON_DIALOG_BLOB}"
-        create_dropdown_message_body "" "" "first"
+        create_dropdown_message_body "" "" "" "first"
         array=$(construct_dropdown_list_items $GroupList '.results[].name')
-        create_dropdown_message_body "Select Group:" "$array"
+        create_dropdown_message_body "Select Group:" "$array" ""
+        echo "}," >> $JSON_DIALOG_BLOB
     else
         message="From the static group listed below, choose the action that you want to perform on the members<br><br>Select Group:     **$JAMF_GROUP_NAME**"
         construct_dialog_header_settings "$message" > "${JSON_DIALOG_BLOB}"
@@ -707,7 +904,159 @@ function displaymsg ()
 
 }
 
+function show_system_choices ()
+{
+    # PURPOSE: Consruct the dialog box to show the user and ask for system info
+    # RETURN: olSystem & newSystem will be populated if user continues
+    # EXPECTED: message
+    # PARMS: $1 - System(s) found assigned to user
+    if [[ "{$ACTION_TAKEN:l}" = *"view"* ]]; then
+        message="$SD_DIALOG_GREETING, $SD_FIRST_NAME. Please select the system that you want to view and the next screen will display the results of the group memebership."
+    else
+        message="$SD_DIALOG_GREETING, $SD_FIRST_NAME. When you receive a new computer, you may need to access certain applications that are already linked to your account. This migration tool is here to help by ensuring your new computer is connected to the same application groups you had on your previous computer.<br><br>Please select your Old and New system, and click on 'Migrate'."
+    fi
+    construct_dialog_header_settings "$message" > "${JSON_DIALOG_BLOB}"
+    create_dropdown_message_body "" "" "" "first"
+    create_dropdown_message_body "Old Computer Name" "$userSystems" "$MAC_HOST_NAME" "" "}," "oldsystem"
 
+    if [[ "{$ACTION_TAKEN:l}" = *"migrate"* ]]; then
+        create_dropdown_message_body "New Computer Name" "$userSystems" "" "" "}," "newsystem"
+    fi
+    
+    create_dropdown_message_body "" "" "" "last" ""
+    echo "}" >> $JSON_DIALOG_BLOB
+
+    # Show the screen and get the results
+    temp=$(${SW_DIALOG} --json --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null)
+    buttonpress=$?
+    [[ $buttonpress == 2 ]] && {JAMF_invalidate_token; cleanup_and_exit;}
+
+    oldSystem=$(echo $temp | jq -r '.oldsystem.selectedValue')
+    newSystem=$(echo $temp | jq -r '.newsystem.selectedValue')
+}
+
+function display_msg_migrate ()
+{
+    # PURPOSE: Show the list of groups that the user belongs to
+    # RETURN: None
+    # EXPECTED: staticGroupIDs should be populated with group IDs
+    # PARMS: None
+
+    if [[ "{$ACTION_TAKEN:l}" = *"migrate"* ]]; then
+        message="${oldSystem} is a member of the following group(s).  If this looks correct, click on OK to add ${newSystem} to these groups, otherwsise click on Quit and contact the TSD for assistance."
+    else
+        message="${oldSystem} is a member of the following group(s)"
+    fi
+    construct_dialog_header_settings $message > "${JSON_DIALOG_BLOB}"
+    create_listitem_message_body "-- Static Group Membership --" "" "" "" "first"
+    create_listitem_message_body "" "" "" "" "last"
+
+    update_display_list "Create"
+    # Loop thru each group ID and see if their system is a member of that group
+    i=1
+    membersofGroup=()
+    groupNumbers=()
+
+    while (( i < ${#staticGroupIDs[@]} )); do
+        group_id=${staticGroupIDs[i]}
+        groupMembers=$(JAMF_retrieve_static_group_members $group_id)
+        if [[ $(echo $groupMembers | grep $oldSystem) ]]; then
+            update_display_list "add" "${staticGroupName[i]}" "success" ""
+            #This system is part of a static group so add it to the member array
+            groupNumbers+=($group_id)
+            membersofGroup+=($staticGroupName[i])
+        fi
+        ((i++))
+    done
+
+    update_display_list "progress" "" "" "" "$oldSystem is a member of ${#membersofGroup[@]} groups" 100
+    update_display_list "buttonenable"
+    # Now that the list is created, show on the screen what groups the user is in
+    wait "$dialogPID"
+    buttonpress=$?
+    [[ $buttonpress == 2 ]] && {JAMF_invalidate_token; cleanup_and_exit 0;}
+    groupNumbers=(${(z)groupNumbers})
+}
+
+function static_group_single ()
+{
+    # PURPOSE: Allow the user to perform actions on a single static group
+    # RETURN: None
+    # EXPECTED: None
+    # PARMS: None 
+    # If they want to show the window then do so, otherwise set the action to their passed in action
+    declare retval
+    if [[ "${SHOW_WINDOW:l}" == "yes" ]]; then
+        display_msg_single
+    else
+        selectedGroup=${JAMF_GROUP_NAME}
+        action=${JAMF_GROUP_ACTION}
+        hostName=${MAC_HOSTNAME}
+    fi
+    # Convert any special characters in the filter name to hex so that it can be used correctly in the JAMF search
+    hexGroupName=$(convert_to_hex $selectedGroup)
+    groupID=$(JAMF_retrieve_static_group_id "$hexGroupName")
+    case "${action:l}" in
+        *"add"* )
+            logMe "Adding $hostName to $groupID"
+            retval=$(JAMF_static_group_action_by_serial $groupID $hostName "add")
+            progressResults+=("${retval} $selectedGroup<br>")
+            ;;
+
+        *"remove"* )
+            logMe "Removing $hostName from $groupID"
+            retval=$(JAMF_static_group_action_by_serial $groupID $hostName "remove")
+            progressResults+=("${retval} $selectedGroup<br>")
+            ;;
+
+        *"view"* )
+            memberList=$(JAMF_retrieve_static_group_members $groupID)
+            [[ "${memberList}" == *"${hostName}"* ]] && hostnameFound="is" || hostnameFound="is not"
+            create_listitem_list "The following are the members of <br>**$selectedGroup**.<br><br>The computer *$hostnameFound* in this group." "json" ".computer_group.computers[].name" "$memberList" "SF=desktopcomputer.and.macbook"
+            ;;
+        *)
+            logMe "No action taken"
+            ;;
+    esac
+}
+
+function static_group_multiple ()
+{
+    # PURPOSE: Allow the user to migrate one computer groups to another
+    # RETURN: None
+    # EXPECTED: None
+    # PARMS: None 
+    declare JAMF_API_KEY="api/v2/computer-groups/static-groups"
+
+    # Retrieve the sytem(s) assigned to user and show the migrate/view options
+    userSystems=$(retrieve_user_systems)
+
+    show_system_choices $userSystems
+    # Script continues if user choose not to quit
+
+    groupBlob=$(JAMF_retrieve_data_blob "$JAMF_API_KEY" "json" "")
+    # Now the we have the static group complete list, we need to search for the membership of each group ID
+    # this has to use the Classic API for this
+
+    staticGroupIDs=($(echo $groupBlob | jq -r '.results[].id'))
+    results=$(echo $groupBlob | jq -r '.results[].name')
+    # take the results and put them into a proper array format
+    staticGroupName=(${(f@)results})
+
+    display_msg_migrate
+
+    if [[ "{$ACTION_TAKEN:l}" == *"migrate"* ]]; then
+
+        # Write out the new System to the groups
+        i=1
+        while (( i <= ${#groupNumbers[@]} )); do
+            echo "Adding $newSystem to $groupNumbers[i] ($membersofGroup[i])"
+            retval=$(JAMF_static_group_action_by_serial $groupNumbers[i] $newSystem "Add")
+            progressResults+=("${retval} $membersofGroup[i])<br>")
+            ((i++))
+        done
+    fi
+}
 ####################################################################################################
 #
 # Main Script
@@ -720,8 +1069,16 @@ declare jamfpro_url
 declare selectedGroup
 declare action
 declare hostName
+declare -a json_BLOB
+declare -a groupNumbers
+declare oldSystem
+declare newSystem
+declare dialogPID
+declare membersofGroup
+declare -a progressResults
 
-
+# If you want to use the SS/SS+ is an overlay icon, uncomment this line
+#OVERLAY_ICON=$(JAMF_which_self_service)
 
 create_log_directory
 check_swift_dialog_install
@@ -733,37 +1090,24 @@ JAMF_check_credentials
 # Check if the JAMF Pro server is using the new API or the classic API
 # If the client ID is longer than 30 characters, then it is using the new API
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
-#OVERLAY_ICON=$(JAMF_which_self_service)
 
-# If they want to show the window then do so, otherwise set the action to their passed in action
-if [[ "${SHOW_WINDOW:l}" == "yes" ]]; then
-    displaymsg
+# Determine if this is a single or migrate request
+if [[ "${REQUEST_TYPE:l}" == "single" ]]; then
+    static_group_single
 else
-    selectedGroup=${JAMF_GROUP_NAME}
-    action=${JAMF_GROUP_ACTION}
-    hostName=${MAC_HOSTNAME}
+    static_group_multiple
 fi
-# Convert any special characters in the filter name to hex so that it can be used correctly in the JAMF search
-hexGroupName=$(convert_to_hex $selectedGroup)
-groupID=$(JAMF_retreive_static_group_id "$hexGroupName")
 
-case "${action:l}" in
-    *"add"* )
-        JAMF_static_group_action $groupID $hostName "Add"
-        ;;
-
-    *"remove"* )
-        JAMF_static_group_action $groupID $hostName "Remove"
-        ;;
-
-    *"view"* )
-        memberList=$(JAMF_retrieve_static_group_members $groupID)
-        [[ "${memberList}" == *"${hostName}"* ]] && hostnameFound="is" || hostnameFound="is not"
-        create_listitem_list "The following are the members of **$selectedGroup**.<br>The computer *$hostnameFound* in this group." "json" ".computer_group.computers[].name" "$memberList" #"SF=desktopcomputer.and.macbook"
-        ;;
-    *)
-        logMe "No action taken"
-        ;;
-esac
 JAMF_invalidate_token
+
+# Show the reults if there are any
+if [[ ! -z $progressResults ]]; then
+    combined_string="${(@j::)progressResults}"
+    ${SW_DIALOG} \
+        --title "Static Group Results" \
+        --icon ${SD_ICON_FILE} \
+        --message "$combined_string" \
+        --messagefont "size=12" \
+        --ontop
+fi
 cleanup_and_exit 0
