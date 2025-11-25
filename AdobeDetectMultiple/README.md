@@ -1,6 +1,6 @@
 ## Adobe Multiple Version Detector
 
-Managing Adobe apps on the mac can be very frustrating.  You might find multiple version of Adobe apps on a user's mac and taking up valuable disk space.  This script will scan the users system for multiple versions of all Adobe apps and then present the user with a nice GUI display with multiple options.  
+Managing Adobe apps on the mac can be very frustrating.  You might find multiple versions of Adobe apps on a user's mac, taking up valuable disk space.  This script will scan the user's system for multiple versions of all Adobe apps and then present the user with a nice GUI display with multiple options.  
 
 ![](./AdobeDetectMultiple.png)
 
