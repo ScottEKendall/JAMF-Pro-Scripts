@@ -198,8 +198,9 @@ function detect_adobe_apps ()
     declare -a results
     declare -a logResults
     declare -a app_names    
-    apps=($(find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/Adobe||'| grep -v "^Adobe Creative Cloud$" | grep -v "Adobe Acrobat*" | grep -v "^Adobe Experience Manager*" |  grep -v "^Adobe Digital Editions*" |  grep -v "^Adobe XD"  | sort))
-    for app in "${apps[@]}"; do
+    apps=$(find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/Adobe||'| grep -v "^Adobe Creative Cloud$" | grep -v "Adobe Acrobat*" | grep -v "^Adobe Experience Manager*" |  grep -v "^Adobe Digital Editions*" |  grep -v "^Adobe XD"  | sort)
+    apps_array=("${(@f)apps}")
+    for app in "${apps_array[@]}"; do
         # Extract the app name by removing the last digit part
         name_without_version="${app% *}"
         app_names+=("$name_without_version")
