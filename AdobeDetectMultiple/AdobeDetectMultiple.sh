@@ -196,7 +196,7 @@ function detect_adobe_apps ()
     # EXPECTED: None
 
     declare -a results
-    declare -a logResults
+    declare logResults
     declare -a app_names    
     apps=$(find /Applications -name "Adobe*" -type d -maxdepth 1 | sed 's|^/Applications/Adobe||'| grep -v "^Adobe Creative Cloud$" | grep -v "Adobe Acrobat*" | grep -v "^Adobe Experience Manager*" |  grep -v "^Adobe Digital Editions*" |  grep -v "^Adobe XD"  | sort)
     apps_array=("${(@f)apps}")
@@ -209,7 +209,7 @@ function detect_adobe_apps ()
     print -l "${app_names[@]}" | sort | uniq -c | while read count name; do
         if (( count > 1 )); then
             results+=("* $name has $count version(s)<br>")
-            logResults+=("$name has $count version(s)")
+            logResults+="$name has $count version(s) "
         fi
     done
     logMe $logResults
@@ -248,7 +248,9 @@ function welcomemsg ()
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     returnCode=$?
 
-    [[ $returnCode == 0 ]] && /usr/local/bin/jamf policy -trigger ${ADOBE_CLEANUP}
+    [[ $returnCode == 0 ]] && {logMe "User clicked Cleanup";/usr/local/bin/jamf policy -trigger ${ADOBE_CLEANUP};}
+    [[ $returnCode == 2 ]] && logMe "User dismissed the message"
+    
 }
 
 ####################################################################################################
