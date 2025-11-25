@@ -269,5 +269,5 @@ check_support_files
 create_infobox_message
 
 adobeDuplicates=$(detect_adobe_apps)
-[[ ! -z "${adobeDuplicates}" ]] && welcomemsg
+[[ ! -z "${adobeDuplicates}" ]] && welcomemsg || logMe "No Duplicates found"
 cleanup_and_exit 0
