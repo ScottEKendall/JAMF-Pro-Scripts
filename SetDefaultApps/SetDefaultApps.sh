@@ -81,7 +81,7 @@ OVERLAY_ICON=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
-UTILUTI_INSTALL_POLICY="install utiluti"
+UTILUTI_INSTALL_POLICY="install_utiluti"
 TSD_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 ##################################################
@@ -196,7 +196,7 @@ function runAsUser ()
     launchctl asuser "$USER_UID" sudo -u "$LOGGED_IN_USER" "$@"
 }
 
-function format_uti_results ()
+function get_uti_results ()
 {
     # PURPOSE: format the uti results into an array and remove the files that are not in the /Applications or /System/Applications folder
     # PRAMS: $1 = utiluti command to run
@@ -411,18 +411,25 @@ check_support_files
 create_infobox_message
 
 # read in the applications for each file type
+# Customize your own extension list here
+# call the "set_uti" function for each file type extension
 # if this list gets extensive, you will need to adjust the window height in the "construct_display_header_settings" function
 
 logMe "Constructing application list(s)"
-utiMailTo=$(format_uti_results "mailto")
-utiHttp=$(format_uti_results "https")
-utiFtp=$(format_uti_results "ftp")
-utiXLS=$(format_uti_results "xlsx")
-utiDoc=$(format_uti_results "docx")
-utiTxt=$(format_uti_results "txt")
-utiPDF=$(format_uti_results "pdf")
+utiMailTo=$(get_uti_results "mailto")
+utiHttp=$(get_uti_results "https")
+utiFtp=$(get_uti_results "ftp")
+utiXLS=$(get_uti_results "xlsx")
+utiDoc=$(get_uti_results "docx")
+utiTxt=$(get_uti_results "txt")
+utiPDF=$(get_uti_results "pdf")
 
 
+# if you need to add new app types in here, make sure to use this template:
+# create_dropdown_message_body "Documents (doc):" "$utiDoc" "$(get_default_uti_app "docx")"
+# echo "}," >> $JSON_DIALOG_BLOB
+#
+# You need to copy/edit/paste both lines above into the code 
 logMe "Constructing display options"
 message="$SD_DIALOG_GREETING, $SD_FIRST_NAME. The default applications for each file types are shown below.  You can optionally change which applications will be used when you open the following types of files:"
 construct_dialog_header_settings "$message" > "${JSON_DIALOG_BLOB}"
@@ -449,6 +456,7 @@ returnCode=$?
 [[ $returnCode == 2 ]] && {logMe "Cancel button pressed"; cleanup_and_exit 0;}
 
 # Extract the results
+# Make sure to extract your results from your own extension
 resultsMailTo=$(echo $results | jq '.["Email App (mailto):"].selectedValue')
 resultsHttp=$(echo $results | jq '.["Web Browser (http):"].selectedValue')
 resultsFtp=$(echo $results | jq '.["File Transfer (ftp):"].selectedValue')
@@ -459,6 +467,7 @@ resultsPDF=$(echo $results | jq '.["Portable Doc Format (pdf):" ].selectedValue'
 
 
 # and then set the new defaults
+# Call the "set_uti" function to set the results
 set_uti_results $resultsMailTo "mailto"
 set_uti_results $resultsHttp "http"
 set_uti_results $resultsFtp "ftp"
