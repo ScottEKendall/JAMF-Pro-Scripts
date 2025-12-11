@@ -82,7 +82,6 @@ OVERLAY_ICON=$ICON_FILES"ToolbarCustomizeIcon.icns"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 UTILUTI_INSTALL_POLICY="install_utiluti"
-TSD_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 ##################################################
 #
