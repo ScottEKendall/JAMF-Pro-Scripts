@@ -17,3 +17,4 @@ Have fun making your own creations!
 ##### _1.1 - Added option for custom app & icns file locations to be scanned in_
 ##### _1.2 - Added option to read in variables from defaults file_
 ##### _Fixed typos_
+##### _1.3 - removed echo commands used for debugging.

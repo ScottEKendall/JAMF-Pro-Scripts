@@ -4,8 +4,8 @@
 #
 # by: Scott Kendall
 #
-# Written: 10/05/2025
-# Last updated: 10/13/2025
+# Written: 12/11/2025
+# Last updated: 12/11/2025
 #
 # Script Lightweight script to create icons with overlays using SwiftDialog
 #
@@ -13,6 +13,7 @@
 # 1.1 - Added option for custom app file locations to be scanned in
 # 1.2 - Added option to read in variables from defaults file
 #       Fixed typos
+# 1.3 - Removed the echoing of temp files...I used them for debug puroses and forgot to remove them
 
 ######################################################################################################
 #
@@ -421,9 +422,6 @@ function welcomemsg ()
             osascript -e 'tell application "Preview" to activate'
         fi
         # Store the results
-        cat $JSON_DIALOG_BLOB
-        echo "----"
-        echo $JSON_DIALOG_BLOB
         primaryApp=$(echo $temp |  jq -r '."primaryicon".selectedValue')
         primaryBuiltIn=$(echo $temp |  jq -r '."primarybuiltin".selectedValue')
         primaryAlpha=$(echo $temp |  jq -r '."Transparency".selectedValue')
