@@ -7,7 +7,7 @@
 # Written: 06/26/2025
 # Last updated: 12/12/2025
 #
-# Script Purpose: check the PPPC Database to see if the requested item is turned off for a particular app, and prompt user if necessasry
+# Script Purpose: check the PPPC Database to see if the requested item is turned off for a particular app, and prompt user if necessary
 #
 # Derived from script written by: Brian Van Peski
 # https://www.macosadventures.com/2023/03/07/screennudge-v1-7/
@@ -15,11 +15,12 @@
 # 1.0 - Initial
 # 1.1 - Put in logic to check User TCC first and then the System TCC
 # 1.2 - Added check to make sure a user is logged in / Added more logging items / Removed the sudo command from the sql command
-# 1.3 - Added support for multiple TCC checks (seperate each key with a space)
+# 1.3 - Added support for multiple TCC checks (separate each key with a space)
 # 1.4 - Made the UserTCC keys a "static" array so that it can be checked against bundles better
 # 1.5 - Code clean up and better determination of mode of TCC Key
-# 1.6 - Check for existance of application before proceeding
+# 1.6 - Check for existence of application before proceeding
 # 1.7 - Added variable USER_UID to make sure that the RunAsUser runs with the correct ID / Reworked top section to be standard across all apps
+# 1.8 - Added option to only run if user is logged in.
 #
 # Here is a list of the System Settings Prefpanes that can be opened from terminal
 #
