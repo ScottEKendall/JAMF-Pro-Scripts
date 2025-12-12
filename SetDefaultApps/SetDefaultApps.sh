@@ -16,7 +16,7 @@
 # Global "Common" variables
 #
 ######################################################################################################
-
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 SCRIPT_NAME="SetDefaultApps"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -198,7 +198,7 @@ function runAsUser ()
 function get_uti_results ()
 {
     # PURPOSE: format the uti results into an array and remove the files that are not in the /Applications or /System/Applications folder
-    # PRAMS: $1 = utiluti command to run
+    # PRAMS: $1 = utiluti extension to look for
     # RETURN: formatted list of applications
     # EXPECTED: None
 
@@ -422,7 +422,7 @@ utiXLS=$(get_uti_results "xlsx")
 utiDoc=$(get_uti_results "docx")
 utiTxt=$(get_uti_results "txt")
 utiPDF=$(get_uti_results "pdf")
-
+utiMD=$(get_uti_results "md")
 
 # if you need to add new app types in here, make sure to use this template:
 # create_dropdown_message_body "Documents (doc):" "$utiDoc" "$(get_default_uti_app "docx")"
@@ -445,6 +445,8 @@ create_dropdown_message_body "Documents (doc):" "$utiDoc" "$(get_default_uti_app
 echo "}," >> $JSON_DIALOG_BLOB
 create_dropdown_message_body "Text Files (txt):" "$utiTxt" "$(get_default_uti_app "txt")"
 echo "}," >> $JSON_DIALOG_BLOB
+create_dropdown_message_body "Markdown (md):" "$utiTxt" "$(get_default_uti_app "md")"
+echo "}," >> $JSON_DIALOG_BLOB
 create_dropdown_message_body "Portable Doc Format (pdf):" "$utiPDF" "$(get_default_uti_app "pdf")"
 echo "}]}" >> $JSON_DIALOG_BLOB
 
@@ -463,6 +465,7 @@ resultsXls=$(echo $results | jq '.["Spreadsheet (xlsx):"].selectedValue')
 resultsDoc=$(echo $results | jq '.["Documents (doc):"].selectedValue')
 resultsTxt=$(echo $results | jq '.["Text Files (txt):" ].selectedValue')
 resultsPDF=$(echo $results | jq '.["Portable Doc Format (pdf):" ].selectedValue')
+resultsMD=$(echo $results | jq '.["Markdown (md):"  ].selectedValue')
 
 
 # and then set the new defaults
@@ -474,6 +477,7 @@ set_uti_results $resultsXls "xlsx"
 set_uti_results $resultsDoc "docx"
 set_uti_results $resultsTxt "txt"
 set_uti_results $resultsPDF "pdf"
+set_uti_results $resultsMD "md"
 
 cleanup_and_exit 0
 
