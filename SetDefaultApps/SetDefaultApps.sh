@@ -5,11 +5,14 @@
 # by: Scott Kendall
 #
 # Written: 12/11/2025
-# Last updated: 12/11/2025
+# Last updated: 12/16/2025
 #
 # Script Purpose: set the default UTI applications (mailto, url, http, etc)
 #
 # 1.0 - Initial
+# 1.1 - Remove reliance on SYSTEMPROFILER for faster startup and more reliable detection of system info
+#       Fixed the mktemp command to use the SCRIPT_NAME variable vs hardcoded.
+#       Changed logic on detection of utiluti command so it does not needlessly install the utiluti app
 
 ######################################################################################################
 #
@@ -24,10 +27,13 @@ USER_UID=$(id -u "$LOGGED_IN_USER")
 
 [[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_NAME=$( /usr/bin/sw_vers -productName )
+MACOS_VERSION=$( /usr/bin/sw_vers -productVersion )
+MAC_RAM=$( /usr/sbin/sysctl -n hw.memsize 2>/dev/null | /usr/bin/awk '{printf "%.0f GB", $1/1024/1024/1024}' )
+MAC_CPU=$( /usr/sbin/sysctl -n machdep.cpu.brand_string 2>/dev/null )
+# Fallback to uname if sysctl fails
+[[ -z "$MAC_CPU" ]] && [[ "$(/usr/bin/uname -m)" == "arm64" ]] && MAC_CPU="Apple Silicon" || MAC_CPU="Intel"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 UTI_COMMAND="/usr/local/bin/utiluti"
@@ -42,8 +48,8 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 
 # Make some temp files
 
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/ExtractBundleIDs.XXXXX)
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/ExtractBundleIDs.XXXXX)
+JSON_DIALOG_BLOB=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 chmod 666 $JSON_DIALOG_BLOB
 chmod 666 $DIALOG_COMMAND_FILE
 
@@ -163,7 +169,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which utiluti) == *"not found"* ]] &&  /usr/local/bin/jamf policy -trigger ${UTILUTI_INSTALL_POLICY}
+    [[ ! -e '/usr/local/bin/utiluti' ]] &&  /usr/local/bin/jamf policy -trigger ${UTILUTI_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -179,7 +185,7 @@ function create_infobox_message()
 	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
+	SD_INFO_BOX_MSG+="${MACOS_NAME} ${MACOS_VERSION}<br>"
 }
 
 function cleanup_and_exit ()
