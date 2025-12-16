@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/03/2025
-# Last updated: 11/15/2025
+# Last updated: 12/15/2025
 #
 # Script Purpose: Backup the keychain file and delete the current keychain file(s)
 #
@@ -18,6 +18,8 @@
 #       removed unnecessary variables.
 #       Bumped min version of SD to 2.5.0
 #       Fixed typos
+# 1.4 - Removed dependencies of using systemprofiler command and use sysctl instead
+#       Changed create_infobox_message to use new OS & version variables
 
 ######################################################################################################
 #
