@@ -37,5 +37,7 @@ I have only tapped a very very small portion of what this CLI can do, I just wan
 
 Link to utiluti: https://github.com/scriptingosx/utiluti
 
+macvfx has modified this script to be MDM agnostic, if you want to use that version it can be found at https://github.com/macvfx/SetDefaultAppsX
+
 #### 1.0 - Initial 
 
