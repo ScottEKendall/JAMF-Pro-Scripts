@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 11/15/2025
+# Last updated: 12/15/2025
 #
 # Script Purpose: Main Library containing all of my commonly used functions.
 #
@@ -22,24 +22,31 @@
 # 1.8 - Added option to move some of the "defaults" to a plist file / Also used the variable SCRIPT_for temp files creation & log file cname
 # 1.9 - Add more JAMF functions
 #       Add Check for focus mode
-# 1.10 - Added static group functions
+# 1.10 -Added static group functions
+# 1.11 -Removed dependencies of using systemprofiler command and use sysctl instead
+#       Add RunAsUser & check_logged_in_user command
+#       Changed create_infobox_message to use new OS & version variables
 
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
-
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 SCRIPT_NAME="GetBundleID"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
+USER_UID=$(id -u "$LOGGED_IN_USER")
 
 [[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_NAME=$( /usr/bin/sw_vers -productName )
+MACOS_VERSION=$( /usr/bin/sw_vers -productVersion )
+MAC_RAM=$( /usr/sbin/sysctl -n hw.memsize 2>/dev/null | /usr/bin/awk '{printf "%.0f GB", $1/1024/1024/1024}' )
+MAC_CPU=$( /usr/sbin/sysctl -n machdep.cpu.brand_string 2>/dev/null )
+# Fallback to uname if sysctl fails
+[[ -z "$MAC_CPU" ]] && [[ "$(/usr/bin/uname -m)" == "arm64" ]] && MAC_CPU="Apple Silicon" || MAC_CPU="Intel"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -53,8 +60,8 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 
 # Make some temp files
 
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/ExtractBundleIDs.XXXXX)
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/ExtractBundleIDs.XXXXX)
+JSON_DIALOG_BLOB=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 chmod 666 $JSON_DIALOG_BLOB
 chmod 666 $DIALOG_COMMAND_FILE
 
@@ -183,7 +190,15 @@ function create_infobox_message()
 	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
+	SD_INFO_BOX_MSG+="${MACOS_NAME} ${MACOS_VERSION}<br>"
+}
+
+function check_logged_in_user ()
+{
+    if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
+        logMe "INFO: No user logged in"
+        cleanup_and_exit 0
+    fi
 }
 
 function cleanup_and_exit ()
@@ -273,6 +288,7 @@ create_log_directory
 check_swift_dialog_install
 check_support_files
 create_infobox_message
+OVERLAY_ICON=$(JAMF_which_self_service) 
 welcomemsg
 exit 0
 
@@ -440,14 +456,7 @@ function unload_and_delete_daemon ()
 
 function runAsUser () 
 {  
-  if [ "$LoggedInUser" != "loginwindow" ]; then
-    launchctl asuser "$uid" sudo -iu "$LoggedInUser" open "$@"
-  else
-    echo "no user logged in"
-    # uncomment the exit command
-    # to make the function exit with an error when no user is logged in
-    # exit 1
-  fi
+    launchctl asuser "$USER_UID" sudo -iu "$LOGGED_IN_USER" open "$@"
 }
 
 function Contains ()
@@ -595,15 +604,6 @@ function execute_in_parallel ()
 
     # Wait for any remaining jobs
     for pid in "${pids[@]}"; do wait $pid; done
-}
-
-function runAsUser()
-{  
-  if [ "$currentUser" != "loginwindow" ]; then
-    launchctl asuser "$UID" sudo -u "$currentUser" "$@"
-  else
-    echo "no user logged in"
-  fi
 }
 
 ###########################
