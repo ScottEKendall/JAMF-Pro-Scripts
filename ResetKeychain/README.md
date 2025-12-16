@@ -16,3 +16,5 @@ There comes a time when a user might need to reset a keychain due to various rea
 ####       removed unnecessary variables.
 ####       Bumped min version of SD to 2.5.0
 ####       Fixed typos
+#### 1.4 - Removed dependencies of using systemprofiler command and use sysctl instead
+####       Changed create_infobox_message to use new OS & version variables
