@@ -18,7 +18,7 @@ The next thing that I do is to retreive (from inTune) the users last password ch
 
 The code to retrieve the password info is located here.  I also calculate the password Age as well.  That is used later on... 
 
-[Script to retreive Password Change Date](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20Passwords%20-%20Populate%20Plist%20File%20(inTune).sh)
+[Script to retreive Password Change Date](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20Passwords%20-%20Populate%20Plist%20File.sh)
 
 A few things to note here:
  - I store these keys in each users `~/Library/Application Support/` folder.
