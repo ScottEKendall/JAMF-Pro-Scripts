@@ -117,11 +117,11 @@ function logMe ()
     #
     # This function logs both to STDOUT/STDERR and a file
     # The log file is set by the $LOG_FILE variable.
+    # if the user is an admin, it will write to the logfile, otherwise it will just echo to the screen
     #
     # RETURN: None
     if admin_user; then
         echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
-        echo "admin user" 1>&2
     else
         echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
     fi
@@ -368,7 +368,7 @@ SEARCH_FOR_KEYS=(JSSResource/ /api/)
 # Results Filename
 OUTPUT_NAME="Search_Results"
 
-check_root_privileges
+if admin_user; then logMe "INFO: Running with admin rights"; fi
 create_log_directory
 check_swift_dialog_install
 check_support_files
