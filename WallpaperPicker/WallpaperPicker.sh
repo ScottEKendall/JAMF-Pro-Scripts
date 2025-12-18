@@ -100,13 +100,15 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
-	LOG_DIR=${LOG_FILE%/*}
-	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
-	/bin/chmod 755 "${LOG_DIR}"
+    if admin_user; then
+        LOG_DIR=${LOG_FILE%/*}
+        [[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
+        /bin/chmod 755 "${LOG_DIR}"
 
-	# If the log file does not exist - create it and set the permissions
-	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
-	/bin/chmod 644 "${LOG_FILE}"
+        # If the log file does not exist - create it and set the permissions
+        [[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
+        /bin/chmod 644 "${LOG_FILE}"
+    fi
 }
 
 function logMe () 
@@ -117,9 +119,14 @@ function logMe ()
     #
     # This function logs both to STDOUT/STDERR and a file
     # The log file is set by the $LOG_FILE variable.
+    # if the user is an admin, it will write to the logfile, otherwise it will just echo to the screen
     #
     # RETURN: None
-    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+    if admin_user; then
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+    else
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
+    fi
 }
 
 function check_swift_dialog_install ()
@@ -167,6 +174,11 @@ function cleanup_and_exit ()
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
 	exit $1
+}
+
+function admin_user ()
+{
+    [[ $UID -eq 0 ]] && return 0 || return 1
 }
 
 function runAsUser () 
@@ -293,6 +305,7 @@ declare -a wallpaperPaths
 
 autoload 'is-at-least'
 
+if admin_user; then logMe "INFO: Running with admin rights"; fi
 create_log_directory
 check_swift_dialog_install
 check_support_files
