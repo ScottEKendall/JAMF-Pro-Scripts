@@ -119,8 +119,9 @@ function logMe ()
     # The log file is set by the $LOG_FILE variable.
     #
     # RETURN: None
-    if [[ $EUID -eq 0 ]]; then
+    if admin_user; then
         echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+        echo "admin user" 1>&2
     else
         echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
     fi
@@ -187,24 +188,9 @@ function cleanup_and_exit ()
 	exit $1
 }
 
-function check_for_sudo_access ()
+function admin_user ()
 {
-	# Ensures that script is run as ROOT
-    if [[ "${UID}" -ne 0 ]]; then
-    	MainDialogBody=(
-        --message "In order for this script to function properly, it must be run with admin privileges"
-		--ontop
-		--icon computer
-		--overlayicon warning
-		--bannerimage "${SD_BANNER_IMAGE}"
-		--bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
-		--button1text "OK"
-    )
-    	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-        echo "Needs sudo access"
-		cleanup_and_exit 1
-	fi
+    [[ $UID -eq 0 ]] && return 0 || return 1
 }
 
 function welcomemsg ()
@@ -382,6 +368,7 @@ SEARCH_FOR_KEYS=(JSSResource/ /api/)
 # Results Filename
 OUTPUT_NAME="Search_Results"
 
+check_root_privileges
 create_log_directory
 check_swift_dialog_install
 check_support_files
