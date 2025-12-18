@@ -100,13 +100,15 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
-	LOG_DIR=${LOG_FILE%/*}
-	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
-	/bin/chmod 755 "${LOG_DIR}"
+    if admin_user; then
+        LOG_DIR=${LOG_FILE%/*}
+        [[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
+        /bin/chmod 755 "${LOG_DIR}"
 
-	# If the log file does not exist - create it and set the permissions
-	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
-	/bin/chmod 644 "${LOG_FILE}"
+        # If the log file does not exist - create it and set the permissions
+        [[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
+        /bin/chmod 644 "${LOG_FILE}"
+    fi
 }
 
 function logMe () 
