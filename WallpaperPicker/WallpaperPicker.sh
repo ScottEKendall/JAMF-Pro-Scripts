@@ -158,7 +158,7 @@ function check_support_files ()
 {
     [[ ! -e "${WALLPAPER_DIR}" ]] && /usr/local/bin/jamf policy -trigger ${WALLPAPER_INSTALL_POLICY}
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which desktoppr) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${DESKTOPPR_INSTALL_POLICY}
+    [[ ! -x "${DESKTOPPR_APP}" ]] && /usr/local/bin/jamf policy -trigger ${DESKTOPPR_INSTALL_POLICY}
 }
 
 function cleanup_and_exit ()
