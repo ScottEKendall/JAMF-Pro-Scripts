@@ -26,6 +26,8 @@
 # 1.11 -Removed dependencies of using systemprofiler command and use sysctl instead
 #       Add RunAsUser & check_logged_in_user command
 #       Changed create_infobox_message to use new OS & version variables
+# 1.12 -Added function "admin_user" to detect if user is admin or not. 
+#       Changed logging functions to only record if a user is admin
 
 ######################################################################################################
 #
@@ -110,6 +112,11 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 #
 ####################################################################################################
 
+function admin_user ()
+{
+    [[ $UID -eq 0 ]] && return 0 || return 1
+}
+
 function create_log_directory ()
 {
     # Ensure that the log directory and the log files exist. If they
@@ -118,13 +125,15 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
-	LOG_DIR=${LOG_FILE%/*}
-	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
-	/bin/chmod 755 "${LOG_DIR}"
+    if admin_user; then
+        LOG_DIR=${LOG_FILE%/*}
+        [[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
+        /bin/chmod 755 "${LOG_DIR}"
 
-	# If the log file does not exist - create it and set the permissions
-	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
-	/bin/chmod 644 "${LOG_FILE}"
+        # If the log file does not exist - create it and set the permissions
+        [[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
+        /bin/chmod 644 "${LOG_FILE}"
+    fi
 }
 
 function logMe () 
@@ -135,9 +144,14 @@ function logMe ()
     #
     # This function logs both to STDOUT/STDERR and a file
     # The log file is set by the $LOG_FILE variable.
+    # if the user is an admin, it will write to the logfile, otherwise it will just echo to the screen
     #
     # RETURN: None
-    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+    if admin_user; then
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+    else
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
+    fi
 }
 
 function check_swift_dialog_install ()
@@ -209,10 +223,10 @@ function cleanup_and_exit ()
 	exit $1
 }
 
-function test_root_user ()
+function check_for_sudo ()
 {
 	# Ensures that script is run as ROOT
-    if [[ "${UID}" -ne 0 ]]; then
+    if ! admin_user; then
     	MainDialogBody=(
         --message "In order for this script to function properly, it must be run as an admin user!"
 		--ontop
@@ -255,6 +269,8 @@ function welcomemsg ()
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     returnCode=$?
 
+    [[ "$returnCode" == "2" ]] && {logMe "Cancel..."; break; }
+
     # Examples of how to extra data from returned string
     search_type=$(echo $temp | plutil -extract "SelectedOption" 'raw' -)
     computer_id=$(echo $temp | plutil -extract "Device" 'raw' -)
@@ -283,7 +299,7 @@ function check_focus_status ()
 ####################################################################################################
 autoload 'is-at-least'
 
-check_for_sudo_access
+check_for_sudo
 create_log_directory
 check_swift_dialog_install
 check_support_files
