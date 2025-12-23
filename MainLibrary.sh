@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 12/15/2025
+# Last updated: 12/23/2025
 #
 # Script Purpose: Main Library containing all of my commonly used functions.
 #
@@ -75,11 +75,11 @@ chmod 666 $DIALOG_COMMAND_FILE
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -e "${DEFAULTS_DIR}" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "${DEFAULTS_DIR}" "SupportFiles")
+    SD_BANNER_IMAGE=$(defaults read "${DEFAULTS_DIR}" "BannerImage")
+    spacing=$(defaults read "${DEFAULTS_DIR}" "BannerPadding")
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
