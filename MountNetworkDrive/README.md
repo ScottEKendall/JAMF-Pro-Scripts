@@ -5,13 +5,13 @@ I wrote a little utility to help with the users in connecting to their network d
 If the user is not OnPrem or on VPN, they will get this:
 
 ![](./MountNetworkDrive.png)
-If the plist file is missing or the keys are not intact, then they will receive this error:
+If the Plist (configuration) file is missing or the keys are not intact, then they will receive this error:
 
 ![](./MountNetworkDrive-Missing.png)
 
 There is an option in the script (Check My Drives) to have the user run a JAMF policy that will reconstruct and/or repair the missing configuration file.  That policy can be found here: https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20InTune%20-%20Groups.sh. 
 
-The custom Plist file is stored in the user's ~/Library/Application Support/<filename.plist> and needs to have the following structure (keys)
+The custom Plist file is stored in the user's `~/Library/Application Support/<filename.plist>` and needs to have the following structure (keys)
 
 ```
 <?xml version="1.0" encoding="UTF-8"?>
