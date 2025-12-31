@@ -663,8 +663,8 @@ logMe "INFO: Inactive Blueprints: "$DDMBlueprintErrors
 
 #Show the results and log it
 
-message="**Device name:** $computer_id**<br>"
-message+="**JAMF Management ID:** $ID**<br><br>"
+message="**Device name:** $computer_id<br>"
+message+="**JAMF Management ID:** $ID<br><br>"
 message+="<br><br>**DDM Blueprints Active**<br>"
 for item in "${DDMBlueprintInfo[@]}"; do
     message+=$item"<br>"
