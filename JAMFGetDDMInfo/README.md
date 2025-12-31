@@ -36,7 +36,7 @@ This is the most common and detailed information available. By querying a specif
 * **Server Tokens**: Hashes used internally by DDM to determine if a configuration has been updated on the server.
 * **Error Codes/Reasons**: If a declaration is inactive or failed, the API provides the specific ```code``` (e.g., ```Error.MissingConfigurations```) and a human-readable ```description``` of why it failed to apply.
 * **Identifiers** (UUIDs): The unique UUIDs that represent the specific declaration components.
-1. #### Raw Declaration Payloads ####
+2. #### Raw Declaration Payloads ####
 Once you extract a specific declaration identifier (UUID) from the status items above, you can retrieve the actual configuration data using the dss-declarations endpoint (```GET /v1/dss-declarations/{id}```).
 This allows you to extract the raw contents of the DDM configuration, which will be in a YAML or JSON format:
 * **Configuration Profile Data**: The specific settings you defined (e.g., Wi-Fi SSID and password, passcode requirements).
