@@ -10,9 +10,7 @@ Trying to create a series of scripts to assist the HelpDesk in doing some macOS 
 
 If you are using the Modern JAMF API credentials, you need to set:
 
-```Read Computer Security```
-
-```Read Computers```
+```Read Computer Security``` ```Read Computers``` ```View Disk Encryption Recovery Key```
 
 ##### _v1.0 - Initial Commit_
 ##### _v1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps_
