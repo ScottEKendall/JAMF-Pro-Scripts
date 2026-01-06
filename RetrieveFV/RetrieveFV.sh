@@ -5,67 +5,89 @@
 # by: Scott Kendall
 #
 # Written: 12/20/2024
-# Last updated: 07/09/2025
+# Last updated: 01/06/2025
 #
 # Script Purpose: View Users Filevault Key
 #
 # 1.0 - Initial
-# 1.1 - Code cleanup to be more consistant with all apps
+# 1.1 - Code cleanup to be more consistent with all apps
 # 1.2 - Use new JAMF API calls / Add more info in dialog screens
 # 1.3 - Change welcome dialog to have a more friendly greeting
 # 1.4 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 1.5 - dialog text changes / fix PBCOPY issue / Added overlay icon / Add title shadow
+# 2.0 - Fixed tons of typos
+#       You can now use JAMF classic & modern credentials
+#       Added feature to read in defaults file
+#       Add verification of JAMF credentials and error trapping if ID doesn't have rights
+#       Compatible with JAMF 11.21 and higher using the new APIs
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
-
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+SCRIPT_NAME="GetBundleID"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
+USER_UID=$(id -u "$LOGGED_IN_USER")
 
-OS_PLATFORM=$(/usr/bin/uname -p)
+[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
 
-[[ "$OS_PLATFORM" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL_NUMBER=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_VERSION=$( sw_vers -productVersion | xargs)
-
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
-LOG_DIR="${SUPPORT_DIR}/logs"
+MACOS_NAME=$( /usr/bin/sw_vers -productName )
+MACOS_VERSION=$( /usr/bin/sw_vers -productVersion )
+MAC_RAM=$( /usr/sbin/sysctl -n hw.memsize 2>/dev/null | /usr/bin/awk '{printf "%.0f GB", $1/1024/1024/1024}' )
+MAC_CPU=$( /usr/sbin/sysctl -n machdep.cpu.brand_string 2>/dev/null )
+# Fallback to uname if sysctl fails
+[[ -z "$MAC_CPU" ]] && [[ "$(/usr/bin/uname -m)" == "arm64" ]] && MAC_CPU="Apple Silicon" || MAC_CPU="Intel"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.3.3"
+
+SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+
+###################################################
+#
+# App Specific variables (Feel free to change these)
+#
+###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -e "${DEFAULTS_DIR}" ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read "${DEFAULTS_DIR}" "SupportFiles")
+    SD_BANNER_IMAGE=$(defaults read "${DEFAULTS_DIR}" "BannerImage")
+    spacing=$(defaults read "${DEFAULTS_DIR}" "BannerPadding")
+    SD_BANNER_IMAGE="${SUPPORT_DIR}${SD_BANNER_IMAGE}"
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+repeat $spacing BANNER_TEXT_PADDING+=" "
+
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 
-#JSON_OPTIONS=$(mktemp /var/tmp/ClearBrowserCache.XXXXX)
-
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_INFO_BOX_MSG=""
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}View FileVault Key"
-LOG_FILE="${LOG_DIR}/ViewFileVaultKey.log"
+LOG_FILE="${SUPPORT_DIR}/logs/ViewFileVaultKey.log"
 SD_ICON="${ICON_FILES}FileVaultIcon.icns"
-OVERLAY_ICON="SF=key.fill,color=black,bgcolo=none"
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+OVERLAY_ICON="SF=key.fill,color=black,bgcolor=none"
+JAMF_API_KEY="api/v2/computers-inventory"
+
 ##################################################
 #
 # Passed in variables
@@ -75,7 +97,8 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 CLIENT_ID=${4}                               # user name for JAMF Pro
-CLIENT_SECRET=${5}                             
+CLIENT_SECRET=${5}
+[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF credentials we are using                      
 
 ####################################################################################################
 #
@@ -90,6 +113,7 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesnt exist - create it and set the permissions
+    LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -172,6 +196,178 @@ function cleanup_and_exit ()
 	exit 0
 }
 
+###########################
+#
+# JAMF functions
+#
+###########################
+
+function JAMF_check_credentials ()
+{
+    # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
+    # RETURN: None
+    # EXPECTED: None
+
+    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
+        logMe "Client/Secret info is not valid"
+        exit 1
+    fi
+    logMe "Valid credentials passed"
+}
+
+function JAMF_check_connection ()
+{
+    # PURPOSE: Function to check connectivity to the Jamf Pro server
+    # RETURN: None
+    # EXPECTED: None
+
+    if ! /usr/local/bin/jamf -checkjssconnection -retry 5; then
+        logMe "Error: JSS connection not active."
+        exit 1
+    fi
+    logMe "JSS connection active!"
+}
+
+function JAMF_get_server ()
+{
+    # PURPOSE: Retreive your JAMF server URL from the preferences file
+    # RETURN: None
+    # EXPECTED: None
+
+    jamfpro_url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
+    logMe "JAMF Pro server is: $jamfpro_url"
+}
+
+function JAMF_get_classic_api_token ()
+{
+    # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
+    # PARMS: None
+    # RETURN: api_token
+    # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
+
+     api_token=$(/usr/bin/curl -X POST --silent -u "${CLIENT_ID}:${CLIENT_SECRET}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
+     if [[ "$api_token" == *"Could not extract value"* ]]; then
+         logMe "Error: Unable to obtain API token. Check your credentials and JAMF Pro URL."
+         exit 1
+     else 
+        logMe "Classic API token successfully obtained."
+    fi
+
+}
+
+function JAMF_validate_token () 
+{
+     # Verify that API authentication is using a valid token by running an API command
+     # which displays the authorization details associated with the current API user. 
+     # The API call will only return the HTTP status code.
+
+     api_authentication_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/auth" --request GET --header "Authorization: Bearer ${api_token}")
+}
+
+function JAMF_get_access_token ()
+{
+    # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
+    # RETURN: connection stringe (either error code or valid data)
+    # PARMS: None
+    # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
+
+    returnval=$(curl --silent --location --request POST "${jamfpro_url}/api/oauth/token" \
+        --header "Content-Type: application/x-www-form-urlencoded" \
+        --data-urlencode "client_id=${CLIENT_ID}" \
+        --data-urlencode "grant_type=client_credentials" \
+        --data-urlencode "client_secret=${CLIENT_SECRET}")
+    
+    if [[ -z "$returnval" ]]; then
+        logMe "Check Jamf URL"
+        exit 1
+    elif [[ "$returnval" == '{"error":"invalid_client"}' ]]; then
+        logMe "Check the API Client credentials and permissions"
+        exit 1
+    else
+        logMe "API token successfully obtained."
+    fi
+    
+    api_token=$(echo "$returnval" | plutil -extract access_token raw -)
+}
+
+function JAMF_check_and_renew_api_token ()
+{
+     # Verify that API authentication is using a valid token by running an API command
+     # which displays the authorization details associated with the current API user. 
+     # The API call will only return the HTTP status code.
+
+     JAMF_validate_token
+
+     # If the api_authentication_check has a value of 200, that means that the current
+     # bearer token is valid and can be used to authenticate an API call.
+
+     if [[ ${api_authentication_check} == 200 ]]; then
+
+     # If the current bearer token is valid, it is used to connect to the keep-alive endpoint. This will
+     # trigger the issuing of a new bearer token and the invalidation of the previous one.
+
+          api_token=$(/usr/bin/curl "${jamfpro_url}/api/v1/auth/keep-alive" --silent --request POST -H "Authorization: Bearer ${api_token}" | plutil -extract token raw -)
+
+     else
+
+          # If the current bearer token is not valid, this will trigger the issuing of a new bearer token
+          # using Basic Authentication.
+
+          JAMF_get_classic_api_token
+     fi
+}
+
+function JAMF_invalidate_token ()
+{
+    # PURPOSE: invalidate the JAMF Token to the server
+    # RETURN: None
+    # Expected jamfpro_url, ap_token
+
+    returnval=$(/usr/bin/curl -w "%{http_code}" -H "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth/invalidate-token" -X POST -s -o /dev/null)
+
+    if [[ $returnval == 204 ]]; then
+        logMe "Token successfully invalidated"
+    elif [[ $returnval == 401 ]]; then
+        logMe "Token already invalid"
+    else
+        logMe "Unexpected response code: $returnval"
+        exit 1  # Or handle it in a different way (e.g., retry or log the error)
+    fi    
+}
+
+function JAMF_check_credentials ()
+{
+    # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
+    # RETURN: None
+    # EXPECTED: None
+
+    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
+        logMe "Client/Secret info is not valid"
+        exit 1
+    fi
+    logMe "Valid credentials passed"
+}
+
+function JAMF_get_deviceID ()
+{
+    # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
+    # RETURN: the device ID for the device in question.
+    # PARMS: $1 - search identifier to use (serial or Hostname)
+
+    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
+    ID=$(/usr/bin/curl -sf --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" -H "Accept: application/json" | /usr/bin/plutil -extract results.0.id raw -)
+
+    # if ID is not found, display a message or something...
+    [[ "$ID" == *"Could not extract value"* || "$ID" == *"empty data"* ]] && invalid_device_message
+    echo $ID
+}
+
+###########################
+#
+# Application Specific functions
+#
+###########################
+
 function display_welcome_message ()
 {
     MainDialogBody=(
@@ -182,7 +378,7 @@ function display_welcome_message ()
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 100
         --titlefont shadow=1
-        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial or hostname of the device you wish to see the FV Recovey Key for. \n\n You must also provide a reason for retreiving the Recovery Key."
+        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial or hostname of the device you wish to see the FV Recovery Key for. \n\n You must also provide a reason for retrieving the Recovery Key."
         --messagefont name=Arial,size=17
         --vieworder "dropdown,textfield"
         --textfield "Device,required"
@@ -249,72 +445,6 @@ function invalid_device_message ()
     cleanup_and_exit
 }
 
-function get_JAMF_Server () 
-{
-    jamfpro_url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
-    logMe "JAMF Pro server is: $jamfpro_url"
-}
-
-function get_JAMF_DeviceID ()
-{
-    # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server. (JAMF pro 11.5.1 or higher)
-    # RETURN: the device ID for the device in question.
-    # PARMS: $1 - search identifier to use (serial or Hostname)
-
-    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-    ID=$(/usr/bin/curl -sf --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" -H "Accept: application/json" | /usr/bin/plutil -extract results.0.id raw -)
-
-    # if ID is not found, display a message or something...
-    [[ "$ID" == *"Could not extract value"* || "$ID" == *"empty data"* ]] && invalid_device_message
-    logMe "Device ID #$ID"
-}
-
-function get_JamfPro_Classic_API_Token ()
-{
-    # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
-    # PARMS: None
-    # RETURN: api_token
-    # EXPECTED: jamfpro_user, jamfpro_pasword, jamfpro_url
-
-     api_token=$(/usr/bin/curl -X POST --silent -u "${CLIENT_ID}:${CLIENT_SECRET}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
-}
-
-function API_Token_Valid_Check () 
-{
-     # Verify that API authentication is using a valid token by running an API command
-     # which displays the authorization details associated with the current API user. 
-     # The API call will only return the HTTP status code.
-
-     api_authentication_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/auth" --request GET --header "Authorization: Bearer ${api_token}")
-}
-
-function Check_And_Renew_API_Token ()
-{
-     # Verify that API authentication is using a valid token by running an API command
-     # which displays the authorization details associated with the current API user. 
-     # The API call will only return the HTTP status code.
-
-     API_Token_Valid_Check
-
-     # If the api_authentication_check has a value of 200, that means that the current
-     # bearer token is valid and can be used to authenticate an API call.
-
-     if [[ ${api_authentication_check} == 200 ]]; then
-
-     # If the current bearer token is valid, it is used to connect to the keep-alive endpoint. This will
-     # trigger the issuing of a new bearer token and the invalidation of the previous one.
-
-          api_token=$(/usr/bin/curl "${jamfpro_url}/api/v1/auth/keep-alive" --silent --request POST --header "Authorization: Bearer ${api_token}" | plutil -extract token raw -)
-
-     else
-
-          # If the current bearer token is not valid, this will trigger the issuing of a new bearer token
-          # using Basic Authentication.
-
-          Get_JamfPro_API_Token
-     fi
-}
-
 function FileVault_Recovery_Key_Valid_Check () 
 {
      # Verify that a FileVault recovery key is available by running an API command
@@ -322,14 +452,21 @@ function FileVault_Recovery_Key_Valid_Check ()
      #
      # The API call will only return the HTTP status code.
 
-     filevault_recovery_key_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" --request GET --header "Authorization: Bearer ${api_token}")
+     filevault_recovery_key_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}${JAMF_API_KEY}/$ID/filevault" --request GET --header "Authorization: Bearer ${api_token}")
 }
 
 function FileVault_Recovery_Key_Retrieval () 
 {
      # Retrieves a FileVault recovery key from the computer inventory record.
-     filevault_recovery_key_retrieved=$(/usr/bin/curl -sf --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/computers-inventory/$ID/filevault" -H "Accept: application/json" | plutil -extract personalRecoveryKey raw -)   
+
+     temp=$(/usr/bin/curl --header "Authorization: Bearer ${api_token}" "${jamfpro_url}${JAMF_API_KEY}/$ID/filevault" -H "accept: application/json")
+     if [[ "$temp" == *"Forbidden"* ]]; then
+        logMe "Insufficient JAMF privileges"
+        exit 1
+     fi   
+     filevault_recovery_key_retrieved=$(echo $temp | plutil -extract personalRecoveryKey raw -)
 }
+
 
 function display_status_message ()
 {
@@ -370,16 +507,21 @@ create_log_directory
 check_support_files
 check_swift_dialog_install
 create_infobox_message
+JAMF_check_credentials
+JAMF_get_server
 display_welcome_message
 
-# Perform JAMF API calls to locate device and retreive the FV key
-get_JAMF_Server 
-get_JamfPro_Classic_API_Token
-get_JAMF_DeviceID ${search_type}
+# Perform JAMF API calls to locate device and retrieve the FV key
 
+[[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token
+ID=$(JAMF_get_deviceID ${search_type})
+
+logMe "JAMF ID: $ID"
 [[ -z $ID ]] && invalid_device_message
 
-Check_And_Renew_API_Token
+JAMF_check_and_renew_api_token
 FileVault_Recovery_Key_Valid_Check
 FileVault_Recovery_Key_Retrieval
+JAMF_invalidate_token
 display_status_message
+exit 0
