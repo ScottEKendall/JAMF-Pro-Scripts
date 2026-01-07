@@ -19,6 +19,8 @@
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
 #       Fixed typos
+# 2.3 - Add logic in the delete_files section to not continue processing if name is blank
+#		Fixed issue with reading in the defaults file and setting the variables.
 ######################################################################################################
 #
 # Global "Common" variables
@@ -61,11 +63,12 @@ TMP_FILE_STORAGE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -e "${DEFAULTS_DIR}" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "${DEFAULTS_DIR}" "SupportFiles")
+    SD_BANNER_IMAGE=$(defaults read "${DEFAULTS_DIR}" "BannerImage")
+    spacing=$(defaults read "${DEFAULTS_DIR}" "BannerPadding")
+    SD_BANNER_IMAGE="${SUPPORT_DIR}${SD_BANNER_IMAGE}"
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
@@ -356,6 +359,9 @@ function delete_files ()
 {
 	while read -r line; do
 		name=$( echo "${line}" | xargs | /usr/bin/awk -F " : " '{print $1}' | tr -d '"')
+		if [[ -z "$name" ]]; then
+			Continue
+		fi
 		if [[ -n "${name}" ]] && [[ -e "/Applications/${name}.app" ]]; then
 			/bin/rm -rf "/Applications/${name}.app"
 			logMe "Removed application: ${name}"
