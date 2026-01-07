@@ -359,16 +359,16 @@ function delete_files ()
 {
 	while read -r line; do
 		name=$( echo "${line}" | xargs | /usr/bin/awk -F " : " '{print $1}' | tr -d '"')
-		if [[ -z "$name" ]]; then
-			Continue
-		fi
-		if [[ -n "${name}" ]] && [[ -e "/Applications/${name}.app" ]]; then
-			/bin/rm -rf "/Applications/${name}.app"
-			logMe "Removed application: ${name}"
-		elif [[ -d "/Applications/${name}" ]]; then
-			/bin/rm -rf "/Applications/${name}"
-			logMe "Removed Folder: ${name}"
-		fi
+		# don't process if $name is blank
+		[[ -z "$name" ]] && continue
+        if [[ -d "/Applications/${name}.app" ]]; then
+            /bin/rm -rf "/Applications/${name}.app"
+            logMe "Removed application: ${name}"
+        elif [[ -d "/Applications/${name}" ]]; then
+            # .app bundles are technically directories, so this only runs if the .app check fails
+            /bin/rm -rf "/Applications/${name}"
+            logMe "Removed Folder: ${name}"
+        fi
 	done < "${TMP_FILE_STORAGE}"
 }
 
