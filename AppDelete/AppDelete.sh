@@ -4,7 +4,7 @@
 # Purpose: Allow end users to delete apps / folders using Swift Dialog
 #
 # Written: 8/3/2022
-# Last updated: 11/15/2025
+# Last updated: 01/07/2026
 #
 # 1.0 - Initial Release
 # 1.1 - Major code cleanup & documentation
