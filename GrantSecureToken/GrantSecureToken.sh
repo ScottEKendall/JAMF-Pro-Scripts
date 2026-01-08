@@ -118,14 +118,14 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
+    # If the log directory doesnt exist - create it and set the permissions
     LOG_DIR=${LOG_FILE%/*}
-	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
-	/bin/chmod 755 "${LOG_DIR}"
+    [[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
+    /bin/chmod 755 "${LOG_DIR}"
 
-	# If the log file does not exist - create it and set the permissions
-	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
-	/bin/chmod 644 "${LOG_FILE}"
+    # If the log file does not exist - create it and set the permissions
+    [[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
+    /bin/chmod 644 "${LOG_FILE}"
 }
 
 function logMe () 
@@ -197,10 +197,10 @@ function create_infobox_message()
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+    [[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit $1
+    exit $1
 }
 
 function display_msg ()
@@ -218,18 +218,18 @@ function display_msg ()
 	MainDialogBody=(
         --message "${message}"
         --titlefont shadow=1
-		--ontop
-		--icon "$SD_ICON_FILE"
-		--overlayicon "$4"
-		--bannerimage "${SD_BANNER_IMAGE}"
-		--bannertitle "${SD_WINDOW_TITLE}"
+        --ontop
+        --icon "$SD_ICON_FILE"
+        --overlayicon "$4"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --height 445
-		--width 760
-		--quitkey 0
+        --width 760
+        --quitkey 0
         --json
         --moveable
-		--button1text "$3"
+        --button1text "$3"
     )
 
     # Add items to the array depending on what info was passed
