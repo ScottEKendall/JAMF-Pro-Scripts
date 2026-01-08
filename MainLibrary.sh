@@ -28,6 +28,7 @@
 #       Changed create_infobox_message to use new OS & version variables
 # 1.12 -Added function "admin_user" to detect if user is admin or not. 
 #       Changed logging functions to only record if a user is admin
+# 1.13 -Added more JAMF API calls
 
 ######################################################################################################
 #
@@ -80,6 +81,7 @@ if [[ -e "${DEFAULTS_DIR}" ]]; then
     SUPPORT_DIR=$(defaults read "${DEFAULTS_DIR}" "SupportFiles")
     SD_BANNER_IMAGE=$(defaults read "${DEFAULTS_DIR}" "BannerImage")
     spacing=$(defaults read "${DEFAULTS_DIR}" "BannerPadding")
+    SD_BANNER_IMAGE="${SUPPORT_DIR}${SD_BANNER_IMAGE}"
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
@@ -189,6 +191,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -1054,6 +1057,22 @@ function JAMF_retrieve_static_group_members ()
     echo $tmp #| jq -r '.computer_group.computers[].name'
 }
 
+function JAMF_retrieve_data_blob ()
+{    
+    # PURPOSE: Extract the summary of the JAMF conmand results
+    # RETURN: XML contents of command
+    # PARAMTERS: $1 = The API command of the JAMF atrribute to read
+    #            $2 = format to return XML or JSON
+    # EXPECTED: 
+    #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
+    #   api_token - base64 hex code of your bearer token
+    #   jamppro_url - the URL of your JAMF server  
+
+    declare format=$2
+    [[ -z "${format}" ]] && format="xml"
+    echo -E $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" )
+}
+
 function JAMF_static_group_action_by_serial ()
 {
     # PURPOSE: Write out the changes to the static group
@@ -1087,6 +1106,109 @@ function JAMF_static_group_action_by_serial ()
         logMe "$retval" 1>&2
     fi
     echo $retval
+}
+
+function JAMF_retrieve_ddm_softwareupdate_info ()
+{
+    # PURPOSE: extract the DDM Software update info from the computer record
+    # RETURN: array of the DDM software update information
+    # PARMS: $1 - DDM JSON blob of the computer
+
+    retval=$(echo "$1" | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.pending")) | select(.value != null) | "\(.key):\(.value)"' | sed 's/^softwareupdate.pending-version.//')
+    DDMSoftwareUpdateInfo=("${(f)retval}")
+}
+
+function JAMF_retrieve_ddm_softwareupdate_failures ()
+{
+    # PURPOSE: extract the DDM Software update failures from the computer record
+    # RETURN: array of the DDM software update information
+    # PARMS: $1 - DDM JSON blob of the computer
+
+    retval=$(echo -E $1 | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.failure-reason")) | select(.value != null) | "\(.key):\(.value)"'| sed 's/^softwareupdate.failure-reason.//')
+    DDMSoftwareUpdateFailures=("${(f)retval}")
+}
+
+function JAMF_retrieve_ddm_blueprint_active ()
+{
+    local json_blob="$1"
+    local value_content
+    local identifier
+    local declarations
+    
+    # 1. Use 'sed' to extract the raw 'value' content and replace the '},{' separator with a specific unique temporary delimiter.
+    # We remove the outer quotes and "value": part as well.
+    value_content=$(echo "$json_blob" | sed -n 's/.*"value" : "\({.*\)}".*/\1/p' | sed 's/},{/|NEWLINE|/g')
+
+    # 2. Use Zsh parameter expansion to split by the temporary delimiter into an array.
+    # The (ps/|NEWLINE|/) flags mean 'Parameter Split by the string |NEWLINE|'
+    declarations=("${(ps/|NEWLINE|/)value_content}")
+
+    # 3. Iterate over each declaration block
+    for item in "${declarations[@]}"; do
+        # Check if the block contains 'active=true'
+        if [[ "$item" == *"active=true"* ]]; then
+            # Extract the identifier value specifically using sed within the loop
+            identifier=$(echo "$item" | sed -E 's/.*identifier=([^,>]*).*/\1/')
+            if [[ "$identifier" == "Blueprint_"* ]]; then
+                DDMBlueprintInfo+=($(echo $identifier | sed 's/^Blueprint_//; s/_s1_sys_act1$//'))
+            fi
+        fi
+    done
+}
+
+function JAMF_retrieve_ddm_inactive_blueprint_errors ()
+{
+    local json_blob="$1"
+    local declarations
+    local delimiter="}], "
+    
+    # 1. Use 'sed' to extract the raw 'value' content and replace the '},{' separator with a specific unique temporary delimiter.
+    # We remove the outer quotes and "value": part as well.
+    local value_content=$(echo "$json_blob" | sed -n 's/.*"value" : "\({.*\)}".*/\1/p' | sed 's/},{/|NEWLINE|/g')
+
+    # 2. Use Zsh parameter expansion to split by the temporary delimiter into an array.
+    # The (ps/|NEWLINE|/) flags mean 'Parameter Split by the string |NEWLINE|'
+    declarations=("${(ps/|NEWLINE|/)value_content}")
+
+    # 3. Iterate over each declaration block
+    for decl in "${declarations[@]}"; do
+        # Check if the block contains 'active=false'
+        if [[ "$decl" == *"active=false"* ]]; then
+            # Extract the identifier value specifically using sed within the loop
+            code_value=$(echo "$decl" |  awk -F "code=" '{print $NF}')
+            if [[ -n "$code_value" ]]; then
+                # Clean up potential trailing braces/brackets that might be captured
+                error_code=$(echo "$code_value" | awk -F "code=" '{print $NF}')
+                error_code="${error_code%%$delimiter*}"
+            fi
+            local identifier=$(echo "$decl" | sed -E 's/.*identifier=([^,>]*).*/\1/')
+
+            # Check if the extracted identifier starts with 'Blueprint_'
+            if [[ "$identifier" == "Blueprint_"* ]]; then
+                DDMBlueprintErrors+=($(echo $identifier | sed 's/^Blueprint_//; s/_s1_sys_act1$//')" - "$error_code)
+            fi
+        fi
+    done
+}
+
+function JAMF_retrieve_ddm_keys ()
+{
+    # PURPOSE: uses the ManagementId to retrieve the DDM info
+    # RETURN: the device ID for the device in question.
+    # PARMS: $1 - Management ID
+    #        $2 - Specific DDM Keys to extract
+
+    echo $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items/$2")
+}
+
+function JAMF_DDM_extract_summary ()
+{
+    # PURPOSE: Extract (display) all of the DDM entries and store them in a CSV file for better readability
+    # RETURN: None
+    # PARMS: $1 - DDMInfo for the computer record (should have already been populated)
+    # EXPECTED: CSV_OUTPUT must be declare with full path
+    echo "LastUpdate,Key,Value" > $CSV_OUTPUT
+    echo -E $1 | jq -r '.statusItems[] | select(.key) | [.lastUpdateTime, .key, .value] | @csv' >> $CSV_OUTPUT
 }
 
 #######################################################################################################
