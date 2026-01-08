@@ -22,16 +22,20 @@ and give them an option to do it again (and again)
 ![](./AppDelete-Results.png)
 
 
-#### 1.0 - Initial Release
-#### 1.1 - Major code cleanup & documentation
-####		Structured code to be more inline / consistent across all apps
-#### 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 2.0 - Bumped Swift Dialog min version to 2.5.0
-####		NEW: Added option to allow folders to be deleted (ALLOWED_FOLDERS)
-####		Put shadows in the banner text
-#### 		Reordered sections to better show what can be modified
-#### 2.1 - Added option to sort array (case insensitive) after the application scan & folders added 
-#### 2.2 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 |  Initial Release |
+| 1.1 |  Major code cleanup & documentation |
+||		Structured code to be more inline / consistent across all apps |
+| 1.2 |  Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore... |
+| 2.0 |  Bumped Swift Dialog min version to 2.5.0 |
+||		NEW: Added option to allow folders to be deleted (ALLOWED_FOLDERS) |
+||		Put shadows in the banner text |
+|| 		Reordered sections to better show what can be modified |
+| 2.1 |  Added option to sort array (case insensitive) after the application scan & folders added  |
+| 2.2 |  Code cleanup |
+||       Added feature to read in defaults file |
+||        removed unnecessary variables. |
+||        Fixed typos |
+| 2.3 |  Add logic in the delete_files section to not continue processing if name is blank |
+|| Fixed issue with reading in the defaults file and setting the variables. |
