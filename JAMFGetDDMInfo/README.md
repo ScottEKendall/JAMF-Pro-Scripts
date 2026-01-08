@@ -12,10 +12,15 @@ If there are any potential software update failures, they will be listed in here
 
 ![](JAMFGetDDMInfo-Software_Failures.png)
 
+New as of 0.2 alpha
+
+![](./JAMFGetDDMInfo-Groups.png)
+![](./JAMFGetDDMInfo-GroupResults.png)
+
 As is, the script (in its early Alpha stage) will function on a single system, but I have much more planned for it, such as:
 
-* Select any static/smart group and it will process the DDM reports for all machines in the groups
-* Export results via CSV / Email
+* Select any static group and it will process the DDM reports for all machines in the groups
+* Export results via Email
 * Report on failed blueprints from selected systems that you choose
 * More DDM Details extracted & reported on
   
@@ -23,9 +28,14 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 
 ## History ##
 
-##### _0.1 - Initial Commit (Alpha)_
+| **Version**|**Notes**|
+|:--------:|-----|
+| 0.1 |  Initial Release |
+| 0.2 |  had to add "echo -E $1" before each of the jq commands to strip out non-ascii characters (it would cause jq to crash) - Thanks @RedShirt |
+|| Script can now perform functions based on SmartGroups
 
-Gemini results of what can be extracted from JAMF about DDM:
+
+## Gemini results of what can be extracted from JAMF about DDM: ##
 
 The information you can extract from the Jamf Pro server regarding DDM (Declarative Device Management) contents using the API is granular and device-centric. The API primarily provides status items, declaration identifiers, and raw configuration payloads rather than high-level blueprint definitions.
 ### Here are the specific types of information you can extract: ###
