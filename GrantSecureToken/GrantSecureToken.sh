@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/11/25
-# Last updated: 11/17/25
+# Last updated: 01/08/26
 #
 # Script Purpose: GUI Prompt to set the Secure Token to any user
 #
@@ -21,6 +21,10 @@
 # 1.3 - Code cleanup
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
+#       Fixed typos
+# 1.4 - Changed output of Dialog to use JSON blob to handle parsing of password with special characters
+#       Added logic to make sure jq was installed.
+#       Fixed issue of defaults variables not getting set properly
 #       Fixed typos
 
 ######################################################################################################
@@ -162,7 +166,7 @@ function check_swift_dialog_install ()
 function install_swift_dialog ()
 {
     # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
+    # PRAMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
     #
     # RETURN: None
 
@@ -201,7 +205,7 @@ function cleanup_and_exit ()
 
 function display_msg ()
 {
-    # Expected Parms
+    # Expected Prams
     #
     # Parm $1 - Message to display
     # Parm $2 - Type of dialog (message, input, password)
@@ -242,7 +246,6 @@ function display_msg ()
     [[ "${3}" == "OK" ]] && MainDialogBody+=(--button2text Cancel)
 
 	returnval=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
-    echo $returnval 2>&1
     returnCode=$?
 
     [[ $returnCode == 2 || $returnCode == 10 ]] && cleanup_and_exit
@@ -250,16 +253,9 @@ function display_msg ()
     if [[ "$2" == "input" ]]; then
         adminUser=$(echo $returnval | jq '.hasToken.selectedValue' | tr -d '"' | xargs)
         newTokenUser=$(echo $returnval | jq '.needsToken.selectedValue' | tr -d '"' | xargs)
-
-#        adminUser=$(echo $returnval | grep "has" | grep -v "index" | awk -F ":" '{print $2}' | tr -d '"' | xargs )
-#        newTokenUser=$(echo $returnval | grep "needs" | grep -v "index" | awk -F ":" '{print $2}' | tr -d '"' | xargs )
-
     elif [[ "$2" == "password" ]]; then
         adminPassword=$(echo $returnval | jq '.adminPassword' | tr -d '"' | xargs)
         userPassword=$(echo $returnval | jq '.userPassword' | tr -d '"' | xargs)
-#
-#        adminPassword=$(echo $returnval | grep "$adminUser" | awk -F ":" '{print $2}' | xargs )
-#        userPassword=$(echo $returnval | grep "$newTokenUser" | awk -F ":" '{print $2}' | xargs )
     fi
 }
 
@@ -319,8 +315,8 @@ MissingSecureTokenCheck
 
 # do some quick tests on the results
 
-#[[ "$result" == "UNDEFINED" ]] && { display_msg "I am unable to determine the status of your secure token.  Please create a ticket with the TSD so this can be investigated" "message" "Done" "warning" "welcome"; cleanup_and_exit 0; }
-#[[ "$result" == "YES" ]] && { display_msg "Congratulations!  Your account already has a secure token assigned to it.  No further action is necessary." "message" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy"; cleanup_and_exit 0; }
+[[ "$result" == "UNDEFINED" ]] && { display_msg "I am unable to determine the status of your secure token.  Please create a ticket with the TSD so this can be investigated" "message" "Done" "warning" "welcome"; cleanup_and_exit 0; }
+[[ "$result" == "YES" ]] && { display_msg "Congratulations!  Your account already has a secure token assigned to it.  No further action is necessary." "message" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy"; cleanup_and_exit 0; }
 
 # if we made it this far, the user doesn't have a token on their account
 
@@ -344,9 +340,6 @@ fi
 
 display_msg "You are seeing this prompt, because you don't have what is called a 'Secure Token' on your computer.  A Secure Token allows you to login after the computer has been restarted, or to install software updates." "input" "OK" "computer" "welcome"
 display_msg "Enter the passwords for the following users" "password" "OK" "caution"
-    echo $adminPassword
-    echo $userPassword
-    cleanup_and_exit 0
 
 # Test the entered admin password
 passCheck=$(dscl /Local/Default -authonly "${adminUser}" "${adminPassword}")
@@ -364,7 +357,7 @@ message=$(more $JSON_OPTIONS | awk -F "]" '{print $2}')
 
 if [[ "${message}" != *"Done"* ]]; then
     logMe "Errors encountered: "$message
-    display_msg "An error has occured!  Results: "$message "Done" "Done" "warning"
+    display_msg "An error has occurred!  Results: "$message "Done" "Done" "warning"
     cleanup_and_exit 1
 
 fi
