@@ -63,11 +63,12 @@ chmod 666 $JSON_OPTIONS
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -e "${DEFAULTS_DIR}" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "${DEFAULTS_DIR}" "SupportFiles")
+    SD_BANNER_IMAGE=$(defaults read "${DEFAULTS_DIR}" "BannerImage")
+    spacing=$(defaults read "${DEFAULTS_DIR}" "BannerPadding")
+    SD_BANNER_IMAGE="${SUPPORT_DIR}${SD_BANNER_IMAGE}"
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
@@ -89,6 +90,7 @@ SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
+JQ_FILE_INSTALL_POLICY="install_jq"
 
 ##################################################
 #
@@ -170,6 +172,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -220,6 +223,7 @@ function display_msg ()
         --height 445
 		--width 760
 		--quitkey 0
+        --json
         --moveable
 		--button1text "$3"
     )
@@ -227,28 +231,35 @@ function display_msg ()
     # Add items to the array depending on what info was passed
 
     if [[ "$2" == "input" ]]; then
-        MainDialogBody+=(--selecttitle "Choose the account that already has a Secure Token",required --selectvalues ${TOKEN_USER_PICK_LIST})
-        MainDialogBody+=(--selecttitle "Select the user that will needs a Secure Token",required --selectvalues ${USERS_ON_SYSTEM})
+        MainDialogBody+=(--selecttitle "Choose the account that already has a Secure Token",required,name="hasToken" --selectvalues ${TOKEN_USER_PICK_LIST})
+        MainDialogBody+=(--selecttitle "Select the user that will needs a Secure Token",required,name="needsToken" --selectvalues ${USERS_ON_SYSTEM})
 
     elif [[ "$2" == "password" ]]; then
-        MainDialogBody+=(--textfield "Enter the password for "$adminUser,secure,required)
-        MainDialogBody+=(--textfield "Enter the password for "$newTokenUser,secure,required)
+        MainDialogBody+=(--textfield "Enter the password for "$adminUser,secure,required,name="adminPassword")
+        MainDialogBody+=(--textfield "Enter the password for "$newTokenUser,secure,required,name="userPassword")
     fi
 
     [[ "${3}" == "OK" ]] && MainDialogBody+=(--button2text Cancel)
 
 	returnval=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
+    echo $returnval 2>&1
     returnCode=$?
 
     [[ $returnCode == 2 || $returnCode == 10 ]] && cleanup_and_exit
 
     if [[ "$2" == "input" ]]; then
-        adminUser=$(echo $returnval | grep "has" | grep -v "index" | awk -F ":" '{print $2}' | tr -d '"' | xargs )
-        newTokenUser=$(echo $returnval | grep "needs" | grep -v "index" | awk -F ":" '{print $2}' | tr -d '"' | xargs )
+        adminUser=$(echo $returnval | jq '.hasToken.selectedValue' | tr -d '"' | xargs)
+        newTokenUser=$(echo $returnval | jq '.needsToken.selectedValue' | tr -d '"' | xargs)
+
+#        adminUser=$(echo $returnval | grep "has" | grep -v "index" | awk -F ":" '{print $2}' | tr -d '"' | xargs )
+#        newTokenUser=$(echo $returnval | grep "needs" | grep -v "index" | awk -F ":" '{print $2}' | tr -d '"' | xargs )
 
     elif [[ "$2" == "password" ]]; then
-        adminPassword=$(echo $returnval | grep "$adminUser" | awk -F ":" '{print $2}' | xargs )
-        userPassword=$(echo $returnval | grep "$newTokenUser" | awk -F ":" '{print $2}' | xargs )
+        adminPassword=$(echo $returnval | jq '.adminPassword' | tr -d '"' | xargs)
+        userPassword=$(echo $returnval | jq '.userPassword' | tr -d '"' | xargs)
+#
+#        adminPassword=$(echo $returnval | grep "$adminUser" | awk -F ":" '{print $2}' | xargs )
+#        userPassword=$(echo $returnval | grep "$newTokenUser" | awk -F ":" '{print $2}' | xargs )
     fi
 }
 
@@ -308,8 +319,8 @@ MissingSecureTokenCheck
 
 # do some quick tests on the results
 
-[[ "$result" == "UNDEFINED" ]] && { display_msg "I am unable to determine the status of your secure token.  Please create a ticket with the TSD so this can be investigated" "message" "Done" "warning" "welcome"; cleanup_and_exit 0; }
-[[ "$result" == "YES" ]] && { display_msg "Congratulations!  Your account already has a secure token assigned to it.  No further action is necessary." "message" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy"; cleanup_and_exit 0; }
+#[[ "$result" == "UNDEFINED" ]] && { display_msg "I am unable to determine the status of your secure token.  Please create a ticket with the TSD so this can be investigated" "message" "Done" "warning" "welcome"; cleanup_and_exit 0; }
+#[[ "$result" == "YES" ]] && { display_msg "Congratulations!  Your account already has a secure token assigned to it.  No further action is necessary." "message" "Done" "SF=checkmark.circle.fill, color=green,weight=heavy"; cleanup_and_exit 0; }
 
 # if we made it this far, the user doesn't have a token on their account
 
@@ -333,7 +344,9 @@ fi
 
 display_msg "You are seeing this prompt, because you don't have what is called a 'Secure Token' on your computer.  A Secure Token allows you to login after the computer has been restarted, or to install software updates." "input" "OK" "computer" "welcome"
 display_msg "Enter the passwords for the following users" "password" "OK" "caution"
-    
+    echo $adminPassword
+    echo $userPassword
+    cleanup_and_exit 0
 
 # Test the entered admin password
 passCheck=$(dscl /Local/Default -authonly "${adminUser}" "${adminPassword}")

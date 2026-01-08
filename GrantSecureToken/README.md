@@ -35,3 +35,7 @@ Problems updating the token (with error message)
 ####       Added feature to read in defaults file
 ####       removed unnecessary variables.
 ####       Fixed typos
+#### 1.4 - Changed output of Dialog to use JSON blob to handle parsing of password with special characters
+####       Added logic to make sure jq was installed.
+####       Fixed issue of defaults variables not getting set properly
+####       Fixed typos
