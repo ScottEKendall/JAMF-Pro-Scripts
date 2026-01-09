@@ -13,7 +13,7 @@
 # 0.2 - had to add "echo -E $1" before each of the jq commands to strip out non-ascii characters (it would cause jq to crash) - Thanks @RedShirt
 #       Script can now perform functions based on SmartGroups
 # 0.3 - Put error trap in JAMF API calls to see if returns "INVALID_PRIVILEGE""
-# 0.4 - Optimized some loop routines and put in more error trapping.  Add feature to include DDM Software Failures in CSV report
+# 0.4 - Optimized some loop routines and put in more error trapping.  Add feature to include DDM Software Failures in CSV report / Optimized JAMF functions for faster processing
 
 ######################################################################################################
 #
@@ -752,8 +752,8 @@ function JAMF_retrieve_data_summary ()
     #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
     #   api_token - base64 hex code of your bearer token
     #   jamppro_url - the URL of your JAMF server   
-    [[ -z "${2}" ]] && $2="xml"
-    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/$2" "${jamfpro_url}${1}" )
+    local format="${2:-xml}"
+    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" )
 }
 
 function JAMF_retrieve_data_details ()
@@ -765,29 +765,17 @@ function JAMF_retrieve_data_details ()
     # EXPECTED: 
     #   api_token - base64 hex code of your bearer token
     #   jamppro_url - the URL of your JAMF server
-    declare format=$2
-    [[ -z "${format}" ]] && format="xml"
+    local format="${2:-xml}"
     xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}")
 }
 
 function JAMF_retrieve_data_blob ()
 {    
-    # PURPOSE: Extract the summary of the JAMF conmand results
-    # RETURN: XML contents of command
-    # PARAMTERS: $1 = The API command of the JAMF atrribute to read
-    #            $2 = format to return XML or JSON
-    # EXPECTED: 
-    #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
-    #   api_token - base64 hex code of your bearer token
-    #   jamppro_url - the URL of your JAMF server  
-
-    declare format=$2
-    [[ -z "${format}" ]] && format="xml"
-    retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" )
-    if echo "$retval" | grep "INVALID"; then
-        retval="ERR" #report ERR if insufficient privs
-    fi
-    echo -E $retval
+    local format="${2:-xml}"
+    local retval
+    
+    retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}")
+    [[ "$retval" == *"INVALID"* || -z "$retval" ]] && printf "ERR" || printf "%s" "$retval"
 }
 
 function JAMF_get_inventory_record()
@@ -799,9 +787,9 @@ function JAMF_get_inventory_record()
     #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
     #        $2 - Filter condition to use for search
 
-    filter=$(convert_to_hex $2)
-    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=$1&filter=$filter" 2>/dev/null)
-    echo $retval | tr -d '\n'
+    local retval
+    retval=$(/usr/bin/curl --silent --fail --get -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" --data-urlencode "section=$1" --data-urlencode "filter=$2" "${jamfpro_url}api/v2/computers-inventory")
+    printf "%s" "$retval"
 }
 
 function JAMF_get_deviceID ()
@@ -810,19 +798,19 @@ function JAMF_get_deviceID ()
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - search identifier to use (serial or Hostname)
     #        $2 - Conputer ID (serial/hostname)
-    #        $3 - Field to return ('managementId' / udid)
-
+    local retval
+    local ID
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-    retval=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" \
-        -H "Accept: application/json" \
-        "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc&filter=$type=='$2'")
+    retval=$(/usr/bin/curl -s --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&filter=${type}=='${2}'")
+    ID=$(echo $retval |  tr -d '[:cntrl:]' | jq -r "${3}")
 
-    ID=$(extract_string $retval $3)
-    echo $ID
-    if [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* || -z "$ID" ]]; then
+    # 4. Streamlined Error Handling
+    if [[ -z "$ID" ]]; then
         display_failure_message
         echo "ERR"
+        return 1
     fi
+    echo "$ID"
 }
 
 function JAMF_get_DDM_info ()
@@ -830,7 +818,7 @@ function JAMF_get_DDM_info ()
     # PURPOSE: uses the ManagementId to retrieve the DDM info
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - Management ID
-
+    local retval
     retval=$(echo $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items"))
     if echo "$retval" | grep "INVALID"; then
         retval="ERR" #report ERR if insufficient privs
@@ -838,14 +826,14 @@ function JAMF_get_DDM_info ()
     echo -E $retval
 }
 
-function JAMF_retrieve_ddm_softwareupdate_info ()
+function JAMF_retrieve_ddm_softwareupdate_info () 
 {
     # PURPOSE: extract the DDM Software update info from the computer record
     # RETURN: array of the DDM software update information
     # PARMS: $1 - DDM JSON blob of the computer
-
-    retval=$(printf "%s" $1 | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.pending")) | select(.value != null) | "\(.key):\(.value)"' | sed 's/^softwareupdate.pending-version.//')
-    DDMSoftwareUpdateInfo=("${(f)retval}")
+    local results
+    results=$(jq -r '.statusItems[]? | select(.key | startswith("softwareupdate.pending")) | select(.value != null) | "\( .key | ltrimstr("softwareupdate.pending-version.") ):\(.value)"' <<< "$1")
+    DDMSoftwareUpdateInfo=("${(f)results}")
 }
 
 function JAMF_retrieve_ddm_softwareupdate_failures ()
@@ -853,9 +841,9 @@ function JAMF_retrieve_ddm_softwareupdate_failures ()
     # PURPOSE: extract the DDM Software update failures from the computer record
     # RETURN: array of the DDM software update information
     # PARMS: $1 - DDM JSON blob of the computer
-
-    retval=$(printf "%s" $1 | tr -d '[:cntrl:]' | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.failure-reason")) | select(.value != null) | "\(.key):\(.value)"'| sed 's/^softwareupdate.failure-reason.//')
-    DDMSoftwareUpdateFailures=("${(f)retval}")
+    local results
+    results=$(jq -r '.statusItems[]? | select(.key | startswith("softwareupdate.failure-reason.")) | select(.value != null) | "\( .key | ltrimstr("softwareupdate.failure-reason.") ):\(.value)"' <<< "$1")
+    DDMSoftwareUpdateFailures=("${(f)results}")
 }
 
 function JAMF_retrieve_ddm_blueprint_active ()
