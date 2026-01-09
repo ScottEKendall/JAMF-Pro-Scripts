@@ -579,6 +579,31 @@ function extract_string ()
     echo -E $1 | tr -d '\n' | jq -r "$2"
 }
 
+function display_failure_message ()
+{
+     MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
+        --message "Error Message: $ID"
+        --icon "${SD_ICON}"
+        --overlayicon warning
+        --infobox "${SD_INFO_BOX_MSG}"
+        --iconsize 128
+        --messagefont name=Arial,size=17
+        --button1text "Quit"
+        --ontop
+        --height 420
+        --json
+        --moveable
+    )
+
+    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    buttonpress=$?
+    invalidate_JAMF_Token
+    cleanup_and_exit 1
+}
+
 ###########################
 #
 # JAMF functions
@@ -1107,12 +1132,15 @@ function process_group ()
     declare JAMF_API_KEY="JSSResource/computergroups/id"
     declare JAMF_API_KEY2="api/v2/computer-groups/smart-group-membership"
     declare JAMF_API_KEY3="api/v2/computers-inventory"
-
+    local shouldWrite=false
 
     if [[ $extractRAWData == true ]]; then
         CSV_OUTPUT+="$GroupName ($displayResults).csv"
         echo "System, ManagementID,LastUpdate,Status,Value" > $CSV_OUTPUT
         logMe "Creating file: $CSV_OUTPUT"
+        [[ $displayResults == "Failed Only" && $liststatus == "fail" ]] && shouldWrite=true
+        [[ $displayResults == "Success Only" && $liststatus == "success" ]] && shouldWrite=true
+        [[ $displayResults != "Failed Only" && $displayResults != "Success Only" ]] && shouldWrite=true
     fi
     logMe "Retieving DDM Info for group: $GroupName"
     # Locate the IDs of each computer in the selected gruop
@@ -1146,22 +1174,11 @@ function process_group ()
             liststatus="success"
             statusmessage="No BP errors found"
         fi
-
-        #Either report the info (Display) or write it to a file
-        if [[ $extractRAWData == true ]]; then
-            # 1. Determine if we should write based on the filter
-            local shouldWrite=false
-            [[ $displayResults == "Failed Only" && $liststatus == "fail" ]] && shouldWrite=true
-            [[ $displayResults == "Success Only" && $liststatus == "success" ]] && shouldWrite=true
-            [[ $displayResults != "Failed Only" && $displayResults != "Success Only" ]] && shouldWrite=true
-
-            # 2. Execute a single write operation if criteria met
-            if [[ $shouldWrite == true ]]; then
-                # Clean up the blueprint errors output so it can be written to a CSV file in a single line
-                sanitized_failures=$(echo "$DDMBlueprintErrors" | tr ',' ';')
-                echo "${name}, ${managementId}, ${lastUpdateTime}, ${liststatus}, ${sanitized_failures}" >> "$CSV_OUTPUT"
-                logMe "Writing DDM ${liststatus:-Status} for system: $name"
-            fi
+        # Clean up the blueprint errors output so it can be written to a CSV file in a single line
+        sanitized_failures=$(echo "$DDMBlueprintErrors" | tr ',' ';')
+        if [[ $shouldWrite == true ]]; then
+            echo "${name}, ${managementId}, ${lastUpdateTime}, ${liststatus}, ${sanitized_failures}" >> "$CSV_OUTPUT"
+            logMe "Writing DDM ${liststatus:-Status} for system: $name"
         else
             echo "INFO: $name, $managementId, $lastUpdateTime"
         fi
