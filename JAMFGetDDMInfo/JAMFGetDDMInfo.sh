@@ -764,7 +764,7 @@ function JAMF_retrieve_data_blob ()
         logMe "ERROR: You don't have sufficient privileges to perform this operation"
         cleanup_and_exit 1
     fi
-    echo -e $retval
+    echo -E $retval
 }
 
 function JAMF_get_inventory_record()
