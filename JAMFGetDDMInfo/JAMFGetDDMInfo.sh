@@ -585,7 +585,7 @@ function display_failure_message ()
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --titlefont shadow=1
-        --message "Error Message: $ID"
+        --message "**Problems retrieving JAMF Info**<br>Error Message: $ID"
         --icon "${SD_ICON}"
         --overlayicon warning
         --infobox "${SD_INFO_BOX_MSG}"
@@ -600,8 +600,6 @@ function display_failure_message ()
 
     $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
     buttonpress=$?
-    invalidate_JAMF_Token
-    cleanup_and_exit 1
 }
 
 ###########################
@@ -785,9 +783,8 @@ function JAMF_retrieve_data_blob ()
     declare format=$2
     [[ -z "${format}" ]] && format="xml"
     retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" )
-    if [[ $retval == *"INVALID_PRIVILEGE"* ]]; then
-        logMe "ERROR: You don't have sufficient privileges to perform this operation"
-        cleanup_and_exit 1
+    if echo "$retval" | grep -q "INVALID"; then
+        retval="ERR"       # Standard exit for the subshell itself
     fi
     echo -E $retval
 }
@@ -821,7 +818,10 @@ function JAMF_get_deviceID ()
 
     ID=$(extract_string $retval $3)
     echo $ID
-    [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* || -z "$ID" ]] && display_failure_message
+    if [[ "$ID" == *"Could not extract value"* || "$ID" == *"null"* || -z "$ID" ]]; then
+        display_failure_message
+        echo "ERR"
+    fi
 }
 
 function JAMF_get_DDM_info ()
@@ -830,7 +830,11 @@ function JAMF_get_DDM_info ()
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - Management ID
 
-    echo $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items")
+    retval=$(echo $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items"))
+    if echo "$retval" | grep -q "INVALID"; then
+        retval="ERR"       # Standard exit for the subshell itself
+    fi
+    echo -E $retval
 }
 
 function JAMF_retrieve_ddm_softwareupdate_info ()
@@ -839,7 +843,7 @@ function JAMF_retrieve_ddm_softwareupdate_info ()
     # RETURN: array of the DDM software update information
     # PARMS: $1 - DDM JSON blob of the computer
 
-    retval=$(echo -E "$1" | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.pending")) | select(.value != null) | "\(.key):\(.value)"' | sed 's/^softwareupdate.pending-version.//')
+    retval=$(printf "%s" $1 | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.pending")) | select(.value != null) | "\(.key):\(.value)"' | sed 's/^softwareupdate.pending-version.//')
     DDMSoftwareUpdateInfo=("${(f)retval}")
 }
 
@@ -849,7 +853,7 @@ function JAMF_retrieve_ddm_softwareupdate_failures ()
     # RETURN: array of the DDM software update information
     # PARMS: $1 - DDM JSON blob of the computer
 
-    retval=$(echo -E $1 | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.failure-reason")) | select(.value != null) | "\(.key):\(.value)"'| sed 's/^softwareupdate.failure-reason.//')
+    retval=$(printf "%s" $1 | tr -d '[:cntrl:]' | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.failure-reason")) | select(.value != null) | "\(.key):\(.value)"'| sed 's/^softwareupdate.failure-reason.//')
     DDMSoftwareUpdateFailures=("${(f)retval}")
 }
 
@@ -858,7 +862,7 @@ function JAMF_retrieve_ddm_blueprint_active ()
     # 1. jq extracts the inner 'value' string.
     # 2. perl searches for blocks containing active=false.
     # 3. The regex captures the ID, optionally skipping the 'Blueprint_' prefix.
-    DDMBlueprintSuccess=(${(f)"$(echo -E "$1" | jq -r '.value' | perl -nle 'while(/active=true, identifier=(Blueprint_)?([^,}]+)/g) { print $2 }')"})
+    DDMBlueprintSuccess=(${(f)"$(printf "%s" "$1" | jq -r '.value' | perl -nle 'while(/active=true, identifier=(Blueprint_)?([^,}]+)/g) { print $2 }')"})
 }
 
 function JAMF_retrieve_ddm_blueprint_errrors ()
@@ -866,7 +870,7 @@ function JAMF_retrieve_ddm_blueprint_errrors ()
     # 1. jq extracts the inner 'value' string.
     # 2. perl searches for blocks containing active=false.
     # 3. The regex captures the ID, optionally skipping the 'Blueprint_' prefix.
-    DDMBlueprintErrors=(${(f)"$(echo -E "$1" | jq -r '.value' | perl -nle 'while(/active=false, identifier=(Blueprint_)?([^,}]+)/g) { print $2 }')"})
+    DDMBlueprintErrors=(${(f)"$(printf "%s" "$1" | jq -r '.value' | perl -nle 'while(/active=false, identifier=(Blueprint_)?([^,}]+)/g) { print $2 }')"})
 }
 
 function JAMF_retrieve_ddm_keys ()
@@ -875,7 +879,7 @@ function JAMF_retrieve_ddm_keys ()
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - Management ID
     #        $2 - Specific DDM Keys to extract
-    echo -E $1 | jq -r '.statusItems[] | select(.key == "'$2'")'
+    printf "%s" $1 | jq -r '.statusItems[] | select(.key == "'$2'")'
 }
 
 function JAMF_DDM_export_summary_to_csv ()
@@ -884,7 +888,7 @@ function JAMF_DDM_export_summary_to_csv ()
     # RETURN: None
     # PARMS: $1 - DDMInfo for the computer record (should have already been populated)
 
-    echo -E $1 | jq -r '.statusItems[] | select(.key) | [.lastUpdateTime, .key, .value] | @csv' >> $CSV_OUTPUT
+    printf "%s" $1 | jq -r '.statusItems[] | select(.key) | [.lastUpdateTime, .key, .value] | @csv' >> $CSV_OUTPUT
 }
 
 function JAMF_which_self_service ()
@@ -922,7 +926,7 @@ function welcomemsg ()
         --titlefont shadow=1
         --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, You can choose to view either a single computer's Declarative Device Maanagement (DDM) status, or a smart/static group for each computer's DDM status."
         --messagefont name=Arial,size=17
-        --selecttitle "Extract DDM data from:",radio --selectvalues "Single System, Smart/Static Group"
+        --selecttitle "Extract DDM data from:",radio --selectvalues "Blueprint ID, Single System, Smart/Static Group"
         --helpmessage $helpmessage
         --helpimage "qr="$helpmessageurl
         --button1text "Continue"
@@ -988,6 +992,7 @@ function process_individual ()
     # First we have to get the JAMF ManagementID of the machine
 
     ID=$(JAMF_get_deviceID "${search_type}" ${computer_id} ".results[].general.managementId")
+    [[ $ID == *"ERR"* ]] && cleanup_and_exit 1
 
     # Second is to extract the DDM info for the machine
     DDMInfo=$(JAMF_get_DDM_info $ID)
@@ -1122,8 +1127,11 @@ function process_group ()
     # EXPECTED: None
     # NOTE: Three JAMF keys are used here
     #       JAMF_API_KEY = Faster lookup of computer names (for display purposes)
-    #       JAMF_API_KEY2 = Modern API call to group computer IDs
+    #       JAMF_API_KEY2 = Modern API call to get computer IDs (for JAMF )
     #       JAMF_API_KEY3 = Modern API call to get managementID
+    #
+    # API workflow - You have to call the inventory to get the ID of the computer and the Management ID (these are two seperate items)
+    # then, you have to use the Management ID to call the DDM info
 
     declare tasks=()
     declare computerIDs=()
@@ -1132,7 +1140,7 @@ function process_group ()
     declare JAMF_API_KEY="JSSResource/computergroups/id"
     declare JAMF_API_KEY2="api/v2/computer-groups/smart-group-membership"
     declare JAMF_API_KEY3="api/v2/computers-inventory"
-    local shouldWrite=false
+    declare shouldWrite=false
 
     if [[ $extractRAWData == true ]]; then
         CSV_OUTPUT+="$GroupName ($displayResults).csv"
@@ -1145,49 +1153,48 @@ function process_group ()
     logMe "Retieving DDM Info for group: $GroupName"
     # Locate the IDs of each computer in the selected gruop
     computerList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY2/$GroupID" "json")
+    [[ $computerList == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read Groups"; exit 1;}
+
     computerNames=$(JAMF_retrieve_data_blob "$JAMF_API_KEY/$GroupID" "json")
     create_listitem_list "List of all computers from $GroupName.<br>Retrieving DDM info..." "json" ".computer_group.computers[].name" "$computerNames" "SF=desktopcomputer.and.macbook"
+
     echo -E $computerList | jq -r '.members[]' | while read ID; do
         # we need to extract specific information from the Computer Inventory
         JSONblob=$(JAMF_retrieve_data_blob "$JAMF_API_KEY3/$ID?section=GENERAL" "json")
-
         # Get the name and the JAMF ManagementID
-        name=$(echo -E $JSONblob | tr -d '[:cntrl:]'| jq -r '.general.name')
-        managementId=$(echo -E $JSONblob | tr -d '[:cntrl:]' | jq -r '.general.managementId')
+        name=$(printf "%s" $JSONblob | jq -r '.general.name')
+        managementId=$(printf "%s" $JSONblob | jq -r '.general.managementId')
 
         # Extract the DDM Info from the ManagementID record
         DDMInfo=$(JAMF_get_DDM_info $managementId)
+        [[ $DDMInfo == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read DDM Info"; exit 1;}
+        
         DDMKeys=$(JAMF_retrieve_ddm_keys $DDMInfo "management.declarations.activations")
-
-        lastUpdateTime=$(echo -E $DDMInfo | jq -r '.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime')
-    
+        lastUpdateTime=$(printf "%s" $DDMInfo | jq -r '.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime')
         # Get the successes
         JAMF_retrieve_ddm_blueprint_active $DDMKeys
         # Get the failures 
         JAMF_retrieve_ddm_blueprint_errrors $DDMKeys
         # Get the SoftwareUpdate Failures
         JAMF_retrieve_ddm_softwareupdate_failures $DDMInfo
-        if [[ ! -z $DDMBlueprintErrors ]]; then
-            liststatus="fail"
-            statusmessage="BP Errors Found!"
-        else 
-            liststatus="success"
-            statusmessage="No BP errors found"
-        fi
-        # Clean up the blueprint errors output so it can be written to a CSV file in a single line
-        sanitized_failures=$(echo "$DDMBlueprintErrors" | tr ',' ';')
+
+        # See if there are any errors and update the list
+        statusmessage="BP errors found"
+        [[ ! -z $DDMBlueprintErrors ]] && liststatus="fail" || { liststatus="success"; statusmessage="No $statusmessage"; }
+        update_display_list "Update" "" "${name}" "" "${liststatus}" "${statusmessage}"
+
         if [[ $shouldWrite == true ]]; then
+            # Clean up the blueprint errors output so it can be written to a CSV file in a single line
+            sanitized_failures=$(echo "$DDMBlueprintErrors" | tr ',' ';')
             echo "${name}, ${managementId}, ${lastUpdateTime}, ${liststatus}, ${sanitized_failures}" >> "$CSV_OUTPUT"
             logMe "Writing DDM ${liststatus:-Status} for system: $name"
         else
             echo "INFO: $name, $managementId, $lastUpdateTime"
         fi
         [[ ! -z $DDMBlueprintErrors ]] && echo $name - $DDMBlueprintErrors                
-        update_display_list "Update" "" "${name}" "" "${liststatus}" "${statusmessage}"
     done
     update_display_list "buttonenable"
     wait
-
 }
 
 function process_group_details ()

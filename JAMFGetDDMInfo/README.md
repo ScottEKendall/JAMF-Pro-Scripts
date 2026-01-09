@@ -17,9 +17,19 @@ New as of 0.2 alpha
 ![](./JAMFGetDDMInfo-Groups.png)
 ![](./JAMFGetDDMInfo-GroupResults.png)
 
+## JAMF API Privileges
+
+if you are using the Client/Secret account, you will need the following:
+
+```
+Read Computers
+Read Mobile Devices
+Read Smart Computer Groups
+Read Static Computer Groups
+```
+
 As is, the script (in its early Alpha stage) will function on a single system, but I have much more planned for it, such as:
 
-* Select any static group and it will process the DDM reports for all machines in the groups
 * Export results via Email
 * Report on failed blueprints from selected systems that you choose
 * More DDM Details extracted & reported on
