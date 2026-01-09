@@ -5,13 +5,14 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 12/23/2025
+# Last updated: 01/09/2026
 #
 # Script Purpose: Retrieve the DDM info for JAMF devices
 #
 # 0.1 - Initial
 # 0.2 - had to add "echo -E $1" before each of the jq commands to strip out non-ascii characters (it would cause jq to crash) - Thanks @RedShirt
 #       Script can now perform functions based on SmartGroups
+# 0.3 - Put error trap in JAMF API calls to see if returns "INVALID_PRIVILEGE""
 
 ######################################################################################################
 #
@@ -22,7 +23,7 @@
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="0.2 Alpha"
+SCRIPT_VERSION="0.3 Alpha"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -758,7 +759,12 @@ function JAMF_retrieve_data_blob ()
 
     declare format=$2
     [[ -z "${format}" ]] && format="xml"
-    echo -E $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" )
+    retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" )
+    if [[ $retval == *"INVALID_PRIVILEGE"* ]]; then
+        logMe "ERROR: You don't have sufficient privileges to perform this operation"
+        cleanup_and_exit 1
+    fi
+    echo -e $retval
 }
 
 function JAMF_get_inventory_record()
@@ -808,7 +814,7 @@ function JAMF_retrieve_ddm_softwareupdate_info ()
     # RETURN: array of the DDM software update information
     # PARMS: $1 - DDM JSON blob of the computer
 
-    retval=$(echo "$1" | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.pending")) | select(.value != null) | "\(.key):\(.value)"' | sed 's/^softwareupdate.pending-version.//')
+    retval=$(echo -E "$1" | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.pending")) | select(.value != null) | "\(.key):\(.value)"' | sed 's/^softwareupdate.pending-version.//')
     DDMSoftwareUpdateInfo=("${(f)retval}")
 }
 
@@ -827,7 +833,7 @@ function JAMF_retrieve_ddm_blueprint_active ()
     # 1. jq extracts the inner 'value' string.
     # 2. perl searches for blocks containing active=false.
     # 3. The regex captures the ID, optionally skipping the 'Blueprint_' prefix.
-    DDMBlueprintSuccess=(${(f)"$(echo "$1" | jq -r '.value' | perl -nle 'while(/active=true, identifier=(Blueprint_)?([^,}]+)/g) { print $2 }')"})
+    DDMBlueprintSuccess=(${(f)"$(echo -E "$1" | jq -r '.value' | perl -nle 'while(/active=true, identifier=(Blueprint_)?([^,}]+)/g) { print $2 }')"})
 }
 
 function JAMF_retrieve_ddm_blueprint_errrors ()
@@ -835,7 +841,7 @@ function JAMF_retrieve_ddm_blueprint_errrors ()
     # 1. jq extracts the inner 'value' string.
     # 2. perl searches for blocks containing active=false.
     # 3. The regex captures the ID, optionally skipping the 'Blueprint_' prefix.
-    DDMBlueprintErrors=(${(f)"$(echo "$1" | jq -r '.value' | perl -nle 'while(/active=false, identifier=(Blueprint_)?([^,}]+)/g) { print $2 }')"})
+    DDMBlueprintErrors=(${(f)"$(echo -E "$1" | jq -r '.value' | perl -nle 'while(/active=false, identifier=(Blueprint_)?([^,}]+)/g) { print $2 }')"})
 }
 
 function JAMF_retrieve_ddm_keys ()
@@ -844,7 +850,7 @@ function JAMF_retrieve_ddm_keys ()
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - Management ID
     #        $2 - Specific DDM Keys to extract
-    echo $1 | jq -r '.statusItems[] | select(.key == "'$2'")'
+    echo -E $1 | jq -r '.statusItems[] | select(.key == "'$2'")'
 }
 
 function JAMF_DDM_export_summary_to_csv ()
@@ -1058,7 +1064,6 @@ function welcomemsg_group ()
     # Read in the JAMF groups and create a dropdown list of them
     tempArray=$(JAMF_retrieve_data_blob "$JAMF_API_KEY" "json")
     GroupList=$(echo $tempArray | jq -r '.computer_groups')
-    echo $GroupList
     if [[ -z $GroupList ]]; then
         logMe "Having problems reading the groups list from JAMF, exiting..."
         cleanup_and_exit 1
@@ -1142,8 +1147,6 @@ function process_group ()
             statusmessage="No BP errors found"
         fi
 
-        sanitized_failures=$(echo "$DDMBlueprintErrors" | tr ',' ';')
-
         #Either report the info (Display) or write it to a file
         if [[ $extractRAWData == true ]]; then
             # 1. Determine if we should write based on the filter
@@ -1154,30 +1157,30 @@ function process_group ()
 
             # 2. Execute a single write operation if criteria met
             if [[ $shouldWrite == true ]]; then
+                # Clean up the blueprint errors output so it can be written to a CSV file in a single line
+                sanitized_failures=$(echo "$DDMBlueprintErrors" | tr ',' ';')
                 echo "${name}, ${managementId}, ${lastUpdateTime}, ${liststatus}, ${sanitized_failures}" >> "$CSV_OUTPUT"
                 logMe "Writing DDM ${liststatus:-Status} for system: $name"
             fi
         else
             echo "INFO: $name, $managementId, $lastUpdateTime"
         fi
-
-
-        echo $name - $DDMBlueprintErrors
+        [[ ! -z $DDMBlueprintErrors ]] && echo $name - $DDMBlueprintErrors                
         update_display_list "Update" "" "${name}" "" "${liststatus}" "${statusmessage}"
     done
     update_display_list "buttonenable"
     wait
 
-    #for item in ${computerIDs[@]}; do
-        #tasks+=("export_usage_details $item")
-    #    process_group_details $item
-    #done
-    #execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
 }
 
 function process_group_details ()
 {
  
+    #for item in ${computerIDs[@]}; do
+        #tasks+=("export_usage_details $item")
+    #    process_group_details $item
+    #done
+    #execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
 }
 
 ####################################################################################################
