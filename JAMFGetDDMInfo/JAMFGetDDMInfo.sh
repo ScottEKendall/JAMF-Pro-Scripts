@@ -783,8 +783,8 @@ function JAMF_retrieve_data_blob ()
     declare format=$2
     [[ -z "${format}" ]] && format="xml"
     retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" )
-    if echo "$retval" | grep -q "INVALID"; then
-        retval="ERR"       # Standard exit for the subshell itself
+    if echo "$retval" | grep "INVALID"; then
+        retval="ERR" #report ERR if insufficient privs
     fi
     echo -E $retval
 }
@@ -831,8 +831,8 @@ function JAMF_get_DDM_info ()
     # PARMS: $1 - Management ID
 
     retval=$(echo $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items"))
-    if echo "$retval" | grep -q "INVALID"; then
-        retval="ERR"       # Standard exit for the subshell itself
+    if echo "$retval" | grep "INVALID"; then
+        retval="ERR" #report ERR if insufficient privs
     fi
     echo -E $retval
 }
@@ -1107,7 +1107,8 @@ function welcomemsg_group ()
     create_dropdown_message_body "" "" "" "last"
     echo ',' >> "${JSON_DIALOG_BLOB}"
     create_checkbox_message_body "" "" "" "" "" "first"
-    create_checkbox_message_body "Export all data to CSV File" "exportcsv" "" "true" "false", "last"
+    create_checkbox_message_body "Export all data to CSV File" "exportcsv" "" "true" "false"
+    create_checkbox_message_body "Include SW Update failures in CSV File" "includeSWUFail" "" "true" "false" "last"
     echo "}" >> "${JSON_DIALOG_BLOB}"
 
 	message=$(${SW_DIALOG} --vieworder "dropdown, checkbox" --json --jsonfile "${JSON_DIALOG_BLOB}") 2>/dev/null
@@ -1117,6 +1118,7 @@ function welcomemsg_group ()
     jamfGroup=$(echo $message | jq '."Select Groups:" .selectedValue')
     displayResults=$(echo $message | jq -r '."Display results" .selectedValue')
     extractRAWData=$(echo $message | jq '.exportcsv')
+    includeSWUFail=$(echo $message | jq '.includeSWUFail')
     process_group $jamfGroup $displayResults
 }
 
@@ -1144,7 +1146,7 @@ function process_group ()
 
     if [[ $extractRAWData == true ]]; then
         CSV_OUTPUT+="$GroupName ($displayResults).csv"
-        echo "System, ManagementID,LastUpdate,Status,Value" > $CSV_OUTPUT
+        echo "System, ManagementID,LastUpdate,Status,Blueprint Failures, Software Update Failures" > $CSV_OUTPUT
         logMe "Creating file: $CSV_OUTPUT"
         [[ $displayResults == "Failed Only" && $liststatus == "fail" ]] && shouldWrite=true
         [[ $displayResults == "Success Only" && $liststatus == "success" ]] && shouldWrite=true
@@ -1156,7 +1158,7 @@ function process_group ()
     [[ $computerList == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read Groups"; exit 1;}
 
     computerNames=$(JAMF_retrieve_data_blob "$JAMF_API_KEY/$GroupID" "json")
-    create_listitem_list "List of all computers from $GroupName.<br>Retrieving DDM info..." "json" ".computer_group.computers[].name" "$computerNames" "SF=desktopcomputer.and.macbook"
+    create_listitem_list "Retieving DDM Info from computers in group $GroupName." "json" ".computer_group.computers[].name" "$computerNames" "SF=desktopcomputer.and.macbook"
 
     echo -E $computerList | jq -r '.members[]' | while read ID; do
         # we need to extract specific information from the Computer Inventory
@@ -1168,13 +1170,16 @@ function process_group ()
         # Extract the DDM Info from the ManagementID record
         DDMInfo=$(JAMF_get_DDM_info $managementId)
         [[ $DDMInfo == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read DDM Info"; exit 1;}
-        
+
         DDMKeys=$(JAMF_retrieve_ddm_keys $DDMInfo "management.declarations.activations")
         lastUpdateTime=$(printf "%s" $DDMInfo | jq -r '.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime')
-        # Get the successes
+
+        # Get the DDM Blueprint successes
         JAMF_retrieve_ddm_blueprint_active $DDMKeys
-        # Get the failures 
+
+        # Get the DDM Blueprint failures 
         JAMF_retrieve_ddm_blueprint_errrors $DDMKeys
+
         # Get the SoftwareUpdate Failures
         JAMF_retrieve_ddm_softwareupdate_failures $DDMInfo
 
@@ -1184,9 +1189,14 @@ function process_group ()
         update_display_list "Update" "" "${name}" "" "${liststatus}" "${statusmessage}"
 
         if [[ $shouldWrite == true ]]; then
+            [[ $includeSWUFail = false ]] && DDMSoftwareUpdateFailures=()
+
             # Clean up the blueprint errors output so it can be written to a CSV file in a single line
-            sanitized_failures=$(echo "$DDMBlueprintErrors" | tr ',' ';')
-            echo "${name}, ${managementId}, ${lastUpdateTime}, ${liststatus}, ${sanitized_failures}" >> "$CSV_OUTPUT"
+            sanitized_blueprint_failures=$(echo "$DDMBlueprintErrors" | tr ',' ';')
+            sanitized_software_failures=$(echo "$DDMSoftwareUpdateFailures" | tr ',' ';')
+            # Write the info out to the CSV file
+            echo "${name}, ${managementId}, ${lastUpdateTime}, ${liststatus}, ${sanitized_blueprint_failures}, ${sanitized_software_failures}" >> "$CSV_OUTPUT"
+
             logMe "Writing DDM ${liststatus:-Status} for system: $name"
         else
             echo "INFO: $name, $managementId, $lastUpdateTime"
