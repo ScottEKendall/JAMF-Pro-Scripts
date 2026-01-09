@@ -977,6 +977,8 @@ function process_individual ()
 
     declare search_type=$1
     declare computer_id=$2
+    declare DDMInfo
+    declare DDMKeys
 
     # First we have to get the JAMF ManagementID of the machine
 
@@ -988,53 +990,39 @@ function process_individual ()
     logMe "INFO: JAMF ID: $ID"
 
     # Third, extract the DDM Software Update info for the machine
-    JAMF_retrieve_ddm_softwareupdate_info $DDMInfo
+    JAMF_retrieve_ddm_softwareupdate_info "$DDMInfo"
     logMe "INFO: Software Update Info: "$DDMSoftwareUpdateInfo
 
     # Fourth, see if there are any software update failures
-    JAMF_retrieve_ddm_softwareupdate_failures $DDMInfo
+    JAMF_retrieve_ddm_softwareupdate_failures "$DDMInfo"
     logMe "INFO: Software Update Failures: "$DDMSoftwareUpdateFailures
 
     # Fifth, extract the DDM blueprint IDs assigned to the machine
     DDMKeys=$(JAMF_retrieve_ddm_keys $DDMInfo "management.declarations.activations")
-    #echo $DDMKeys
 
-    JAMF_retrieve_ddm_blueprint_active $DDMKeys
+    JAMF_retrieve_ddm_blueprint_active "$DDMKeys"
     logMe "INFO: Active Blueprints: "$DDMBlueprintSuccess
 
     # Sixth, see if there are any inactive Blueprints
-    JAMF_retrieve_ddm_blueprint_errrors $DDMKeys
+    JAMF_retrieve_ddm_blueprint_errrors "$DDMKeys"
     logMe "INFO: Inactive Blueprints: "$DDMBlueprintErrors
 
     #Show the results and log it
 
-    message="**Device name:** $computer_id<br>"
-    message+="**JAMF Management ID:** $ID<br><br>"
-    message+="<br><br>**DDM Blueprints Active**<br>"
-    for item in "${DDMBlueprintSuccess[@]}"; do
-        message+=$item"<br>"
-    done
-    message+="<br><br>**DDM Blueprint Failures**<br>"
-    for item in "${DDMBlueprintErrors[@]}"; do
-        message+=$item"<br>"
-    done
-    message+="<br><br>**DDM Software Update Info**<br>"
-    for item in "${DDMSoftwareUpdateInfo[@]}"; do
-        message+=$item"<br>"
-    done
-    message+="<br><br>**DDM Software Update Failures**<br>"
-    for item in "${DDMSoftwareUpdateFailures[@]}"; do
-        message+=$item"<br>"
-    done
+    message="**Device name:** $computer_id<br>**JAMF Management ID:** $ID<br><br>"
+    message+="<br><br>**DDM Blueprints Active**<br>${(j:<br>:)DDMBlueprintSuccess}<br>"
+    message+="<br><br>**DDM Blueprint Failures**<br>${(j:<br>:)DDMBlueprintErrors}<br>"
+    message+="<br><br>**DDM Software Update Info**<br>${(j:<br>:)DDMSoftwareUpdateInfo}<br>"
+    message+="<br><br>**DDM Software Update Failures**<br>${(j:<br>:)DDMSoftwareUpdateFailures}<br>"
 
     # Log and show the results
-    logMessage=$(echo "$message" | sed 's/<br>/\\n/g')
+    logMessage="${message//<br>/\\n}"
     logMe "Results: "$logMessage
     display_results $message
 
     if [[ "$extractRAWData" == "true" ]]; then
         CSV_OUTPUT+="$computer_id.csv"
-        echo "LastUpdate,Key,Value" > $CSV_OUTPUT
+        printf "LastUpdate,Key,Value\n" > "$CSV_OUTPUT"
         JAMF_DDM_export_summary_to_csv $DDMInfo
     fi
 }
