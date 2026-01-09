@@ -1142,25 +1142,33 @@ function process_group ()
     declare JAMF_API_KEY="JSSResource/computergroups/id"
     declare JAMF_API_KEY2="api/v2/computer-groups/smart-group-membership"
     declare JAMF_API_KEY3="api/v2/computers-inventory"
+
+    local CSV_HEADER="System, ManagementID,LastUpdate,Status,Blueprint Failures, Software Update Failures"
     declare shouldWrite=false
 
-    if [[ $extractRAWData == true ]]; then
+    #echo $GroupID
+    #echo $GroupName
+    # Initialize CSV if needed
+    if [[ "$extractRAWData" == true ]]; then
         CSV_OUTPUT+="$GroupName ($displayResults).csv"
-        echo "System, ManagementID,LastUpdate,Status,Blueprint Failures, Software Update Failures" > $CSV_OUTPUT
+        printf "%s\n" "$CSV_HEADER" > "$CSV_OUTPUT"
         logMe "Creating file: $CSV_OUTPUT"
         [[ $displayResults == "Failed Only" && $liststatus == "fail" ]] && shouldWrite=true
         [[ $displayResults == "Success Only" && $liststatus == "success" ]] && shouldWrite=true
         [[ $displayResults != "Failed Only" && $displayResults != "Success Only" ]] && shouldWrite=true
     fi
+
     logMe "Retieving DDM Info for group: $GroupName"
     # Locate the IDs of each computer in the selected gruop
     computerList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY2/$GroupID" "json")
     [[ $computerList == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read Groups"; exit 1;}
-
+    numberOfComputers=$(echo $computerList | jq '.members | length')
+    logMe "INFO: There are $numberOfComputers Computers in $GroupName "
     computerNames=$(JAMF_retrieve_data_blob "$JAMF_API_KEY/$GroupID" "json")
-    create_listitem_list "Retieving DDM Info from computers in group $GroupName." "json" ".computer_group.computers[].name" "$computerNames" "SF=desktopcomputer.and.macbook"
+    create_listitem_list "Retieving DDM Info from computers that are in group:<br> $GroupName." "json" ".computer_group.computers[].name" "$computerNames" "SF=desktopcomputer.and.macbook"
 
     echo -E $computerList | jq -r '.members[]' | while read ID; do
+    
         # we need to extract specific information from the Computer Inventory
         JSONblob=$(JAMF_retrieve_data_blob "$JAMF_API_KEY3/$ID?section=GENERAL" "json")
         # Get the name and the JAMF ManagementID
@@ -1170,9 +1178,9 @@ function process_group ()
         # Extract the DDM Info from the ManagementID record
         DDMInfo=$(JAMF_get_DDM_info $managementId)
         [[ $DDMInfo == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read DDM Info"; exit 1;}
-
-        DDMKeys=$(JAMF_retrieve_ddm_keys $DDMInfo "management.declarations.activations")
-        lastUpdateTime=$(printf "%s" $DDMInfo | jq -r '.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime')
+        DDMKeys=$(printf "%s" $DDMInfo | jq -r '.statusItems[] | select(.key == "management.declarations.activations")')
+        #DDMKeys=$(JAMF_retrieve_ddm_keys $DDMInfo "management.declarations.activations")
+        lastUpdateTime=$(printf "%s" "$DDMInfo" | jq -r '(.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"')
 
         # Get the DDM Blueprint successes
         JAMF_retrieve_ddm_blueprint_active $DDMKeys
@@ -1184,24 +1192,32 @@ function process_group ()
         JAMF_retrieve_ddm_softwareupdate_failures $DDMInfo
 
         # See if there are any errors and update the list
-        statusmessage="BP errors found"
-        [[ ! -z $DDMBlueprintErrors ]] && liststatus="fail" || { liststatus="success"; statusmessage="No $statusmessage"; }
+        liststatus="success"
+        statusmessage="No BP errors found"
+        [[ -n "$DDMBlueprintErrors" ]] && {liststatus="fail"; statusmessage="BP errors found";}
         update_display_list "Update" "" "${name}" "" "${liststatus}" "${statusmessage}"
 
-        if [[ $shouldWrite == true ]]; then
-            [[ $includeSWUFail = false ]] && DDMSoftwareUpdateFailures=()
+        # 6. Evaluation of Export Criteria
+        canWrite=false
+        case "$displayResults" in
+            "Failed Only")  [[ "$liststatus" == "fail" ]] && canWrite=true ;;
+            "Success Only") [[ "$liststatus" == "success" ]] && canWrite=true ;;
+            *) canWrite=true ;;
+        esac
 
-            # Clean up the blueprint errors output so it can be written to a CSV file in a single line
-            sanitized_blueprint_failures=$(echo "$DDMBlueprintErrors" | tr ',' ';')
-            sanitized_software_failures=$(echo "$DDMSoftwareUpdateFailures" | tr ',' ';')
-            # Write the info out to the CSV file
-            echo "${name}, ${managementId}, ${lastUpdateTime}, ${liststatus}, ${sanitized_blueprint_failures}, ${sanitized_software_failures}" >> "$CSV_OUTPUT"
-
-            logMe "Writing DDM ${liststatus:-Status} for system: $name"
+        if [[ "$extractRAWData" == true && "$canWrite" == true ]]; then
+            [[ "$includeSWUFail" == false ]] && DDMSoftwareUpdateFailures=""
+            
+            # Zsh-native string replacement (faster than tr)
+            clean_bp="${DDMBlueprintErrors//,/;}"
+            clean_swu="${DDMSoftwareUpdateFailures//,/;}"
+            # Write out this info to the CSV file
+            printf "%s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$lastUpdateTime" "$liststatus" "$clean_bp" "$clean_swu" >> "$CSV_OUTPUT"
+            logMe "Writing DDM $liststatus for system: $name"
         else
             echo "INFO: $name, $managementId, $lastUpdateTime"
         fi
-        [[ ! -z $DDMBlueprintErrors ]] && echo $name - $DDMBlueprintErrors                
+        #[[ -n "$DDMBlueprintErrors" ]] && echo "$name - $DDMBlueprintErrors"            
     done
     update_display_list "buttonenable"
     wait
