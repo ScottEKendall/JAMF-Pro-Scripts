@@ -409,6 +409,7 @@ function construct_dialog_header_settings ()
         "bannertitle" : "'${SD_WINDOW_TITLE}'",
         "titlefont" : "shadow=1",
         "button1text" : "OK",
+        "button2text" : "Cancel",
         "infotext": "'$SCRIPT_VERSION'",
         "height" : 580,
         "moveable" : "true",
@@ -1049,16 +1050,21 @@ function welcomemsg_group ()
     declare GroupList
     declare xml_blob
     declare -a array
-    declare JAMF_API_KEY="api/v2/computer-groups/smart-groups?page=0&page-size=100&sort=id%3Aasc"
+    declare JAMF_API_KEY="JSSResource/computergroups"
 
     message="**View DDM info from groups.**<br><br>You have selected to view information from Smart/Static Groups.<br>Please select the group and display results fron options below:<br><br>*NOTE: If you choose to export the data to a CSV file, it will be created to show the data with more details.*"
     construct_dialog_header_settings "$message" > "${JSON_DIALOG_BLOB}"
 
     # Read in the JAMF groups and create a dropdown list of them
-    GroupList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY" "json")
-
+    tempArray=$(JAMF_retrieve_data_blob "$JAMF_API_KEY" "json")
+    GroupList=$(echo $tempArray | jq -r '.computer_groups')
+    echo $GroupList
+    if [[ -z $GroupList ]]; then
+        logMe "Having problems reading the groups list from JAMF, exiting..."
+        cleanup_and_exit 1
+    fi
     create_dropdown_message_body "" "" "" "first"
-    array=$(construct_dropdown_list_items $GroupList '.results.[]')
+    array=$(construct_dropdown_list_items $GroupList '.[]')
     create_dropdown_message_body "Select Groups:" "$array" "1"
 
 
@@ -1108,7 +1114,7 @@ function process_group ()
     computerList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY2/$GroupID" "json")
     computerNames=$(JAMF_retrieve_data_blob "$JAMF_API_KEY/$GroupID" "json")
     create_listitem_list "List of all computers from $GroupName.<br>Retrieving DDM info..." "json" ".computer_group.computers[].name" "$computerNames" "SF=desktopcomputer.and.macbook"
-    echo $computerList | jq -r '.members[]' | while read ID; do
+    echo -E $computerList | jq -r '.members[]' | while read ID; do
         # we need to extract specific information from the Computer Inventory
         JSONblob=$(JAMF_retrieve_data_blob "$JAMF_API_KEY3/$ID?section=GENERAL" "json")
 
