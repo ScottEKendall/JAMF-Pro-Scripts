@@ -13,6 +13,7 @@
 # 0.2 - had to add "echo -E $1" before each of the jq commands to strip out non-ascii characters (it would cause jq to crash) - Thanks @RedShirt
 #       Script can now perform functions based on SmartGroups
 # 0.3 - Put error trap in JAMF API calls to see if returns "INVALID_PRIVILEGE""
+# 0.4 - Optimized some loop routines and put in more error trapping.  Add feature to include DDM Software Failures in CSV report
 
 ######################################################################################################
 #
@@ -23,7 +24,7 @@
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="0.3 Alpha"
+SCRIPT_VERSION="0.4 Alpha"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -1269,13 +1270,18 @@ OVERLAY_ICON=$(JAMF_which_self_service)
 DDMoption=$(welcomemsg)
 
 # Process their choices
-if [[ "${DDMoption}" == *"Single"* ]]; then
-    welcomemsg_individual
-    process_individual $search_type $computer_id
-
-elif [[ "${DDMoption}" == *"Group"* ]]; then
-    welcomemsg_group
-fi
+echo $DDMoption
+case "${DDMoption}" in
+    *"Single"* )
+        welcomemsg_individual
+        process_individual $search_type $computer_id
+        ;;
+    *"Group"* )
+        welcomemsg_group
+        ;;
+    *"Blueprint"* )
+        ;;
+esac
 
 #Cleanup
 JAMF_invalidate_token
