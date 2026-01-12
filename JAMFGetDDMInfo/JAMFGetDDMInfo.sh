@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 01/09/2026
+# Last updated: 01/12/2026
 #
 # Script Purpose: Retrieve the DDM info for JAMF devices
 #
@@ -14,6 +14,11 @@
 #       Script can now perform functions based on SmartGroups
 # 0.3 - Put error trap in JAMF API calls to see if returns "INVALID_PRIVILEGE""
 # 0.4 - Optimized some loop routines and put in more error trapping.  Add feature to include DDM Software Failures in CSV report / Optimized JAMF functions for faster processing
+# 0.5 - Added support for both smart & static groups (had to use the Classic API to do this)
+#       Added Verbal description of Blueprint activation failures
+#       Took advantage of some AI Tools to optimize the "common" section and optimize more JAMF functions
+#       Removed the extra verbiage at the end of the Blueprint IDs
+#       Added button to open the Blueprint links in your browser
 
 ######################################################################################################
 #
@@ -29,13 +34,10 @@ LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && 
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_NAME=$( /usr/bin/sw_vers -productName )
-MACOS_VERSION=$( /usr/bin/sw_vers -productVersion )
-MAC_RAM=$( /usr/sbin/sysctl -n hw.memsize 2>/dev/null | /usr/bin/awk '{printf "%.0f GB", $1/1024/1024/1024}' )
-MAC_CPU=$( /usr/sbin/sysctl -n machdep.cpu.brand_string)
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 # Fallback to uname if sysctl fails
 #[[ -z "$MAC_CPU" ]] && [[ "$(/usr/bin/uname -m)" == "arm64" ]] && MAC_CPU="Apple Silicon" || MAC_CPU="Intel"
 
@@ -45,14 +47,18 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+HOUR=$(date +%H)
+case $HOUR in
+    0[0-9]|1[0-1]) GREET="morning" ;;
+    1[2-7])        GREET="afternoon" ;;
+    *)             GREET="evening" ;;
+esac
+SD_DIALOG_GREETING="Good $GREET"
 
 # Make some temp files
 
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+JSON_DIALOG_BLOB=$(mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX")
+DIALOG_COMMAND_FILE=$(mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX")
 chmod 666 $JSON_DIALOG_BLOB
 chmod 666 $DIALOG_COMMAND_FILE
 
@@ -64,18 +70,17 @@ chmod 666 $DIALOG_COMMAND_FILE
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e "${DEFAULTS_DIR}" ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read "${DEFAULTS_DIR}" "SupportFiles")
-    SD_BANNER_IMAGE=$(defaults read "${DEFAULTS_DIR}" "BannerImage")
-    spacing=$(defaults read "${DEFAULTS_DIR}" "BannerPadding")
-    SD_BANNER_IMAGE="${SUPPORT_DIR}${SD_BANNER_IMAGE}"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
     spacing=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -98,7 +103,7 @@ CSV_OUTPUT="$USER_DIR/Desktop/DDM Data Dump for "
 #################################################
 
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
+SD_FIRST_NAME="${(C)${JAMF_LOGGED_IN_USER%%.*}}"
 CLIENT_ID=${4}                               # user name for JAMF Pro
 CLIENT_SECRET=${5}
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF credentials we are using
@@ -775,7 +780,8 @@ function JAMF_retrieve_data_blob ()
     local retval
     
     retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}")
-    [[ "$retval" == *"INVALID"* || -z "$retval" ]] && printf "ERR" || printf "%s" "$retval"
+    [[ "$retval" == *"INVALID_ID"* ]] && printf "INVALID_ID" || printf "%s" "$reval"
+    [[ "$retval" == *"PRIVILEGE"* || -z "$retval" ]] && printf "ERR" || printf "%s" "$retval"
 }
 
 function JAMF_get_inventory_record()
@@ -833,7 +839,7 @@ function JAMF_retrieve_ddm_softwareupdate_info ()
     # PARMS: $1 - DDM JSON blob of the computer
     local results
     results=$(jq -r '.statusItems[]? | select(.key | startswith("softwareupdate.pending")) | select(.value != null) | "\( .key | ltrimstr("softwareupdate.pending-version.") ):\(.value)"' <<< "$1")
-    DDMSoftwareUpdateInfo=("${(f)results}")
+    DDMSoftwareUpdateActive=("${(f)results}")
 }
 
 function JAMF_retrieve_ddm_softwareupdate_failures ()
@@ -851,7 +857,7 @@ function JAMF_retrieve_ddm_blueprint_active ()
     # 1. jq extracts the inner 'value' string.
     # 2. perl searches for blocks containing active=false.
     # 3. The regex captures the ID, optionally skipping the 'Blueprint_' prefix.
-    DDMBlueprintSuccess=(${(f)"$(printf "%s" "$1" | jq -r '.value' | perl -nle 'while(/active=true, identifier=(Blueprint_)?([^,}]+)/g) { print $2 }')"})
+    DDMBlueprintSuccess=(${(f)"$(printf "%s" "$1" | jq -r '.value' | perl -nle 'while(/active=true, identifier=(Blueprint_)?([^,}_]+)(?:_s1_sys_act1)?/g) { print $2 }')"})
 }
 
 function JAMF_retrieve_ddm_blueprint_errrors ()
@@ -859,7 +865,7 @@ function JAMF_retrieve_ddm_blueprint_errrors ()
     # 1. jq extracts the inner 'value' string.
     # 2. perl searches for blocks containing active=false.
     # 3. The regex captures the ID, optionally skipping the 'Blueprint_' prefix.
-    DDMBlueprintErrors=(${(f)"$(printf "%s" "$1" | jq -r '.value' | perl -nle 'while(/active=false, identifier=(Blueprint_)?([^,}]+)/g) { print $2 }')"})
+    DDMBlueprintErrors=(${(f)"$(printf "%s" "$1" | jq -r '.value' | perl -nle 'while(/active=false, identifier=(Blueprint_)?([^,}_]+)(?:_s1_sys_act1)?/g) { print $2 }')"})
 }
 
 function JAMF_retrieve_ddm_keys ()
@@ -991,7 +997,7 @@ function process_individual ()
 
     # Third, extract the DDM Software Update info for the machine
     JAMF_retrieve_ddm_softwareupdate_info "$DDMInfo"
-    logMe "INFO: Software Update Info: "$DDMSoftwareUpdateInfo
+    logMe "INFO: Software Update Info: "$DDMSoftwareUpdateActive
 
     # Fourth, see if there are any software update failures
     JAMF_retrieve_ddm_softwareupdate_failures "$DDMInfo"
@@ -1007,12 +1013,17 @@ function process_individual ()
     JAMF_retrieve_ddm_blueprint_errrors "$DDMKeys"
     logMe "INFO: Inactive Blueprints: "$DDMBlueprintErrors
 
+    if [[ ! -z $DDMBlueprintErrors ]]; then
+        #DDMErrorReason=$(echo $DDMKeys)
+        DDMErrorReason=$(echo $DDMKeys | perl -ne 'print "$1\n" if /code=([^},]+)/')
+    fi
     #Show the results and log it
 
     message="**Device name:** $computer_id<br>**JAMF Management ID:** $ID<br><br>"
     message+="<br><br>**DDM Blueprints Active**<br>${(j:<br>:)DDMBlueprintSuccess}<br>"
     message+="<br><br>**DDM Blueprint Failures**<br>${(j:<br>:)DDMBlueprintErrors}<br>"
-    message+="<br><br>**DDM Software Update Info**<br>${(j:<br>:)DDMSoftwareUpdateInfo}<br>"
+    message+="<br><br>**DDM Blueprint Failure Reason**<br>$DDMErrorReason<br>"
+    message+="<br><br>**DDM Software Update Info**<br>${(j:<br>:)DDMSoftwareUpdateActive}<br>"
     message+="<br><br>**DDM Software Update Failures**<br>${(j:<br>:)DDMSoftwareUpdateFailures}<br>"
 
     # Log and show the results
@@ -1050,9 +1061,10 @@ function display_results ()
     )
 
     [[ $extractRAWData == "true" ]] && MainDialogBody+=(--infotext "The CSV file will be stored in $USER_DIR/Desktop") || MainDialogBody+=(--infotext $SCRIPT_VERSION)
+    [[ ! -z $DDMBlueprintSuccess ]] && MainDialogBody+=(--button2text "Open BP Links")
     message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
-    #buttonpress=$?
-    #[[ $buttonpress = 2 ]] && exit 0
+    buttonpress=$?
+    [[ $buttonpress = 2 ]] && openn_blueprint_links
 }
 
 function welcomemsg_group ()
@@ -1117,8 +1129,7 @@ function process_group ()
     declare GroupID=$(echo $1 | tr -d '"' | awk -F "-" '{print $1}'| xargs)
     declare GroupName=$(echo $1 | tr -d '"' | awk -F "-" '{print $2}' | xargs)
     declare JAMF_API_KEY="JSSResource/computergroups/id"
-    declare JAMF_API_KEY2="api/v2/computer-groups/smart-group-membership"
-    declare JAMF_API_KEY3="api/v2/computers-inventory"
+    declare JAMF_API_KEY2="api/v2/computers-inventory"
 
     local CSV_HEADER="System, ManagementID,LastUpdate,Status,Blueprint Failures, Software Update Failures"
     declare shouldWrite=false
@@ -1137,24 +1148,24 @@ function process_group ()
 
     logMe "Retieving DDM Info for group: $GroupName"
     # Locate the IDs of each computer in the selected gruop
-    computerList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY2/$GroupID" "json")
-    [[ $computerList == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read Groups"; exit 1;}
-    numberOfComputers=$(echo $computerList | jq '.members | length')
+    logMe "INFO: Retrieve information for: $1"
+    computerList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY/$GroupID" "json")
+    [[ $computerList == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read Groups"; cleanup_and_exit 1;}
+    numberOfComputers=$(echo $computerList | jq -r '.computer_group.computers | length')
     logMe "INFO: There are $numberOfComputers Computers in $GroupName "
     computerNames=$(JAMF_retrieve_data_blob "$JAMF_API_KEY/$GroupID" "json")
     create_listitem_list "Retieving DDM Info from computers that are in group:<br> $GroupName." "json" ".computer_group.computers[].name" "$computerNames" "SF=desktopcomputer.and.macbook"
-
-    echo -E $computerList | jq -r '.members[]' | while read ID; do
+    echo -E $computerList | jq -r '.computer_group.computers[].id' | while read ID; do
     
         # we need to extract specific information from the Computer Inventory
-        JSONblob=$(JAMF_retrieve_data_blob "$JAMF_API_KEY3/$ID?section=GENERAL" "json")
+        JSONblob=$(JAMF_retrieve_data_blob "$JAMF_API_KEY2/$ID?section=GENERAL" "json")
         # Get the name and the JAMF ManagementID
         name=$(printf "%s" $JSONblob | jq -r '.general.name')
         managementId=$(printf "%s" $JSONblob | jq -r '.general.managementId')
 
         # Extract the DDM Info from the ManagementID record
         DDMInfo=$(JAMF_get_DDM_info $managementId)
-        [[ $DDMInfo == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read DDM Info"; exit 1;}
+        [[ $DDMInfo == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read DDM Info"; cleanup_and_exit 1;}
         DDMKeys=$(printf "%s" $DDMInfo | jq -r '.statusItems[] | select(.key == "management.declarations.activations")')
         #DDMKeys=$(JAMF_retrieve_ddm_keys $DDMInfo "management.declarations.activations")
         lastUpdateTime=$(printf "%s" "$DDMInfo" | jq -r '(.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"')
@@ -1210,6 +1221,14 @@ function process_group_details ()
     #execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
 }
 
+function openn_blueprint_links ()
+{
+    declare -a BPLinks
+    for item in "${DDMBlueprintSuccess[@]}"; do
+        open "${jamfpro_url}/view/mfe/blueprints/$item"
+    done
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -1220,7 +1239,7 @@ autoload 'is-at-least'
 declare api_token
 declare jamfpro_url
 declare computer_id
-declare -a DDMSoftwareUpdateInfo
+declare -a DDMSoftwareUpdateActive
 declare -a DDMSoftwareUpdateFailures
 declare -a DDMBlueprintErrors
 declare -a DDMBlueprintSuccess
