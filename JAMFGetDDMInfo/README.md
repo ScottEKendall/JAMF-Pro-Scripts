@@ -40,9 +40,16 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 
 | **Version**|**Notes**|
 |:--------:|-----|
-| 0.1 |  Initial Release |
-| 0.2 |  had to add "echo -E $1" before each of the jq commands to strip out non-ascii characters (it would cause jq to crash) - Thanks @RedShirt |
+| 0.1 | Initial Release |
+| 0.2 | had to add "echo -E $1" before each of the jq commands to strip out non-ascii characters (it would cause jq to crash) - Thanks @RedShirt |
 || Script can now perform functions based on SmartGroups
+| 0.3 | Put error trap in JAMF API calls to see if returns "INVALID_PRIVILEGE""
+| 0.4 | Optimized some loop routines and put in more error trapping.  Add feature to include DDM Software Failures in CSV report / Optimized JAMF functions for faster processing
+| 0.5 | Added support for both smart & static groups (had to use the Classic API to do this)
+||       Added Verbal description of Blueprint activation failures
+||      Took advantage of some AI Tools to optimize the "common" section and optimize more JAMF functions
+||      Removed the extra verbiage at the end of the Blueprint IDs
+||      Added button to open the Blueprint links in your browser
 
 
 ## Gemini results of what can be extracted from JAMF about DDM: ##
