@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 01/12/2026
+# Last updated: 01/13/2026
 #
 # Script Purpose: Retrieve the DDM info for JAMF devices
 #
@@ -19,6 +19,9 @@
 #       Took advantage of some AI Tools to optimize the "common" section and optimize more JAMF functions
 #       Removed the extra verbiage at the end of the Blueprint IDs
 #       Added button to open the Blueprint links in your browser
+# 0.6 - Add more safety net around the JQ command to make sure it won't error out.
+#       More detailed reporting in CSV file
+#       Reported if DDM is not enabled on a system.
 
 ######################################################################################################
 #
@@ -29,7 +32,7 @@
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="0.5 Alpha"
+SCRIPT_VERSION="0.6 Alpha"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -418,7 +421,7 @@ function construct_dialog_header_settings ()
         "button1text" : "OK",
         "button2text" : "Cancel",
         "infotext": "'$SCRIPT_VERSION'",
-        "height" : 580,
+        "height" : "640",
         "moveable" : "true",
         "json" : "true", 
         "quitkey" : "0",
@@ -826,10 +829,13 @@ function JAMF_get_DDM_info ()
     # PARMS: $1 - Management ID
     local retval
     retval=$(echo $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items"))
-    if echo "$retval" | grep "INVALID"; then
-        retval="ERR" #report ERR if insufficient privs
+
+    if [[ $retval == *INVALID* ]]; then
+        retval="ERR"        # insufficient privs
+    elif [[ $retval == *"Client $1 not found"* ]]; then
+        retval="NOT FOUND"  # DDM not active
     fi
-    echo -E $retval
+    printf '%s\n' "$retval"
 }
 
 function JAMF_retrieve_ddm_softwareupdate_info () 
@@ -842,13 +848,10 @@ function JAMF_retrieve_ddm_softwareupdate_info ()
     DDMSoftwareUpdateActive=("${(f)results}")
 }
 
-function JAMF_retrieve_ddm_softwareupdate_failures ()
+function JAMF_retrieve_ddm_softwareupdate_failures () 
 {
-    # PURPOSE: extract the DDM Software update failures from the computer record
-    # RETURN: array of the DDM software update information
-    # PARMS: $1 - DDM JSON blob of the computer
-    local results
-    results=$(jq -r '.statusItems[]? | select(.key | startswith("softwareupdate.failure-reason.")) | select(.value != null) | "\( .key | ltrimstr("softwareupdate.failure-reason.") ):\(.value)"' <<< "$1")
+    cleaned=$(printf '%s' "$1" | perl -pe 's/([\x00-\x1F])/sprintf("\\u%04X", ord($1))/eg')
+    results=$(printf '%s' "$cleaned" | jq -r '.statusItems[]? | select(.key | startswith("softwareupdate.failure-reason.")) | select(.value != null) | "\(.key | ltrimstr("softwareupdate.failure-reason.")):\(.value)"')
     DDMSoftwareUpdateFailures=("${(f)results}")
 }
 
@@ -1131,7 +1134,7 @@ function process_group ()
     declare JAMF_API_KEY="JSSResource/computergroups/id"
     declare JAMF_API_KEY2="api/v2/computers-inventory"
 
-    local CSV_HEADER="System, ManagementID,LastUpdate,Status,Blueprint Failures, Software Update Failures"
+    local CSV_HEADER="System, ManagementID,LastUpdate,Status,Blueprint Failed IDs,Blueprint Failed Reason, Software Update Failures"
     declare shouldWrite=false
 
     #echo $GroupID
@@ -1159,16 +1162,20 @@ function process_group ()
     
         # we need to extract specific information from the Computer Inventory
         JSONblob=$(JAMF_retrieve_data_blob "$JAMF_API_KEY2/$ID?section=GENERAL" "json")
+        [[ -z $JSONblob ]] && echo "Blob empty for ID: "$ID
         # Get the name and the JAMF ManagementID
         name=$(printf "%s" $JSONblob | jq -r '.general.name')
         managementId=$(printf "%s" $JSONblob | jq -r '.general.managementId')
-
         # Extract the DDM Info from the ManagementID record
         DDMInfo=$(JAMF_get_DDM_info $managementId)
         [[ $DDMInfo == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read DDM Info"; cleanup_and_exit 1;}
-        DDMKeys=$(printf "%s" $DDMInfo | jq -r '.statusItems[] | select(.key == "management.declarations.activations")')
-        #DDMKeys=$(JAMF_retrieve_ddm_keys $DDMInfo "management.declarations.activations")
-        lastUpdateTime=$(printf "%s" "$DDMInfo" | jq -r '(.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"')
+        if [[ $DDMInfo == "NOT FOUND" ]]; then
+            logMe "ERROR: DDM may not be active on device: $name"
+            update_display_list "Update" "" "${name}" "" "error" "DDM may not be active!"
+            continue
+        fi
+        DDMKeys=$(printf "%s" $DDMInfo | tr -d '[:cntrl:]' | jq -r '.statusItems[] | select(.key == "management.declarations.activations")')
+        lastUpdateTime=$(printf "%s" "$DDMInfo" | tr -d '[:cntrl:]' | jq -r '(.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"')
 
         # Get the DDM Blueprint successes
         JAMF_retrieve_ddm_blueprint_active $DDMKeys
@@ -1192,15 +1199,19 @@ function process_group ()
             "Success Only") [[ "$liststatus" == "success" ]] && canWrite=true ;;
             *) canWrite=true ;;
         esac
-
         if [[ "$extractRAWData" == true && "$canWrite" == true ]]; then
             [[ "$includeSWUFail" == false ]] && DDMSoftwareUpdateFailures=""
             
-            # Zsh-native string replacement (faster than tr)
-            clean_bp="${DDMBlueprintErrors//,/;}"
-            clean_swu="${DDMSoftwareUpdateFailures//,/;}"
+            # Zsh-native string replacement to santized the output of conrol characters
+            sanitized_bperrors="${DDMBlueprintErrors//,/;}"
+            sanitized_bperrors_reason=""
+            if [[ ! -z $DDMBlueprintErrors ]]; then
+                DDMErrorReason=$(echo $DDMKeys | perl -ne 'print "$1\n" if /code=([^},]+)/')
+                sanitized_bperrors_reason="${DDMErrorReason//,/;}"
+            fi
+            sanitized_clean_swu="${DDMSoftwareUpdateFailures//,/;}"
             # Write out this info to the CSV file
-            printf "%s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$lastUpdateTime" "$liststatus" "$clean_bp" "$clean_swu" >> "$CSV_OUTPUT"
+            printf "%s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$lastUpdateTime" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
             logMe "Writing DDM $liststatus for system: $name"
         else
             echo "INFO: $name, $managementId, $lastUpdateTime"
