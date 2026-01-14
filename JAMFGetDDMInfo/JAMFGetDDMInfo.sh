@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 01/13/2026
+# Last updated: 01/14/2026
 #
 # Script Purpose: Retrieve the DDM info for JAMF devices
 #
@@ -22,6 +22,8 @@
 # 0.6 - Add more safety net around the JQ command to make sure it won't error out.
 #       More detailed reporting in CSV file
 #       Reported if DDM is not enabled on a system.
+# 0.7 - Background processing!  Major speed improvement
+#       Progress during list items to show actual progress
 
 ######################################################################################################
 #
@@ -32,7 +34,7 @@
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="0.6 Alpha"
+SCRIPT_VERSION="0.7 Alpha"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -1166,11 +1168,10 @@ function process_group ()
     computerList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY/$GroupID" "json")
     [[ $computerList == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read Groups"; cleanup_and_exit 1;}
 
-    numberOfComputers=$(printf "%s" "$computerList" | jq -r '.computer_group.computers | length')
+    numberOfComputers=$(jq -r '.computer_group.computers | length' <<< "$computerList") 
     logMe "INFO: There are $numberOfComputers Computers in $GroupName"
 
-    create_listitem_list \
-        "Retrieving DDM Info from computers that are in group:<br> $GroupName." \
+    create_listitem_list "Retrieving DDM Info from computers that are in group:<br> $GroupName." \
         "json" ".computer_group.computers[].name" "$computerList" "SF=desktopcomputer.and.macbook"
  
      # Get the list of IDs
@@ -1180,10 +1181,10 @@ function process_group ()
     current_jobs=0
     item_count=1
     for ID in "${ids[@]}"; do
+        while (( (current_jobs=${#jobstates}) >= BACKGROUND_TASKS )); do sleep 0.05; done  # Tighter polling
         progress=$(( (item_count * 100) / numberOfComputers ))
         update_display_list "progress" "" "" "" "" $progress
         ((item_count++))
-        while (( (current_jobs=${#jobstates}) >= BACKGROUND_TASKS )); do sleep 0.05; done  # Tighter polling
         process_single_computer "$ID" &
     done
     update_display_list "progress" "" "" "" "" 100
