@@ -53,7 +53,7 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 | 0.6 | Add more safety net around the JQ command to make sure it won't error out.
 ||       More detailed reporting in CSV file
 ||       Reported if DDM is not enabled on a system.
-| 0.7 | Background processing!  Major speed improvement
+| 0.7 | Background processing!  Major speed improvement (can process about 1000 records in less than 2 mins)
 ||      Progress during list items to show actual progress
 
 
