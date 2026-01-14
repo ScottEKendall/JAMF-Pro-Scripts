@@ -50,6 +50,11 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 ||      Took advantage of some AI Tools to optimize the "common" section and optimize more JAMF functions
 ||      Removed the extra verbiage at the end of the Blueprint IDs
 ||      Added button to open the Blueprint links in your browser
+| 0.6 | Add more safety net around the JQ command to make sure it won't error out.
+||       More detailed reporting in CSV file
+||       Reported if DDM is not enabled on a system.
+| 0.7 | Background processing!  Major speed improvement
+||      Progress during list items to show actual progress
 
 
 ## Gemini results of what can be extracted from JAMF about DDM: ##
