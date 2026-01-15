@@ -24,6 +24,10 @@
 #       Reported if DDM is not enabled on a system.
 # 0.7 - Background processing!  Major speed improvement
 #       Progress during list items to show actual progress
+# 0.8	Preliminary support for blueprints
+#       Several GUI enhancements, including verbiage and typos
+#       Ability to choose export location for Individual systems
+#       Report on more DDM fields
 
 ######################################################################################################
 #
@@ -34,7 +38,7 @@
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="0.7 Alpha"
+SCRIPT_VERSION="0.8 Alpha"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -64,8 +68,10 @@ SD_DIALOG_GREETING="Good $GREET"
 
 JSON_DIALOG_BLOB=$(mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX")
 DIALOG_COMMAND_FILE=$(mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX")
+TMP_FILE_STORAGE=$(mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX")
 chmod 666 $JSON_DIALOG_BLOB
 chmod 666 $DIALOG_COMMAND_FILE
+chmod 666 $TMP_FILE_STORAGE
 
 ###################################################
 #
@@ -95,7 +101,8 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Retrieve JAMF DDM Info"
 SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
-OVERLAY_ICON="/System/Applications/App Store.app"
+OVERLAY_ICON="SF=list.bullet.circle,color=orange,weight=heavy,bgcolor=none"
+#OVERLAY_ICON="/System/Applications/App Store.app"
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
@@ -427,7 +434,6 @@ function construct_dialog_header_settings ()
         "height" : "640",
         "moveable" : "true",
         "json" : "true",
-        "resizable" : "true",
         "quitkey" : "0",
         "messageposition" : "top",'
 }
@@ -819,7 +825,8 @@ function JAMF_retrieve_ddm_softwareupdate_info ()
     # RETURN: array of the DDM software update information
     # PARMS: $1 - DDM JSON blob of the computer
     local results
-    results=$(jq -r '.statusItems[]? | select(.key | startswith("softwareupdate.pending")) | select(.value != null) | "\( .key | ltrimstr("softwareupdate.pending-version.") ):\(.value)"' <<< "$1")
+    results=$(jq -r '[.statusItems[]? | select(.key | startswith("softwareupdate.pending-version.")) | select(.value != null) | (.key | ltrimstr("softwareupdate.pending-version.")) + ":" + (.value | tostring)] +
+        [.statusItems[]? | select(.key | startswith("softwareupdate.install-")) | .value] | join("\n")' <<< "$1")
     DDMSoftwareUpdateActive=("${(f)results}")
 }
 
@@ -870,7 +877,7 @@ function JAMF_which_self_service ()
     # RETURN: None
     # EXPECTED: None
     local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
@@ -888,6 +895,9 @@ function welcomemsg ()
     helpmessage+="synchronous polling from an MDM server. It enhances performance and scalability by enabling devices to act independently based on predefined, locally stored declarations.<br><br>"
     helpmessage+="Apple's official documentation:<br><br>"$helpmessageurl
 
+    message="${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, You can choose to search all of your computers for a Blueprint ID, a single computer's Declarative Device Maanagement (DDM) status, or a smart/static group"
+    message+="for each computer's DDM status.<br><br>After your selection, another menu will appear with more options."
+
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
@@ -897,9 +907,9 @@ function welcomemsg ()
         --iconsize 128
         --infotext $SCRIPT_VERSION
         --titlefont shadow=1
-        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, You can choose to view either a single computer's Declarative Device Maanagement (DDM) status, or a smart/static group for each computer's DDM status."
+        --message $message
         --messagefont name=Arial,size=17
-        --selecttitle "Extract DDM data from:",radio --selectvalues "Blueprint ID, Single System, Smart/Static Group"
+        --selecttitle "View DDM data from:",radio --selectvalues "Blueprint ID, Single System, Smart/Static Group"
         --helpmessage $helpmessage
         --helpimage "qr="$helpmessageurl
         --button1text "Continue"
@@ -916,11 +926,13 @@ function welcomemsg ()
     [[ $buttonpress = 2 ]] && exit 0
 
     DDMoption=$(echo $message | plutil -extract 'SelectedOption' 'raw' -)
-    echo $DDMoption
+    logMe "$DDMoption was choosen"
 }
 
 function welcomemsg_blueprint ()
 {
+    message="**View DDM info from Blueprints**<br><br>You have selected to view information from a Blueprint ID.  Please paste the entire URL of your JAMF blueprint, and all systems "
+    message+="will be scanned for the existence of the blueprint (regardless of status).<br><br>*NOTE: If you choose to export the data to a CSV file, it will be created to show the data with more details.*"
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
@@ -930,7 +942,7 @@ function welcomemsg_blueprint ()
         --iconsize 128
         --infotext $SCRIPT_VERSION
         --titlefont shadow=1
-        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, Please paste the entire URL of your JAMF blueprint, and this script will scan all systems for the existence of the blueprint.<br><br>*NOTE: If you choose to view the RAW data, a CSV file will be created to show the data in a better formatted manner*"
+        --message "$message"
         --messagefont name=Arial,size=17
         --vieworder "dropdown,textfield"
         --textfield "Blueprint URL,name=BPUrl,required"
@@ -949,18 +961,109 @@ function welcomemsg_blueprint ()
 
     buttonpress=$?
     [[ $buttonpress = 2 ]] && exit 0
-    blueprintId=$(echo $message | jq -r '.BPUrl')
-    blueprintId=$(echo $blueprintId:t)
+    blueprintID=$(echo $message | jq -r '.BPUrl')
+    blueprintID=$(echo $blueprintID:t)
     writeCSVFile=$(echo $message | jq -r '.RAWData')
+    process_blueprint $blueprintID
 }
 
 function process_blueprint ()
 {
+    # PURPOSE: Scan all system to locate the requested blueprint that are active or disabled 
+    # RETURN: None
+    # EXPECTED: None
+    # NOTE: Three JAMF keys are used here
+    #       JAMF_API_KEY = Faster lookup of computer names (for display purposes)
+    #       JAMF_API_KEY2 = Modern API call to get computer IDs (for JAMF )
+    #
+    # API workflow - You have to call the inventory to get the ID of the computer and the Management ID (these are two seperate items)
+    # then, you have to use the Management ID to call the DDM info
 
+    # Remove double quotes and split by '-' into an array 'parts'
+    local blueprintID=$1
+
+    # Assign variables and trim surrounding whitespace using the (z) flag or expansion
+    local JAMF_API_KEY="api/v3/computers-inventory"
+    local computerList
+    local CSV_HEADER="System, ManagementID,LastUpdate,Status,Blueprint Failed IDs,Blueprint Failed Reason, Software Update Failures"
+    local shouldWrite=false
+    local numberOfComputers
+    local ids
+    local current_jobs
+
+    # Initialize CSV if needed
+    if [[ "$writeCSVFile" == true ]]; then
+        CSV_OUTPUT+="$GroupName ($displayResults).csv"
+        printf "%s\n" "$CSV_HEADER" > "$CSV_OUTPUT"
+        logMe "Creating file: $CSV_OUTPUT"
+    fi
+
+    logMe "Retrieving DDM Info for Blueprint: $blueprintID"
+
+
+    # Read in the computer inventory for all systems, capture, the ID, name & managementID of each computer
+    # by using the modern API with the inventory pagination method, we are doing to use as litle RAM as possible
+
+    page=0
+    page_size=100
+    first_item=true  # Flag to track the very first item
+
+    echo '[' > "$TMP_FILE_STORAGE"
+    while :; do
+        results=$(curl -sS -H "Authorization: Bearer $api_token" -H "Accept: application/json" "$jamfpro_url/$JAMF_API_KEY?page=$page&page-size=$page_size")
+        
+        # a couple of verification checks to make sure we have valid data
+        [[ -z "$results" || "$results" == "null" ]] && break
+        
+        results_count=$(jq '.results | length' <<<"$results")
+        (( results_count == 0 )) && break
+        
+        # Process each object in the current results page
+        # jq -c ensures each object is on a single line
+        jq -c '.results[] | {id: .id, name: .general.name, managementId: .general.managementId}' <<<"$results" | while read -r line; do
+            if [[ "$first_item" == true ]]; then
+                echo "  $line" >> "$TMP_FILE_STORAGE"
+                first_item=false
+            else
+                # Prepend a comma to all subsequent items
+                echo "  ,$line" >> "$TMP_FILE_STORAGE"
+            fi
+        done
+        ((page++))
+    done
+    # Close the JSON array
+    echo ']' >> "$TMP_FILE_STORAGE"
+
+    
+    computerList=$(<"$TMP_FILE_STORAGE")
+    numberOfComputers=$(jq -r 'length' <<< "$computerList")
+    logMe "INFO: There are $numberOfComputers Computers to scan for $blueprintID"
+
+    create_listitem_list "Retrieving DDM Info from computers that are in Blueprint:<br> $blueprintID." \
+        "json" ".[].name" "$computerList" "SF=desktopcomputer.and.macbook"
+ 
+     # Get the list of IDs
+    ids=($(jq -r '.[].id' <<< "$computerList"))
+
+    # Fixed throttling: count background jobs properly [web:15][web:19]
+    current_jobs=0
+    item_count=1
+    for ID in "${ids[@]}"; do
+        while (( (current_jobs=${#jobstates}) >= BACKGROUND_TASKS )); do sleep 0.05; done  # Tighter polling
+        progress=$(( (item_count * 100) / numberOfComputers ))
+        update_display_list "progress" "" "" "" "" $progress
+        ((item_count++))
+        process_single_computer "$ID" &
+    done
+    update_display_list "progress" "" "" "" "" 100
+    update_display_list "buttonenable"
+    wait
 }
 
 function welcomemsg_individual ()
 {
+    message="**View Individual System**<br><br>Please enter the serial or hostname of the device you wish to see the DDM information for.  The results for Software Updates, Active & Failed Blueprints, as well as any error messages will be displayed.<br><br>"
+    message+="*NOTE: If you choose to export the data, a TXT file will be created at your choosen locaiton, Leave the TXT Folder location empty if you do not want to export data*."
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
@@ -970,30 +1073,29 @@ function welcomemsg_individual ()
         --iconsize 128
         --infotext $SCRIPT_VERSION
         --titlefont shadow=1
-        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, please enter the serial or hostname of the device you wish to see the DDM information for.  Active & failed Blueprints will be displayed as well as any pending software updates.<br><br>*NOTE: If you choose to view the RAW data, a CSV file will be created to show the data in a better formatted manner*"
+        --message $message
         --messagefont name=Arial,size=17
         --vieworder "dropdown,textfield"
         --textfield "Device,required"
         --selecttitle "Serial,required"
-        --checkbox "Include RAW data info",name="RAWData"
+        --textfield "TXT folder location,fileselect,filetype=folder,prompt=$CSV_OUTPUT,name=writeTXTFile"
         --checkboxstyle switch
         --selectvalues "Serial Number, Hostname"
         --selectdefault "Hostname"
         --button1text "Continue"
         --button2text "Quit"
         --ontop
-        --height 480
+        --height 520
         --json
         --moveable
     )
 
     message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
-
     buttonpress=$?
     [[ $buttonpress = 2 ]] && exit 0
-    search_type=$(echo $message | plutil -extract 'SelectedOption' 'raw' -)
-    computer_id=$(echo $message | plutil -extract 'Device' 'raw' -)
-    writeCSVFile=$(echo $message | plutil -extract 'RAWData' 'raw' -)
+    search_type=$(echo $message | jq -r '.SelectedOption')
+    computer_id=$(echo $message | jq -r '.Device')
+    writeTXTFile=$(echo $message | jq -r '.writeTXTFile')
 }
 
 function process_individual ()
@@ -1012,6 +1114,12 @@ function process_individual ()
     # Second is to extract the DDM info for the machine
     DDMInfo=$(JAMF_get_DDM_info $ID)
     logMe "INFO: JAMF ID: $ID"
+
+    # Lets extract all the DDM info from this JSON blob
+
+    DDMBatteryHealth=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.power.battery-health").value')
+    DDMClientSupportedVersions=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "management.client-capabilities.supported-versions").value')
+    DDMClientSupportedPayload=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "management.client-capabilities.supported-payloads.declarations.configurations").value')
 
     # Third, extract the DDM Software Update info for the machine
     JAMF_retrieve_ddm_softwareupdate_info "$DDMInfo"
@@ -1037,22 +1145,26 @@ function process_individual ()
     fi
     #Show the results and log it
 
-    message="**Device name:** $computer_id<br>**JAMF Management ID:** $ID<br><br>"
+    message="**Device name:** <br>$computer_id<br><br>**JAMF Management ID:**<br>$ID<br><br><br>"
+    message+="<br><br>**DDM Client Supported Version**<br>$DDMClientSupportedVersions"
     message+="<br><br>**DDM Blueprints Active**<br>${(j:<br>:)DDMBlueprintSuccess}<br>"
     message+="<br><br>**DDM Blueprint Failures**<br>${(j:<br>:)DDMBlueprintErrors}<br>"
     message+="<br><br>**DDM Blueprint Failure Reason**<br>$DDMErrorReason<br>"
     message+="<br><br>**DDM Software Update Info**<br>${(j:<br>:)DDMSoftwareUpdateActive}<br>"
     message+="<br><br>**DDM Software Update Failures**<br>${(j:<br>:)DDMSoftwareUpdateFailures}<br>"
+    message+="<br><br>**DDM Client Supported Payload**<br>$DDMClientSupportedPayload"
+
 
     # Log and show the results
     logMessage="${message//<br>/\\n}"
-    logMe "Results: "$logMessage
+    #logMe "Results: "$logMessage
     display_results $message
 
-    if [[ "$extractRAWData" == "true" ]]; then
-        CSV_OUTPUT+="$computer_id.csv"
-        printf "LastUpdate,Key,Value\n" > "$CSV_OUTPUT"
-        JAMF_DDM_export_summary_to_csv $DDMInfo
+    if [[ ! -z "$writeTXTFile" ]]; then
+        CSV_OUTPUT="$writeTXTFile/DDM Resuults for $computer_id.txt"
+        logMe "Export file: $CSV_OUTPUT"
+        echo $logMessage > "$CSV_OUTPUT"
+        #JAMF_DDM_export_summary_to_csv $DDMInfo
     fi
 }
 
@@ -1071,9 +1183,8 @@ function display_results ()
         --helpmessage "Add this URL prefix to the Blueprint ID to find the Blueprint details<br>$jamfpro_url/view/mfe/blueprints/"
         --button1text "OK"
         --ontop
-        --resizable
         --width 850
-        --height 600
+        --height 750
         --json
         --moveable
     )
@@ -1095,7 +1206,8 @@ function welcomemsg_group ()
     declare -a array
     declare JAMF_API_KEY="JSSResource/computergroups"
 
-    message="**View DDM info from groups.**<br><br>You have selected to view information from Smart/Static Groups.<br>Please select the group and display results fron options below:<br><br>*NOTE: If you choose to export the data to a CSV file, it will be created to show the data with more details.*"
+    message="**View DDM info from groups**<br><br>You have selected to view information from Smart/Static Groups.<br>Please select the group and display results fron options below:<br><br>"
+    message+="*NOTE: If you choose to export the data to a CSV file, it will be created to show the data with more details.*"
     construct_dialog_header_settings "$message" > "${JSON_DIALOG_BLOB}"
 
     # Read in the JAMF groups and create a dropdown list of them
@@ -1302,7 +1414,7 @@ JAMF_get_server
 # Check if the JAMF Pro server is using the new API or the classic API
 # If the client ID is longer than 30 characters, then it is using the new API
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
-OVERLAY_ICON=$(JAMF_which_self_service) 
+OVERLAY_ICON=$(JAMF_which_self_service)
 
 # Show the welcome message and give the user some options
 DDMoption=$(welcomemsg)

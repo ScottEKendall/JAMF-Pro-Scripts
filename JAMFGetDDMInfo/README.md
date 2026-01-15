@@ -57,6 +57,10 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 ||       Reported if DDM is not enabled on a system.
 | 0.7 | Background processing!  Major speed improvement (can process about 1000 records in less than 2 mins)
 ||      Progress during list items to show actual progress
+| 0.8 | Preliminary support for blueprints
+|| Several GUI enhancements, including verbage and typos
+|| Ability to choose export location for Individual systems
+|| Report on more DDM fields
 
 
 ## Gemini results of what can be extracted from JAMF about DDM: ##
