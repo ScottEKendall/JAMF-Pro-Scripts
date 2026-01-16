@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/09/2025
-# Last updated: 11/24/2025
+# Last updated: 02/16/2026
 #
 # Script Purpose: View, Add or Delete JAMF static group members
 #
@@ -33,24 +33,26 @@
 #       removed unnecessary variables.
 #       Fixed typos
 # 2.0 - Add option to do a copy of group membership from one computer to another
+# 2.1 - Optimized header variables section
+#       Optimized some JAMF functions for faster processing
 
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
+#set -x 
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+declare DIALOG_PROCESS
 SCRIPT_NAME="JAMFStaticGroupUtility"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
+USER_UID=$(id -u "$LOGGED_IN_USER")
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
-MAC_SERIAL=$(echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
-FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MAC_HOSTNAME=$(hostname -d)
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -58,14 +60,18 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+HOUR=$(date +%H)
+case $HOUR in
+    0[0-9]|1[0-1]) GREET="morning" ;;
+    1[2-7])        GREET="afternoon" ;;
+    *)             GREET="evening" ;;
+esac
+SD_DIALOG_GREETING="Good $GREET"
 
 # Make some temp files
 
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+JSON_DIALOG_BLOB=$(mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX")
+DIALOG_COMMAND_FILE=$(mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX")
 chmod 666 $JSON_DIALOG_BLOB
 chmod 666 $DIALOG_COMMAND_FILE
 
@@ -77,17 +83,17 @@ chmod 666 $DIALOG_COMMAND_FILE
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
     spacing=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -114,6 +120,7 @@ HELP_MESSAGE="**Single Group Method**<br> \
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
+JQ_FILE_INSTALL_POLICY="install_jq"
 
 ##################################################
 #
@@ -205,6 +212,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -243,7 +251,7 @@ function JAMF_which_self_service ()
     # RETURN: None
     # EXPECTED: None
     local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
@@ -387,7 +395,7 @@ function JAMF_retrieve_static_group_id ()
     # EXPECTED: jamfpro_url, api_token
     # PARAMETERS: $1 = JAMF Static group name
     declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computer-groups/static-groups?page=0&page-size=100&sort=id%3Aasc&filter=name%3D%3D%22"${1}%22)
-    echo $tmp | jq -r '.results[].id'
+    printf "%s" $tmp | jq -r '.results[].id'
 }
 
 function JAMF_retrieve_static_group_members ()
@@ -397,7 +405,7 @@ function JAMF_retrieve_static_group_members ()
     # EXPECTED: jamfpro_url, api_token
     # PARAMETERS: $1 = JAMF Static group ID
     declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}JSSResource/computergroups/id/${1}")
-    echo $tmp #| jq -r '.computer_group.computers[].name'
+    printf "%s" "$tmp" 
 }
 
 function JAMF_static_group_action_by_serial ()
@@ -432,7 +440,7 @@ function JAMF_static_group_action_by_serial ()
         retval="API Error #$? has occurred while try to $3 $2 to group"
         logMe "$retval" 1>&2
     fi
-    echo $retval
+    printf "%s" "$retval" 
 }
 
 function JAMF_get_inventory_record ()
@@ -446,7 +454,7 @@ function JAMF_get_inventory_record ()
 
     filter=$(convert_to_hex $2)
     retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=$1&filter=$filter" 2>/dev/null)
-    echo $retval | tr -d '\n'
+    printf "%s" "$retval"    
 }
 
 function JAMF_retrieve_data_blob ()
@@ -459,13 +467,18 @@ function JAMF_retrieve_data_blob ()
     # EXPECTED: 
     #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
     #   api_token - base64 hex code of your bearer token
-    #   jamppro_url - the URL of your JAMF server  
+    #   jamppro_url - the URL of your JAMF server 
 
-    declare format=$2
-    [[ -z "${format}" ]] && format="xml"
-    retval=$(echo -E $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" ))
-    [[ ! -z $3 ]] && retval=$(echo -E "$retval" | jq  '[.[] | select('$3')]')
-    echo $retval
+    local format="${2:-xml}"
+    local retval
+    
+    retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}")
+    case "${retval}"" in
+        *"INVALID_ID"* ) retval="INVALID_ID" ;;
+        *"PRIVILEGE"* ) retval="ERR" ;;
+        *) [[ ! -z $3 ]] && retval=$(echo -E "$retval" | jq  '[.[] | select('$3')]') ;;
+    esac
+    printf "%s" "$retval"
 }
 
 function convert_to_hex ()
@@ -484,7 +497,7 @@ function convert_to_hex ()
         fi
     done
 
-    echo "$result"
+    printf "%s" "$result"
 }
 
 function convert_to_array () 
@@ -494,7 +507,7 @@ function convert_to_array ()
     for i in "${!array[@]}"; do
         array[$i]="${array[$i]//\"/}"
     done
-    echo "${array[1]}"
+    printf "%s" "${array[1]}"
 }
 
 #######################################################################################################

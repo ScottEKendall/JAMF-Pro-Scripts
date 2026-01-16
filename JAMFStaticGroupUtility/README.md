@@ -66,11 +66,15 @@ If you are using the Modern JAMF API credentials, you need to set:
 
 ## History ##
 
-##### 1.0 - Inital Commit #####
-##### 1.1 - Add function to verify passed credentials #####
-##### 1.2 - Add options to pass in group Action and to not show GUI window ####
-##### 1.3 - Code cleanup
-#####       Added feature to read in defaults file
-#####       removed unnecessary variables.
-#####       Fixed typos
-##### 2.0 - Add option to do a migration/import of group membership from one computer to another
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial |
+| 1.1 | Add function to make sure Client / Secret are passed into the script |
+| 1.2 | Added options to pass group action (Add/Remove) and whether or not to show to selection window |
+| 1.3 | Code cleanup |
+||       Added feature  to read in defaults file |
+||       removed unnecessary variables. |
+||       Fixed typos |
+| 2.0 | Add option to  do a copy of group membership from one computer to another |
+| 2.1 | Optimized header variables section |
+||       Optimized some JAMF functions for faster processing |
