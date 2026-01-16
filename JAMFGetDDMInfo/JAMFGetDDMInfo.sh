@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 01/14/2026
+# Last updated: 01/16/2026
 #
 # Script Purpose: Retrieve the DDM info for JAMF devices
 #
@@ -28,6 +28,11 @@
 #       Several GUI enhancements, including verbiage and typos
 #       Ability to choose export location for Individual systems
 #       Report on more DDM fields
+# 0.9 - Got the scan for blueprints feature working (fully multitasking aware)
+#       Added option to show success and/or failed on blueprint scan
+#       Made minor GUI changes
+#       Show dialog notification during long inventory retrievals
+
 
 ######################################################################################################
 #
@@ -38,7 +43,7 @@
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="0.8 Alpha"
+SCRIPT_VERSION="0.9 Alpha"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -47,15 +52,13 @@ MACOS_NAME=$(sw_vers -productName)
 MACOS_VERSION=$(sw_vers -productVersion)
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
 MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
-# Fallback to uname if sysctl fails
-#[[ -z "$MAC_CPU" ]] && [[ "$(/usr/bin/uname -m)" == "arm64" ]] && MAC_CPU="Apple Silicon" || MAC_CPU="Intel"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="2.5.6"
 HOUR=$(date +%H)
 case $HOUR in
     0[0-9]|1[0-1]) GREET="morning" ;;
@@ -108,7 +111,11 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 JQ_FILE_INSTALL_POLICY="install_jq"
 CSV_OUTPUT="$USER_DIR/Desktop/DDM Data Dump for "
+
+# Multitasking items
+
 BACKGROUND_TASKS=10                 # Number of background tasks to run in parallel
+JAMF_INVENTORY_PAGE_SIZE=100        # JAMF records to return at once from the API inventory lookup
 ##################################################
 #
 # Passed in variables
@@ -204,6 +211,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -759,13 +767,26 @@ function JAMF_retrieve_data_details ()
 }
 
 function JAMF_retrieve_data_blob ()
-{    
+{
+    # PURPOSE: Extract the summary of the JAMF command results
+    # RETURN: formatted contents of command
+    # PARAMETERS: $1 = The API command of the JAMF attribute to read
+    #            $2 = format to return XML or JSON
+    #            $3 = JSON filter to use    
+    # EXPECTED: 
+    #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
+    #   api_token - base64 hex code of your bearer token
+    #   jamppro_url - the URL of your JAMF server 
     local format="${2:-xml}"
     local retval
     
     retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}")
-    [[ "$retval" == *"INVALID_ID"* ]] && printf "INVALID_ID" || printf "%s" "$reval"
-    [[ "$retval" == *"PRIVILEGE"* || -z "$retval" ]] && printf "ERR" || printf "%s" "$retval"
+    case "${retval}" in
+        *"INVALID_ID"* ) retval="INVALID_ID" ;;
+        *"PRIVILEGE"* ) retval="ERR" ;;
+        *) [[ ! -z $3 ]] && retval=$(echo -E "$retval" | jq  '[.[] | select('$3')]') ;;
+    esac
+    printf "%s" "$retval"
 }
 
 function JAMF_get_inventory_record()
@@ -780,6 +801,51 @@ function JAMF_get_inventory_record()
     local retval
     retval=$(/usr/bin/curl --silent --fail --get -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" --data-urlencode "section=$1" --data-urlencode "filter=$2" "${jamfpro_url}api/v2/computers-inventory")
     printf "%s" "$retval"
+}
+
+function JAMF_get_bulk_inventory_record ()
+{
+    # PURPOSE: Uses the JAMF moern API to retrieve inventory info
+    # NOTE: You can change the JAMF_INVENTORY_PAGE_SIZE to control how many results are returen in a single API call.
+    #       This can be adjusted to suite your environment / performance results
+    # RETURN: JSON blob of inventory records
+    # PARMS:  None
+    # EXPECTED: jamfpro_url, api_token
+
+    local JAMF_API_KEY="api/v3/computers-inventory"
+    local page=0
+    local first_item=true  # Flag to track the very first item
+    ${SW_DIALOG} --notification --identifier "inventory" --title "Retieving JAMF Inventory Records" --message "Please be patient" --button1text "Dismiss"
+
+    echo '[' > "$TMP_FILE_STORAGE"
+    while :; do
+        results=$(curl -sS -H "Authorization: Bearer $api_token" -H "Accept: application/json" "$jamfpro_url/$JAMF_API_KEY?page=$page&page-size=$JAMF_INVENTORY_PAGE_SIZE")
+        
+        # a couple of verification checks to make sure we have valid data
+        [[ -z "$results" || "$results" == "null" ]] && break
+        
+        results_count=$(jq '.results | length' <<<"$results")
+        (( results_count == 0 )) && break
+        
+        # Process each object in the current results page
+        # jq -c ensures each object is on a single line
+        jq -c '.results[] | {id: .id, name: .general.name, managementId: .general.managementId}' <<<"$results" | while read -r line; do
+            if [[ "$first_item" == true ]]; then
+                echo "  $line" >> "$TMP_FILE_STORAGE"
+                first_item=false
+            else
+                # Prepend a comma to all subsequent items
+                echo "  ,$line" >> "$TMP_FILE_STORAGE"
+            fi
+        done
+        ((page++))
+    done
+    # Close the JSON array
+    echo ']' >> "$TMP_FILE_STORAGE"
+
+    ${SW_DIALOG} --notification --identifier "inventory" --remove
+    # Re-read in the file into an array for faster processing
+    printf "%s" $(<"$TMP_FILE_STORAGE")
 }
 
 function JAMF_get_deviceID ()
@@ -808,15 +874,12 @@ function JAMF_get_DDM_info ()
     # PURPOSE: uses the ManagementId to retrieve the DDM info
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - Management ID
-    local retval
-    retval=$(echo $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items"))
-
-    if [[ $retval == *INVALID* ]]; then
-        retval="ERR"        # insufficient privs
-    elif [[ $retval == *"Client $1 not found"* ]]; then
-        retval="NOT FOUND"  # DDM not active
-    fi
-    printf '%s\n' "$retval"
+    local retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items")
+    case "${retval}" in
+        *"INVALID"* | *"PRIVILEGE"* ) printf '%s\n' "ERR" ;;
+        *"Client $1 not found"* ) printf '%s\n' "NOT FOUND" ;;  # DDM not active
+        *) printf '%s\n' "${retval}";;
+    esac
 }
 
 function JAMF_retrieve_ddm_softwareupdate_info () 
@@ -895,7 +958,7 @@ function welcomemsg ()
     helpmessage+="synchronous polling from an MDM server. It enhances performance and scalability by enabling devices to act independently based on predefined, locally stored declarations.<br><br>"
     helpmessage+="Apple's official documentation:<br><br>"$helpmessageurl
 
-    message="${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, You can choose to search all of your computers for a Blueprint ID, a single computer's Declarative Device Maanagement (DDM) status, or a smart/static group"
+    message="${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, You can choose to search all of your computers for a Blueprint ID, a single computer's Declarative Device Maanagement (DDM) status, or a smart/static group "
     message+="for each computer's DDM status.<br><br>After your selection, another menu will appear with more options."
 
     MainDialogBody=(
@@ -923,11 +986,37 @@ function welcomemsg ()
     message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
 
     buttonpress=$?
-    [[ $buttonpress = 2 ]] && exit 0
-
-    DDMoption=$(echo $message | plutil -extract 'SelectedOption' 'raw' -)
+    [[ $buttonpress = 2 ]] && DDMoption="quit" || DDMoption=$(echo $message | plutil -extract 'SelectedOption' 'raw' -)
     logMe "$DDMoption was choosen"
+    echo $DDMoption
 }
+
+function execute_in_parallel ()
+{
+    local process_type=$1 #First param is what type of processing
+    shift
+    local ids=("$@")  # Receive as array
+    current_jobs=0
+    item_count=1
+    numberOfComputers=${#ids}
+    for ID in "${ids[@]}"; do
+        while (( (current_jobs=${#jobstates}) >= BACKGROUND_TASKS )); do sleep 0.05; done  # Tighter polling
+        progress=$(( (item_count * 100) / numberOfComputers ))
+        update_display_list "progress" "" "" "" "" $progress
+        ((item_count++))
+        if [[ $process_type == "blueprint" ]]; then
+            process_blueprint_computer "$ID" &
+        else
+            process_group_computer "$ID" &
+        fi
+    done
+}
+
+###########################
+#
+# Blueprint functions
+#
+##########################
 
 function welcomemsg_blueprint ()
 {
@@ -944,15 +1033,15 @@ function welcomemsg_blueprint ()
         --titlefont shadow=1
         --message "$message"
         --messagefont name=Arial,size=17
-        --vieworder "dropdown,textfield"
+        --vieworder "textfield,dropdown"
+        --selecttitle "Display results" --selectvalues "Both Active & Failed,Failed Only,Active Only" --selectdefault "Both Active & Failed"
         --textfield "Blueprint URL,name=BPUrl,required"
-        --selectdefault "Hostname"
-        --checkbox "Include RAW data info",name="RAWData"
+        --checkbox "Export CSV file",name="exportCSV"
         --checkboxstyle switch
         --button1text "Continue"
         --button2text "Quit"
         --ontop
-        --height 480
+        --height 520
         --json
         --moveable
     )
@@ -960,10 +1049,12 @@ function welcomemsg_blueprint ()
     message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
 
     buttonpress=$?
+
     [[ $buttonpress = 2 ]] && exit 0
     blueprintID=$(echo $message | jq -r '.BPUrl')
     blueprintID=$(echo $blueprintID:t)
-    writeCSVFile=$(echo $message | jq -r '.RAWData')
+    writeCSVFile=$(echo $message | jq -r '.exportCSV')
+    displayResults=$(echo $message | jq -r '."Display results" .selectedValue')
     process_blueprint $blueprintID
 }
 
@@ -971,7 +1062,7 @@ function process_blueprint ()
 {
     # PURPOSE: Scan all system to locate the requested blueprint that are active or disabled 
     # RETURN: None
-    # EXPECTED: None
+    # EXPECTED: Nonex
     # NOTE: Three JAMF keys are used here
     #       JAMF_API_KEY = Faster lookup of computer names (for display purposes)
     #       JAMF_API_KEY2 = Modern API call to get computer IDs (for JAMF )
@@ -980,90 +1071,126 @@ function process_blueprint ()
     # then, you have to use the Management ID to call the DDM info
 
     # Remove double quotes and split by '-' into an array 'parts'
-    local blueprintID=$1
-
-    # Assign variables and trim surrounding whitespace using the (z) flag or expansion
-    local JAMF_API_KEY="api/v3/computers-inventory"
-    local computerList
-    local CSV_HEADER="System, ManagementID,LastUpdate,Status,Blueprint Failed IDs,Blueprint Failed Reason, Software Update Failures"
+    local blueprintID=$1    
     local shouldWrite=false
-    local numberOfComputers
-    local ids
-    local current_jobs
+    local CSV_HEADER="System, ManagementID,LastUpdate,Status,Blueprint Failed IDs,Blueprint Failed Reason, Software Update Failures"
+    local computerList numberOfComputers ids
 
     # Initialize CSV if needed
     if [[ "$writeCSVFile" == true ]]; then
-        CSV_OUTPUT+="$GroupName ($displayResults).csv"
+        CSV_OUTPUT+="$blueprintID ($displayResults).csv"
         printf "%s\n" "$CSV_HEADER" > "$CSV_OUTPUT"
         logMe "Creating file: $CSV_OUTPUT"
     fi
 
     logMe "Retrieving DDM Info for Blueprint: $blueprintID"
 
-
     # Read in the computer inventory for all systems, capture, the ID, name & managementID of each computer
     # by using the modern API with the inventory pagination method, we are doing to use as litle RAM as possible
+    computerList=$(JAMF_get_bulk_inventory_record)
 
-    page=0
-    page_size=100
-    first_item=true  # Flag to track the very first item
-
-    echo '[' > "$TMP_FILE_STORAGE"
-    while :; do
-        results=$(curl -sS -H "Authorization: Bearer $api_token" -H "Accept: application/json" "$jamfpro_url/$JAMF_API_KEY?page=$page&page-size=$page_size")
-        
-        # a couple of verification checks to make sure we have valid data
-        [[ -z "$results" || "$results" == "null" ]] && break
-        
-        results_count=$(jq '.results | length' <<<"$results")
-        (( results_count == 0 )) && break
-        
-        # Process each object in the current results page
-        # jq -c ensures each object is on a single line
-        jq -c '.results[] | {id: .id, name: .general.name, managementId: .general.managementId}' <<<"$results" | while read -r line; do
-            if [[ "$first_item" == true ]]; then
-                echo "  $line" >> "$TMP_FILE_STORAGE"
-                first_item=false
-            else
-                # Prepend a comma to all subsequent items
-                echo "  ,$line" >> "$TMP_FILE_STORAGE"
-            fi
-        done
-        ((page++))
-    done
-    # Close the JSON array
-    echo ']' >> "$TMP_FILE_STORAGE"
-
-    
-    computerList=$(<"$TMP_FILE_STORAGE")
     numberOfComputers=$(jq -r 'length' <<< "$computerList")
     logMe "INFO: There are $numberOfComputers Computers to scan for $blueprintID"
 
-    create_listitem_list "Retrieving DDM Info from computers that are in Blueprint:<br> $blueprintID." \
+    create_listitem_list "Locating asssigned systems that have Blueprint:<br>$blueprintID installed." \
         "json" ".[].name" "$computerList" "SF=desktopcomputer.and.macbook"
  
      # Get the list of IDs
     ids=($(jq -r '.[].id' <<< "$computerList"))
 
-    # Fixed throttling: count background jobs properly [web:15][web:19]
-    current_jobs=0
-    item_count=1
-    for ID in "${ids[@]}"; do
-        while (( (current_jobs=${#jobstates}) >= BACKGROUND_TASKS )); do sleep 0.05; done  # Tighter polling
-        progress=$(( (item_count * 100) / numberOfComputers ))
-        update_display_list "progress" "" "" "" "" $progress
-        ((item_count++))
-        process_single_computer "$ID" &
-    done
+    # Execute parallel tasks
+    execute_in_parallel "blueprint" "${ids[@]}"
+
     update_display_list "progress" "" "" "" "" 100
     update_display_list "buttonenable"
     wait
 }
 
+function process_blueprint_computer () 
+{
+    local JAMF_API_KEY2="api/v2/computers-inventory"
+    local ID="$1"
+    local statusmessage="BP found (Active)"
+    local DDMInfo DDMInfo_clean DDMKeys
+    local sanitized_bperrors_reason sanitized_bperrors sanitized_clean_swu
+    local numberOfComputers JSONblob
+    local name managementId lastUpdateTime canWrite liststatus
+
+    local DDMErrorReason
+    liststatus="success"
+
+    # Extract info from Computer Inventory
+
+    JSONblob=$(JAMF_retrieve_data_blob "$JAMF_API_KEY2/$ID?section=GENERAL" "json")
+    [[ -z "$JSONblob" ]] && return
+
+    name=$(printf "%s" "$JSONblob" | jq -r '.general.name')
+    managementId=$(printf "%s" "$JSONblob" | jq -r '.general.managementId')
+
+    DDMInfo=$(JAMF_get_DDM_info "$managementId")
+    [[ "$DDMInfo" == "ERR" ]] && { 
+        logMe "ERROR: Insufficient privileges to read DDM Info for $name" >&2
+        return 1
+    }
+    [[ "$DDMInfo" == "NOT FOUND" ]] && {
+        logMe "ERROR: DDM may not be active on device: $name"
+        update_display_list "Update" "" "${name}" "DDM may not be active" "error" 
+        return 0
+    }
+    # See if the BP exists in the DDM record, if nothing found, exit early
+    if [[ -z $(echo $DDMInfo | grep "$blueprintID") ]]; then
+        update_display_list "Update" "" "${name}" "BP not found." "pending"
+        return 0
+    fi
+
+    DDMInfo_clean=$(tr -d '[:cntrl:]' <<< "$DDMInfo")
+    DDMKeys=$(jq -r '.statusItems[] | select(.key == "management.declarations.activations")' <<< "$DDMInfo_clean")
+    lastUpdateTime=$(jq -r '(.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"' <<< "$DDMInfo_clean")
+
+    JAMF_retrieve_ddm_blueprint_active "$DDMKeys"
+    JAMF_retrieve_ddm_blueprint_errrors "$DDMKeys"
+    JAMF_retrieve_ddm_softwareupdate_failures "$DDMInfo_clean"
+
+    [[ -n "$DDMBlueprintErrors" ]] && { liststatus="fail"; statusmessage="BP found (Failed)"; }
+    update_display_list "Update" "" "${name}" "${statusmessage}" "${liststatus}"
+
+    # Eval criteria
+    case "$displayResults" in
+        "Failed Only") [[ "$liststatus" == "fail" ]] && canWrite=true ;;
+        "Active Only") [[ "$liststatus" == "success" ]] && canWrite=true ;;
+        *) canWrite=true ;;
+    esac
+
+    # Early exit if we don't need to write out the CSV file
+    [[ "$writeCSVFile" = false && "$canWrite" = true ]] && { printf "INFO: System: %s - ManagementID: %s - Status: %s\n" "$name" "$managementId" "$statusmessage"; return 0; }
+
+    [[ "$includeSWUFail" == false ]] && DDMSoftwareUpdateFailures=""
+
+    sanitized_clean_swu="${DDMSoftwareUpdateFailures//,/;}"
+    sanitized_bperrors="${DDMBlueprintErrors//,/;}" 
+    sanitized_bperrors_reason=""
+    if [[ -n "$DDMBlueprintErrors" ]]; then
+        DDMErrorReason=$(printf "%s" "$DDMKeys" | perl -ne 'print "$1\n" if /code=([^},]+)/')
+        sanitized_bperrors_reason="${DDMErrorReason//,/;}"
+    fi
+
+    if [[ $canWrite  = true ]]; then
+        # Write out this info to the CSV file
+        printf "%s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$lastUpdateTime" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
+        logMe "$statusmessage found on system: $name"
+    fi
+}
+
+###########################
+#
+# Individual computer functions
+#
+##########################
+
 function welcomemsg_individual ()
 {
     message="**View Individual System**<br><br>Please enter the serial or hostname of the device you wish to see the DDM information for.  The results for Software Updates, Active & Failed Blueprints, as well as any error messages will be displayed.<br><br>"
-    message+="*NOTE: If you choose to export the data, a TXT file will be created at your choosen locaiton, Leave the TXT Folder location empty if you do not want to export data*."
+    message+="*NOTE: If you choose to export the data, a TXT file will be created at your choosen location.  Leave the TXT Folder location empty if you do not want to export data*."
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
@@ -1196,6 +1323,20 @@ function display_results ()
     [[ $buttonpress = 2 ]] && openn_blueprint_links
 }
 
+function openn_blueprint_links ()
+{
+    declare -a BPLinks
+    for item in "${DDMBlueprintSuccess[@]}"; do
+        open "${jamfpro_url}/view/mfe/blueprints/$item"
+    done
+}
+
+###########################
+#
+# Smart/Static group functions
+#
+##########################
+
 function welcomemsg_group ()
 {
     # PURPOSE: Export Application Usage for a users / group
@@ -1222,7 +1363,7 @@ function welcomemsg_group ()
     create_dropdown_message_body "Select Groups:" "$array" "1"
 
 
-    create_dropdown_message_body "Display results" '"Both Success & Fail", "Failed Only", "Success Only"' "Both Success & Fail"
+    create_dropdown_message_body "Display results" '"Both Active & Failed", "Failed Only", "Active Only"' "Both Active & Failed"
     create_dropdown_message_body "" "" "" "last"
     echo ',' >> "${JSON_DIALOG_BLOB}"
     create_checkbox_message_body "" "" "" "" "" "first"
@@ -1281,7 +1422,7 @@ function process_group ()
     [[ $computerList == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read Groups"; cleanup_and_exit 1;}
 
     numberOfComputers=$(jq -r '.computer_group.computers | length' <<< "$computerList") 
-    logMe "INFO: There are $numberOfComputers Computers in $GroupName"
+    logMe "INFO: There are $numberOfComputers Computers in$GroupName"
 
     create_listitem_list "Retrieving DDM Info from computers that are in group:<br> $GroupName." \
         "json" ".computer_group.computers[].name" "$computerList" "SF=desktopcomputer.and.macbook"
@@ -1289,22 +1430,15 @@ function process_group ()
      # Get the list of IDs
     ids=($(jq -r '.computer_group.computers[].id' <<< "$computerList"))
 
-    # Fixed throttling: count background jobs properly [web:15][web:19]
-    current_jobs=0
-    item_count=1
-    for ID in "${ids[@]}"; do
-        while (( (current_jobs=${#jobstates}) >= BACKGROUND_TASKS )); do sleep 0.05; done  # Tighter polling
-        progress=$(( (item_count * 100) / numberOfComputers ))
-        update_display_list "progress" "" "" "" "" $progress
-        ((item_count++))
-        process_single_computer "$ID" &
-    done
+    # Execute parallel tasks
+    execute_in_parallel "group" "${ids[@]}"
+
     update_display_list "progress" "" "" "" "" 100
     update_display_list "buttonenable"
     wait
 }
 
-function process_single_computer() 
+function process_group_computer () 
 {
     local JAMF_API_KEY2="api/v2/computers-inventory"
     local ID="$1"
@@ -1350,12 +1484,12 @@ function process_single_computer()
     # Eval criteria
     case "$displayResults" in
         "Failed Only") [[ "$liststatus" == "fail" ]] && canWrite=true ;;
-        "Success Only") [[ "$liststatus" == "success" ]] && canWrite=true ;;
+        "Active Only") [[ "$liststatus" == "success" ]] && canWrite=true ;;
         *) canWrite=true ;;
     esac
 
     # Early exit if we don't need to write out the CSV file
-    [[ "$writeCSVFile" = false ]] && { printf "INFO: %s, %s, %s\n" "$name" "$managementId" "$lastUpdateTime"; return 0; }
+    [[ "$writeCSVFile" = false && "$canWrite" = true ]] && { printf "INFO: System: %s - ManagementID: %s - Status: %s\n" "$name" "$managementId" "$statusmessage"; return 0; }
 
     [[ "$includeSWUFail" == false ]] && DDMSoftwareUpdateFailures=""
 
@@ -1374,14 +1508,6 @@ function process_single_computer()
     fi
 }
 
-function openn_blueprint_links ()
-{
-    declare -a BPLinks
-    for item in "${DDMBlueprintSuccess[@]}"; do
-        open "${jamfpro_url}/view/mfe/blueprints/$item"
-    done
-}
-
 ####################################################################################################
 #
 # Main Script
@@ -1398,9 +1524,8 @@ declare -a DDMSoftwareUpdateFailures
 declare -a DDMBlueprintErrors
 declare -a DDMBlueprintSuccess
 declare -a writeCSVFile
-declare jamfGroup
-declare displayResults
-declare blueprintId
+#declare jamfGroup
+#declare displayResults
 
 check_for_sudo
 create_log_directory
@@ -1417,25 +1542,24 @@ JAMF_get_server
 OVERLAY_ICON=$(JAMF_which_self_service)
 
 # Show the welcome message and give the user some options
-DDMoption=$(welcomemsg)
-
-# Process their choices
-echo $DDMoption
-case "${DDMoption}" in
-    *"Single"* )
-        welcomemsg_individual
-        process_individual $search_type $computer_id
-        ;;
-    *"Group"* )
-        welcomemsg_group
-        ;;
-    *"Blueprint"* )
-        welcomemsg_blueprint
-        echo $blueprintId
-        #process_blueprint
-        ;;
-esac
-
-#Cleanup
-JAMF_invalidate_token
-cleanup_and_exit 0
+while true; do
+    DDMoption=$(welcomemsg)
+    # Process their choices
+    case "${DDMoption}" in
+        *"Single"* )
+            welcomemsg_individual
+            process_individual $search_type $computer_id
+            ;;
+        *"Group"* )
+            welcomemsg_group
+            ;;
+        *"Blueprint"* )
+            welcomemsg_blueprint
+            #process_blueprint
+            ;;
+        *"quit"* )
+            #Cleanup
+            JAMF_invalidate_token
+            cleanup_and_exit 0
+    esac
+done

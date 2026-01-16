@@ -6,11 +6,8 @@ Apple has declared DDM as "The Future" of software delivery and thankfully JAMF 
 
 If there are any blueprint failures the blueprint ID will be listed and the potential cause as to why it failed. 
 
-![](JAMFGetDDMInfo-Blueprint_Failures.png)
+![](./JAMFGetDDMInfo-Indvidual_Failures.png)
 
-If there are any potential software update failures, they will be listed in here as well as the reason
-
-![](JAMFGetDDMInfo-Software_Failures.png)
 
 New as of 0.2 alpha
 
@@ -61,6 +58,10 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 || Several GUI enhancements, including verbage and typos
 || Ability to choose export location for Individual systems
 || Report on more DDM fields
+| 0.9 | Got the scan for blueprints feature working (fully multitasking aware)
+||       Added option to show success and/or failed on blueprint scan
+||       Made minor GUI changes
+||       Show dialog notification during long inventory retrievals
 
 
 ## Gemini results of what can be extracted from JAMF about DDM: ##
