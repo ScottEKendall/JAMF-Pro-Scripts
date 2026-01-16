@@ -33,7 +33,6 @@
 #       Made minor GUI changes
 #       Show dialog notification during long inventory retrievals
 
-
 ######################################################################################################
 #
 # Global "Common" variables
