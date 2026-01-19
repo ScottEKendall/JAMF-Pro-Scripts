@@ -23,17 +23,19 @@ uptimeOutput=$(uptime)
 
 echo "<result>${uptimeDays:-0}</result>"
 ```
-
-#### 1.0 - Initial Commit
-#### 1.1 - Added more logging details
-#### 1.2 - Added shutdown -r now command in case the applescript method fails
-#### 1.3 - Add logic to not display restart option if already on day 0...this addresses an issue in JAMF that this policy might be run before inventory gets accurate info
-#### 1.4 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 1.5 - Add additional logging
-####       set the default JAMF_LOGGED_IN_USER to current logged in user if not called from JAMF
-####       Put in logic to install the icon if it doesn't already existing in specified location
-####       Bumped min version of Swift Dialog to v2.5.0
-#### 1.6 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial Commit
+| 1.1 | Added more logging details
+| 1.2 | Added shutdown -r now command in case the applescript method fails
+| 1.3 | Add logic to not display restart option if already on day 0
+|| This addresses an issue in JAMF that this policy might be run before inventory gets accurate info
+| 1.4 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.5 | Add additional logging
+||       set the default JAMF_LOGGED_IN_USER to current logged in user if not called from JAMF
+||       Put in logic to install the icon if it doesn't already existing in specified location
+||       Bumped min version of Swift Dialog to v2.5.0
+| 1.6 | Code cleanup
+||       Added feature to read in defaults file
+||       removed unnecessary variables.
+||       Fixed typos
