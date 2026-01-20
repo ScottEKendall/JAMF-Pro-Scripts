@@ -23,12 +23,16 @@ Results of a compliance failure screen with details
 ![Parameters](./ViewInventory_Parms.png)
 
 
-#### 1.0 - Initial code
-#### 1.1 - Added addition logic for Mac mini...it isn't formatted the same as regular model names
-#### 1.2 - Added feature for compliance reporting, removed unnecessary functions
-#### 1.3 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 1.4 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Bumped min version of SD to 2.5.0
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial code
+| 1.1 | Added addition logic for Mac mini...it isn't formatted the same as regular model names
+| 1.2 | Added feature for compliance reporting, removed unnecessary functions
+| 1.3 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+|1.4 | Code cleanup
+||     Added feature to read in defaults file
+||       removed unnecessary variables.
+||       Bumped min version of SD to 2.5.0
+||       Fixed typos
+| 1.5 | updated Global Common section for better optimization.
+||       Rename function call names for JAMF operations.
