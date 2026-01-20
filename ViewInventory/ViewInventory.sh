@@ -17,6 +17,8 @@
 #       removed unnecessary variables.
 #       Bumped min version of SD to 2.5.0
 #       Fixed typos
+# 1.5 - updated Global Common section for better optimization.
+#       Rename function call names for JAMF operations.
 #
 ######################################################################################################
 #
