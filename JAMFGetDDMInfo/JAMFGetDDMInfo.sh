@@ -32,7 +32,8 @@
 #       Added option to show success and/or failed on blueprint scan
 #       Made minor GUI changes
 #       Show dialog notification during long inventory retrievals
-
+# 1.0RC1 - Added more DDM reporting details (current Model #, Current OS, Security Certificates)
+#       More JQ error trapping
 ######################################################################################################
 #
 # Global "Common" variables
@@ -42,7 +43,7 @@
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="0.9 Alpha"
+SCRIPT_VERSION="1.0RC1"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -895,7 +896,13 @@ function JAMF_retrieve_ddm_softwareupdate_info ()
 function JAMF_retrieve_ddm_softwareupdate_failures () 
 {
     cleaned=$(printf '%s' "$1" | perl -pe 's/([\x00-\x1F])/sprintf("\\u%04X", ord($1))/eg')
-    results=$(printf '%s' "$cleaned" | jq -r '.statusItems[]? | select(.key | startswith("softwareupdate.failure-reason.")) | select(.value != null) | "\(.key | ltrimstr("softwareupdate.failure-reason.")):\(.value)"')
+     # Quick JSON sanity check; if not JSON, just return empty array
+    if ! printf '%s' "$cleaned" | jq -e . >/dev/null 2>&1; then
+        DDMSoftwareUpdateFailures=()
+        return
+    fi
+    results=$(printf '%s' "$cleaned" | tr -d '[:cntrl:]' | jq -r '.statusItems[]? | select(.key | startswith("softwareupdate.failure-reason.")) | select(.value != null) | "\(.key | ltrimstr("softwareupdate.failure-reason.")):\(.value)"')
+ 
     DDMSoftwareUpdateFailures=("${(f)results}")
 }
 
@@ -1038,7 +1045,7 @@ function welcomemsg_blueprint ()
         --checkbox "Export CSV file",name="exportCSV"
         --checkboxstyle switch
         --button1text "Continue"
-        --button2text "Quit"
+        --button2text "Cancel"
         --ontop
         --height 520
         --json
@@ -1049,7 +1056,7 @@ function welcomemsg_blueprint ()
 
     buttonpress=$?
 
-    [[ $buttonpress = 2 ]] && exit 0
+    [[ $buttonpress = 2 ]] && return
     blueprintID=$(echo $message | jq -r '.BPUrl')
     blueprintID=$(echo $blueprintID:t)
     writeCSVFile=$(echo $message | jq -r '.exportCSV')
@@ -1209,7 +1216,7 @@ function welcomemsg_individual ()
         --selectvalues "Serial Number, Hostname"
         --selectdefault "Hostname"
         --button1text "Continue"
-        --button2text "Quit"
+        --button2text "Cancel"
         --ontop
         --height 520
         --json
@@ -1218,19 +1225,25 @@ function welcomemsg_individual ()
 
     message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
     buttonpress=$?
-    [[ $buttonpress = 2 ]] && exit 0
+    [[ $buttonpress = 2 ]] && return
     search_type=$(echo $message | jq -r '.SelectedOption')
     computer_id=$(echo $message | jq -r '.Device')
     writeTXTFile=$(echo $message | jq -r '.writeTXTFile')
+    process_individual $search_type $computer_id
 }
 
 function process_individual ()
 {
 
-    declare search_type=$1
-    declare computer_id=$2
-    declare DDMInfo
-    declare DDMKeys
+    local search_type=$1
+    local computer_id=$2
+    local DDMInfo
+    local DDMKeys
+    local DDMDevicename
+    local DDMDeviceModel
+    local DDMDeviceCurrentOSBuild
+    local DDMDeviceCurrentOSName
+    local DDMDeviceSecurityCertificates
 
     # First we have to get the JAMF ManagementID of the machine
 
@@ -1244,6 +1257,11 @@ function process_individual ()
     # Lets extract all the DDM info from this JSON blob
 
     DDMBatteryHealth=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.power.battery-health").value')
+    DDMDevicename=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.model.marketing-name").value')
+    DDMDeviceModel=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.model.identifier").value')
+    DDMDeviceCurrentOSName=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.operating-system.marketing-name").value')
+    DDMDeviceCurrentOSBuild=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.operating-system.build-version").value')
+    DDMDeviceSecurityCertificates=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "security.certificate.list").value')
     DDMClientSupportedVersions=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "management.client-capabilities.supported-versions").value')
     DDMClientSupportedPayload=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "management.client-capabilities.supported-payloads.declarations.configurations").value')
 
@@ -1272,6 +1290,7 @@ function process_individual ()
     #Show the results and log it
 
     message="**Device name:** <br>$computer_id<br><br>**JAMF Management ID:**<br>$ID<br><br><br>"
+    message+="**Device Info**<br>$DDMDevicename ($DDMDeviceModel)<br>Running: $DDMDeviceCurrentOSName ($DDMDeviceCurrentOSBuild)<br>Battery Health: $DDMBatteryHealth<br>"
     message+="<br><br>**DDM Client Supported Version**<br>$DDMClientSupportedVersions"
     message+="<br><br>**DDM Blueprints Active**<br>${(j:<br>:)DDMBlueprintSuccess}<br>"
     message+="<br><br>**DDM Blueprint Failures**<br>${(j:<br>:)DDMBlueprintErrors}<br>"
@@ -1279,6 +1298,7 @@ function process_individual ()
     message+="<br><br>**DDM Software Update Info**<br>${(j:<br>:)DDMSoftwareUpdateActive}<br>"
     message+="<br><br>**DDM Software Update Failures**<br>${(j:<br>:)DDMSoftwareUpdateFailures}<br>"
     message+="<br><br>**DDM Client Supported Payload**<br>$DDMClientSupportedPayload"
+    message+="<br><br>**DDM Security Certificaes**<br>$DDMDeviceSecurityCertificates"
 
 
     # Log and show the results
@@ -1372,7 +1392,7 @@ function welcomemsg_group ()
 
 	message=$(${SW_DIALOG} --vieworder "dropdown, checkbox" --json --jsonfile "${JSON_DIALOG_BLOB}") 2>/dev/null
     buttonpress=$?
-    [[ $buttonpress = 2 ]] && cleanup_and_exit 0
+    [[ $buttonpress = 2 ]] && return
 
     jamfGroup=$(echo $message | jq '."Select Groups:" .selectedValue')
     displayResults=$(echo $message | jq -r '."Display results" .selectedValue')
@@ -1547,7 +1567,6 @@ while true; do
     case "${DDMoption}" in
         *"Single"* )
             welcomemsg_individual
-            process_individual $search_type $computer_id
             ;;
         *"Group"* )
             welcomemsg_group

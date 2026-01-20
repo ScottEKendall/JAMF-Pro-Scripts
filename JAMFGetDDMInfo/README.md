@@ -1,18 +1,40 @@
 ## Get JAMF DDM Info ##
 
-Apple has declared DDM as "The Future" of software delivery and thankfully JAMF does have their new Blueprints functionality for us to use, but JAMFs reporting of Blueprint information is lacking on detailed information about deployments & failures.  This script is designed to extract all DDM information from any given machine and display active & failed blueprints as well as pending software update information.
+Apple DDM (Declarative Device Management) is a modern, proactive approach for organizations to manage Apple devices, allowing them to autonomously enforce configurations, updates, and security policies by having devices manage themselves based on server-provided "declarations," improving efficiency, responsiveness, and reliability over traditional methods. It shifts from "server-pull" (traditional MDM) to "device-push" logic, where devices independently check their desired state, apply settings, and report back status, making management faster and more scalable. 
+
+JAMFs reporting of Blueprint information is lacking on detailed information about deployments & failures.  This script is designed to extract all DDM information from any given machine and display active & failed blueprints as well as pending software update information.  You can view information by Blueprints, Individual System(s) or by groups.  The script takes advantage of macOS multitasking, and is optimized for large environments.  Approximately 1000 systems can be scanned in under 2 minutes.
 
 ![](JAMFGetDDMInfo-Welcome.png)
 
-If there are any blueprint failures the blueprint ID will be listed and the potential cause as to why it failed. 
+### By Blueprint ID ###
+
+You can view all systems that have the Blueprint ID installed on them and it will report back if it is active or failed.  This is useful if you have the Blueprint scoped to multiple groups.
+
+![](./JAMFGetDDMInfo-ViewBlueprint.png)
+
+The results of viewing by Blueprint ID
+![](./JAMFGetDDMInfo-Blueprint-Failures.png)
+
+### Single System ###
+
+You can view information by individual system, and export the info into a TXT file
+
+![](JAMFGetDDMInfo-ViewIndividual.png)
+
+The results page for individual systems.  All blueprint IDs are listed as well as system info, software update info and any failures
 
 ![](./JAMFGetDDMInfo-Indvidual_Failures.png)
 
+### By Smart/Static Group
 
-New as of 0.2 alpha
+If you want to view just the members of one particular group, it will show you the success & failures
 
-![](./JAMFGetDDMInfo-Groups.png)
+![](JAMFGetDDMInfo-Groups.png)
+
+The results page of viewing by Smart/Static groups
+
 ![](./JAMFGetDDMInfo-GroupResults.png)
+
 
 ## JAMF API Privileges
 
@@ -24,14 +46,8 @@ Read Mobile Devices
 Read Smart Computer Groups
 Read Static Computer Groups
 ```
-
-As is, the script (in its early Alpha stage) will function on a single system, but I have much more planned for it, such as:
-
-* Export results via Email
-* Report on failed blueprints from selected systems that you choose
-* More DDM Details extracted & reported on
   
-If you have any ideas/suggestions on how to improve the DDM reporting ability, please drop me a line!
+If you have any ideas/suggestions on how to improve the DDM reporting ability, please drop me a DM!
 
 ## History ##
 
@@ -62,6 +78,8 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 ||       Added option to show success and/or failed on blueprint scan
 ||       Made minor GUI changes
 ||       Show dialog notification during long inventory retrievals
+| 1.0RC1 | Added more DDM reporting details (current Model #, Current OS, Security Certificates)
+||       More JQ error trapping
 
 
 ## Gemini results of what can be extracted from JAMF about DDM: ##
