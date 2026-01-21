@@ -34,6 +34,11 @@
 #       Show dialog notification during long inventory retrievals
 # 1.0RC1 - Added more DDM reporting details (current Model #, Current OS, Security Certificates)
 #       More JQ error trapping
+# 1.0RC2 - more JQ error trapping
+#       Added Current OS to CSV reports
+#       Moved JAMF Token process inside of main loop to make sure it gets renewed after each selection
+#       Added BP Name (optional) so you can name your CSV file
+#       Cleaned up the output TXT file for individual systems
 ######################################################################################################
 #
 # Global "Common" variables
@@ -43,7 +48,7 @@
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="1.0RC1"
+SCRIPT_VERSION="1.0RC2"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -110,7 +115,7 @@ OVERLAY_ICON="SF=list.bullet.circle,color=orange,weight=heavy,bgcolor=none"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 JQ_FILE_INSTALL_POLICY="install_jq"
-CSV_OUTPUT="$USER_DIR/Desktop/DDM Data Dump for "
+CSV_PATH="$USER_DIR/Desktop/DDM Data Dump for "
 
 # Multitasking items
 
@@ -784,7 +789,7 @@ function JAMF_retrieve_data_blob ()
     case "${retval}" in
         *"INVALID_ID"* ) retval="INVALID_ID" ;;
         *"PRIVILEGE"* ) retval="ERR" ;;
-        *) [[ ! -z $3 ]] && retval=$(echo -E "$retval" | jq  '[.[] | select('$3')]') ;;
+        *) [[ ! -z $3 ]] && retval=$(printf "%s" "$retval" | jq  '[.[] | select('$3')]') ;;
     esac
     printf "%s" "$retval"
 }
@@ -901,7 +906,7 @@ function JAMF_retrieve_ddm_softwareupdate_failures ()
         DDMSoftwareUpdateFailures=()
         return
     fi
-    results=$(printf '%s' "$cleaned" | tr -d '[:cntrl:]' | jq -r '.statusItems[]? | select(.key | startswith("softwareupdate.failure-reason.")) | select(.value != null) | "\(.key | ltrimstr("softwareupdate.failure-reason.")):\(.value)"')
+    results=$(tr -d '[:cntrl:]' | jq -r '.statusItems[]? | select(.key | startswith("softwareupdate.failure-reason.")) | select(.value != null) | "\(.key | ltrimstr("softwareupdate.failure-reason.")):\(.value)"' <<< "$cleaned")
  
     DDMSoftwareUpdateFailures=("${(f)results}")
 }
@@ -929,15 +934,6 @@ function JAMF_retrieve_ddm_keys ()
     # PARMS: $1 - Management ID
     #        $2 - Specific DDM Keys to extract
     printf "%s" $1 | jq -r '.statusItems[] | select(.key == "'$2'")'
-}
-
-function JAMF_DDM_export_summary_to_csv ()
-{
-    # PURPOSE: Extract (display) all of the DDM entries and store them in a CSV file for better readability
-    # RETURN: None
-    # PARMS: $1 - DDMInfo for the computer record (should have already been populated)
-
-    printf "%s" $1 | jq -r '.statusItems[] | select(.key) | [.lastUpdateTime, .key, .value] | @csv' >> $CSV_OUTPUT
 }
 
 function JAMF_which_self_service ()
@@ -1041,7 +1037,8 @@ function welcomemsg_blueprint ()
         --messagefont name=Arial,size=17
         --vieworder "textfield,dropdown"
         --selecttitle "Display results" --selectvalues "Both Active & Failed,Failed Only,Active Only" --selectdefault "Both Active & Failed"
-        --textfield "Blueprint URL,name=BPUrl,required"
+        --textfield "Blueprint URL",name=BPUrl,required
+        --textfield "Blueprint Name (optional)",name=BPName
         --checkbox "Export CSV file",name="exportCSV"
         --checkboxstyle switch
         --button1text "Continue"
@@ -1060,6 +1057,7 @@ function welcomemsg_blueprint ()
     blueprintID=$(echo $message | jq -r '.BPUrl')
     blueprintID=$(echo $blueprintID:t)
     writeCSVFile=$(echo $message | jq -r '.exportCSV')
+    blueprintName=$(echo $message | jq -r '.BPName')
     displayResults=$(echo $message | jq -r '."Display results" .selectedValue')
     process_blueprint $blueprintID
 }
@@ -1079,26 +1077,28 @@ function process_blueprint ()
     # Remove double quotes and split by '-' into an array 'parts'
     local blueprintID=$1    
     local shouldWrite=false
-    local CSV_HEADER="System, ManagementID,LastUpdate,Status,Blueprint Failed IDs,Blueprint Failed Reason, Software Update Failures"
+    local CSV_HEADER="System, ManagementID, Current OS, LastUpdate, Status, Blueprint Failed IDs, Blueprint Failed Reason, Software Update Failures"
     local computerList numberOfComputers ids
+    local CSVfile
 
     # Initialize CSV if needed
     if [[ "$writeCSVFile" == true ]]; then
-        CSV_OUTPUT+="$blueprintID ($displayResults).csv"
+        [[ ! -z $blueprintName ]] && CSVfile=$blueprintName || CSVfile=$blueprintID
+        CSV_OUTPUT="${CSV_PATH}${CSVfile} ($displayResults).csv"
         printf "%s\n" "$CSV_HEADER" > "$CSV_OUTPUT"
         logMe "Creating file: $CSV_OUTPUT"
     fi
 
-    logMe "Retrieving DDM Info for Blueprint: $blueprintID"
+    logMe "Retrieving DDM Info for Blueprint: $CSVfile"
 
     # Read in the computer inventory for all systems, capture, the ID, name & managementID of each computer
     # by using the modern API with the inventory pagination method, we are doing to use as litle RAM as possible
     computerList=$(JAMF_get_bulk_inventory_record)
 
     numberOfComputers=$(jq -r 'length' <<< "$computerList")
-    logMe "INFO: There are $numberOfComputers Computers to scan for $blueprintID"
+    logMe "INFO: There are $numberOfComputers Computers to scan for $CSVfile"
 
-    create_listitem_list "Locating asssigned systems that have Blueprint:<br>$blueprintID installed." \
+    create_listitem_list "Locating asssigned systems that have Blueprint:<br>$CSVfile installed." \
         "json" ".[].name" "$computerList" "SF=desktopcomputer.and.macbook"
  
      # Get the list of IDs
@@ -1152,6 +1152,7 @@ function process_blueprint_computer ()
     DDMInfo_clean=$(tr -d '[:cntrl:]' <<< "$DDMInfo")
     DDMKeys=$(jq -r '.statusItems[] | select(.key == "management.declarations.activations")' <<< "$DDMInfo_clean")
     lastUpdateTime=$(jq -r '(.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"' <<< "$DDMInfo_clean")
+    DDMDeviceCurrentOSName=$(jq -r '.statusItems[] | select(.key == "device.operating-system.marketing-name").value' <<< "$DDMInfo_clean")
 
     JAMF_retrieve_ddm_blueprint_active "$DDMKeys"
     JAMF_retrieve_ddm_blueprint_errrors "$DDMKeys"
@@ -1182,7 +1183,7 @@ function process_blueprint_computer ()
 
     if [[ $canWrite  = true ]]; then
         # Write out this info to the CSV file
-        printf "%s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$lastUpdateTime" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
+        printf "%s, %s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$DDMDeviceCurrentOSName" "$lastUpdateTime" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
         logMe "$statusmessage found on system: $name"
     fi
 }
@@ -1211,7 +1212,7 @@ function welcomemsg_individual ()
         --vieworder "dropdown,textfield"
         --textfield "Device,required"
         --selecttitle "Serial,required"
-        --textfield "TXT folder location,fileselect,filetype=folder,prompt=$CSV_OUTPUT,name=writeTXTFile"
+        --textfield "TXT folder location,fileselect,filetype=folder,prompt=$CSV_PATH,name=writeTXTFile"
         --checkboxstyle switch
         --selectvalues "Serial Number, Hostname"
         --selectdefault "Hostname"
@@ -1302,15 +1303,14 @@ function process_individual ()
 
 
     # Log and show the results
-    logMessage="${message//<br>/\\n}"
-    #logMe "Results: "$logMessage
     display_results $message
-
+ 
     if [[ ! -z "$writeTXTFile" ]]; then
         CSV_OUTPUT="$writeTXTFile/DDM Resuults for $computer_id.txt"
+        logMessage="${message//<br>/\\n}"
+        clean="${logMessage//\*\*/--}"
         logMe "Export file: $CSV_OUTPUT"
-        echo $logMessage > "$CSV_OUTPUT"
-        #JAMF_DDM_export_summary_to_csv $DDMInfo
+        echo $clean > "$CSV_OUTPUT"
     fi
 }
 
@@ -1337,7 +1337,7 @@ function display_results ()
 
     [[ $extractRAWData == "true" ]] && MainDialogBody+=(--infotext "The CSV file will be stored in $USER_DIR/Desktop") || MainDialogBody+=(--infotext $SCRIPT_VERSION)
     [[ ! -z $DDMBlueprintSuccess ]] && MainDialogBody+=(--button2text "Open BP Links")
-    message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+    $($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null)
     buttonpress=$?
     [[ $buttonpress = 2 ]] && openn_blueprint_links
 }
@@ -1421,7 +1421,7 @@ function process_group ()
     local GroupName="${parts[2]}"
     local JAMF_API_KEY="JSSResource/computergroups/id"
     local computerList
-    local CSV_HEADER="System, ManagementID,LastUpdate,Status,Blueprint Failed IDs,Blueprint Failed Reason, Software Update Failures"
+    local CSV_HEADER="System, ManagementID, LastUpdate, Current OS, Status, Blueprint Failed IDs, Blueprint Failed Reason, Software Update Failures"
     local shouldWrite=false
     local numberOfComputers
     local ids
@@ -1492,6 +1492,7 @@ function process_group_computer ()
     DDMInfo_clean=$(tr -d '[:cntrl:]' <<< "$DDMInfo")
     DDMKeys=$(jq -r '.statusItems[] | select(.key == "management.declarations.activations")' <<< "$DDMInfo_clean")
     lastUpdateTime=$(jq -r '(.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"' <<< "$DDMInfo_clean")
+    DDMDeviceCurrentOSName=$(jq -r '.statusItems[] | select(.key == "device.operating-system.marketing-name").value' <<< "$DDMInfo_clean")
 
     JAMF_retrieve_ddm_blueprint_active "$DDMKeys"
     JAMF_retrieve_ddm_blueprint_errrors "$DDMKeys"
@@ -1522,7 +1523,7 @@ function process_group_computer ()
 
     if [[ $canWrite  = true ]]; then
         # Write out this info to the CSV file
-        printf "%s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$lastUpdateTime" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
+        printf "%s, %s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$lastUpdateTime" "$DDMDeviceCurrentOSName" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
         logMe "Writing DDM $liststatus for system: $name"
     fi
 }
@@ -1555,29 +1556,26 @@ create_infobox_message
 
 JAMF_check_connection
 JAMF_get_server
-# Check if the JAMF Pro server is using the new API or the classic API
-# If the client ID is longer than 30 characters, then it is using the new API
-[[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
 OVERLAY_ICON=$(JAMF_which_self_service)
 
 # Show the welcome message and give the user some options
 while true; do
+    computer_id=''
+    DDMSoftwareUpdateActive=''
+    DDMSoftwareUpdateFailures=''
+    DDMBlueprintErrors=''
+    DDMBlueprintSuccess=''
+    writeCSVFile=''
+
     DDMoption=$(welcomemsg)
-    # Process their choices
+    # Check if the JAMF Pro server is using the new API or the classic API
+    # If the client ID is longer than 30 characters, then it is using the new API
+    [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token  
+
     case "${DDMoption}" in
-        *"Single"* )
-            welcomemsg_individual
-            ;;
-        *"Group"* )
-            welcomemsg_group
-            ;;
-        *"Blueprint"* )
-            welcomemsg_blueprint
-            #process_blueprint
-            ;;
-        *"quit"* )
-            #Cleanup
-            JAMF_invalidate_token
-            cleanup_and_exit 0
+        *"Single"* )    welcomemsg_individual ;;
+        *"Group"* )     welcomemsg_group ;;
+        *"Blueprint"* ) welcomemsg_blueprint ;;
+        *"quit"* )      { JAMF_invalidate_token; cleanup_and_exit 0; } ;;
     esac
 done
