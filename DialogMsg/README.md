@@ -26,15 +26,20 @@ for example:
 
 The script will determine the country code of the local Mac and display the appropriate message...if it cannot find the appropriate langauge text to display, it will default to EN, but that can be changed with the variable ```SD_DEFAULT_LANGUAGE```
 
-#### 1.0 - Initial script
-#### 1.1 - Code cleanup to be more consistent with all apps
-#### 1.2 - the JAMF_LOGGED_IN_USER will default to LOGGED_IN_USER if there is no name present
-####      - Added -ignorednd to make sure that the message is displayed regardless of focus setting
-####      - Will display the inbox items if you can the function first
-####      - Minimum version of SwiftDialog is now 2.5.0
-#### 1.3 - Changed variable declarations around for better readability
-#### 1.4 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial script
+| 1.1 | Code cleanup to be more consistent with all apps
+| 1.2 | the JAMF_LOGGED_IN_USER will default to LOGGED_IN_USER if there is no name present
+|      | Added -ignorednd to make sure that the message is displayed regardless of focus setting
+|      | Will display the inbox items if you can the function first
+|      | Minimum version of SwiftDialog is now 2.5.0
+| 1.3 | Changed variable declarations around for better readability
+| 1.4 | Code cleanup
+|     | Added feature to read in defaults file
+|     | removed unnecessary variables.
+|     | Fixed typos
+| 1.5 | Fixed typos
+|     | Optimized "Common" section for better performance
+|     | Fixed Swift Dialog not reporting properly
 
