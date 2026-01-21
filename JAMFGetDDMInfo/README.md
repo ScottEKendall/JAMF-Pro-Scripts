@@ -2,6 +2,12 @@
 
 Apple DDM (Declarative Device Management) is a modern, proactive approach for organizations to manage Apple devices, allowing them to autonomously enforce configurations, updates, and security policies by having devices manage themselves based on server-provided "declarations," improving efficiency, responsiveness, and reliability over traditional methods. It shifts from "server-pull" (traditional MDM) to "device-push" logic, where devices independently check their desired state, apply settings, and report back status, making management faster and more scalable. 
 
+When you set your Blueprint settings...get your scoping down...and then deploy, and you get this:
+
+![](JAMFGetDDMInfo-JAMF.png)
+
+..now what do you do?  How can you figure out what failed and what worked?  
+
 JAMFs reporting of Blueprint information is lacking on detailed information about deployments & failures.  This script is designed to extract all DDM information from any given machine and display active & failed blueprints as well as pending software update information.  You can view information by Blueprints, Individual System(s) or by groups.  The script takes advantage of macOS multitasking, and is optimized for large environments.  Approximately 1000 systems can be scanned in under 2 minutes.
 
 ![](JAMFGetDDMInfo-Welcome.png)
@@ -19,7 +25,7 @@ The results of viewing by Blueprint ID
 
 You can view information by individual system, and export the info into a TXT file
 
-![](JAMFGetDDMInfo-ViewIndividual.png)
+![](./JAMFGetDDMInfo-ViewIndividual.png)
 
 The results page for individual systems.  All blueprint IDs are listed as well as system info, software update info and any failures
 
@@ -80,6 +86,11 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 ||       Show dialog notification during long inventory retrievals
 | 1.0RC1 | Added more DDM reporting details (current Model #, Current OS, Security Certificates)
 ||       More JQ error trapping
+| 1.0RC2 | more JQ error trapping
+||       Added Current OS to CSV reports
+||       Moved JAMF Token process inside of main loop to make sure it gets renewed after each selection
+||       Added BP Name (optional) so you can name your CSV file
+||       Cleaned up the output TXT file for individual systems
 
 
 ## Gemini results of what can be extracted from JAMF about DDM: ##
