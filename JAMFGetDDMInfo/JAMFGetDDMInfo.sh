@@ -53,6 +53,7 @@ LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && 
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
 
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_NAME=$(sw_vers -productName)
 MACOS_VERSION=$(sw_vers -productVersion)
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
@@ -192,9 +193,8 @@ function check_swift_dialog_install ()
     if [[ ! -x "${SW_DIALOG}" ]]; then
         logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
         install_swift_dialog
-        SD_VERSION=$( ${SW_DIALOG} --version)        
     fi
-
+    SD_VERSION=$( ${SW_DIALOG} --version) 
     if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
         logMe "Swift Dialog is outdated - Installing version '${MIN_SD_REQUIRED_VERSION}' from JAMF..."
         install_swift_dialog
