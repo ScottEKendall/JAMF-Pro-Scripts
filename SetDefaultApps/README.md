@@ -39,7 +39,10 @@ Link to utiluti: https://github.com/scriptingosx/utiluti
 
 macvfx has modified this script to be MDM agnostic, if you want to use that version it can be found at https://github.com/macvfx/SetDefaultAppsX
 
-#### 1.0 - Initial
-#### 1.1 - Remove reliance on SYSTEMPROFILER for faster startup and more reliable detection of system info 
-####       Fixed the mktemp command to use the SCRIPT_NAME variable vs hardcoded.
-####       Changed logic on detection of utiluti command so it does not needlessly install the utiluti app
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Remove reliance on SYSTEMPROFILER for faster startup and more reliable detection of system info
+||       Fixed the mktemp command to use the SCRIPT_NAME variable vs hardcoded.
+||       Changed logic on detection of utiluti command so it does not needlessly install the utiluti app
+| 1.2 | Optimized "Common" section for better performance
