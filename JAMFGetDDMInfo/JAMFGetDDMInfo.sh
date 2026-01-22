@@ -960,7 +960,7 @@ function welcomemsg ()
     helpmessage+="synchronous polling from an MDM server. It enhances performance and scalability by enabling devices to act independently based on predefined, locally stored declarations.<br><br>"
     helpmessage+="Apple's official documentation:<br><br>"$helpmessageurl
 
-    message="${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, You can choose to search all of your computers for a Blueprint ID, a single computer's Declarative Device Maanagement (DDM) status, or a smart/static group "
+    message="${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, You can choose to search all of your computers for a Blueprint ID, a single computer's Declarative Device Management (DDM) status, or a smart/static group "
     message+="for each computer's DDM status.<br><br>After your selection, another menu will appear with more options."
 
     MainDialogBody=(
