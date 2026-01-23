@@ -1147,8 +1147,8 @@ function process_blueprint ()
     local CSVfile
 
     # Initialize CSV if needed
+    [[ ! -z $blueprintName ]] && CSVfile=$blueprintName || CSVfile=$blueprintID
     if [[ "$writeCSVFile" == true ]]; then
-        [[ ! -z $blueprintName ]] && CSVfile=$blueprintName || CSVfile=$blueprintID
         CSV_OUTPUT="${CSV_PATH}${CSVfile} ($displayResults).csv"
         printf "%s\n" "$CSV_HEADER" > "$CSV_OUTPUT"
         logMe "Creating file: $CSV_OUTPUT"
