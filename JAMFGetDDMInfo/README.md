@@ -41,6 +41,12 @@ The results page of viewing by Smart/Static groups
 
 ![](./JAMFGetDDMInfo-GroupResults.png)
 
+### Force Sync DDM Commands ###
+
+JAMF Allows you to "force sync" DDM Commands to the workstation. After viewing the details, click on the "Force Sync" button to perform the action
+
+![](./JAMFGetDDMInfo-ForceSync.png)
+
 
 ## JAMF API Privileges
 
@@ -51,6 +57,7 @@ Read Computers
 Read Mobile Devices
 Read Smart Computer Groups
 Read Static Computer Groups
+Send Declarative Management Command
 ```
   
 If you have any ideas/suggestions on how to improve the DDM reporting ability, please drop me a DM!
@@ -91,6 +98,9 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 ||       Moved JAMF Token process inside of main loop to make sure it gets renewed after each selection
 ||       Added BP Name (optional) so you can name your CSV file
 ||       Cleaned up the output TXT file for individual systems
+| 1.0RC3 | Added more JAMF error trapping
+||       Add option to Force Sync DDM commands
+||       Converted the output of the DDM Supported Payloads into a more readable format
 
 
 ## Gemini results of what can be extracted from JAMF about DDM: ##

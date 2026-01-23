@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 01/16/2026
+# Last updated: 01/23/2026
 #
 # Script Purpose: Retrieve the DDM info for JAMF devices
 #
@@ -39,6 +39,9 @@
 #       Moved JAMF Token process inside of main loop to make sure it gets renewed after each selection
 #       Added BP Name (optional) so you can name your CSV file
 #       Cleaned up the output TXT file for individual systems
+# 1.0RC3 - Added more JAMF error trapping
+#       Add option to Force Sync DDM commands
+#       Converted the output of the DDM Supported Payloads into a more readable format
 ######################################################################################################
 #
 # Global "Common" variables
@@ -48,7 +51,7 @@
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="1.0RC2"
+SCRIPT_VERSION="1.0RC3"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -588,21 +591,19 @@ function display_failure_message ()
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --titlefont shadow=1
-        --message "**Problems retrieving JAMF Info**<br>Error Message: $ID"
-        --icon "${SD_ICON}"
+        --message "**Problems retrieving JAMF Info**<br><br>Error Message: $1"
+        --icon "${SD_ICON_FILE}"
         --overlayicon warning
-        --infobox "${SD_INFO_BOX_MSG}"
         --iconsize 128
         --messagefont name=Arial,size=17
-        --button1text "Quit"
+        --button1text "OK"
         --ontop
-        --height 420
-        --json
         --moveable
     )
 
     $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
     buttonpress=$?
+
 }
 
 ###########################
@@ -853,25 +854,51 @@ function JAMF_get_bulk_inventory_record ()
     printf "%s" $(<"$TMP_FILE_STORAGE")
 }
 
-function JAMF_get_deviceID ()
+function JAMF_get_deviceID()
 {
     # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server.
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - search identifier to use (serial or Hostname)
-    #        $2 - Conputer ID (serial/hostname)
-    local retval
-    local ID
-    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-    retval=$(/usr/bin/curl -s --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&filter=${type}=='${2}'")
-    ID=$(echo $retval |  tr -d '[:cntrl:]' | jq -r "${3}")
+    #        $2 - Computer ID (serial/hostname)
+    #        $3 - jq filter to extract the ID
 
-    # 4. Streamlined Error Handling
-    if [[ -z "$ID" ]]; then
-        display_failure_message
+    local retval type id total
+    [[ $1 == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
+    retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v3/computers-inventory?section=GENERAL&filter=${type}=='${2}'") || {
+        display_failure_message "Failed to contact Jamf Pro"
+        echo "ERR"
+        return 1
+    }
+
+    # Basic JSON validity check
+    if ! jq -e . >/dev/null 2>&1 <<<"$retval"; then
+        display_failure_message "Invalid JSON response from Jamf Pro"
         echo "ERR"
         return 1
     fi
-    echo "$ID"
+
+    if [[ $retval == *"PRIVILEGE"* ]]; then
+        display_failure_message "Invalid Privilege to read inventory"
+        echo "PRIVILEGE"
+        return 1
+    fi
+
+    total=$(jq '.totalCount' <<<"$retval")
+    if [[ $total -eq 0 ]]; then
+        display_failure_message "Inventory Record '${2}' not found"
+        echo "NOT FOUND"
+        return 1
+    fi
+
+    id=$(echo $retval |  tr -d '[:cntrl:]' | jq -r "${3}")
+    #id=$(jq -r "$3" <<<"$retval")
+    if [[ -z $id || $id == "null" ]]; then
+        display_failure_message "$retval"
+        echo "ERR"
+        return 1
+    fi
+    printf '%s\n' "$id"
+    return 0
 }
 
 function JAMF_get_DDM_info ()
@@ -880,10 +907,49 @@ function JAMF_get_DDM_info ()
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - Management ID
     local retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items")
+    http_status=$(printf "%s" "$retval" | jq -r '.httpStatus')
+    case "${http_status}" in
+        *"INVALID"* | *"PRIVILEGE"* ) 
+            printf '%s\n' "ERR"
+            display_failure_message "Invalid Privilege to read DDM Info"
+            return 1
+            ;;
+        *"404" )
+            printf '%s\n' "Client ${1} not found.<br>Is DDM enabled on that Mac?" 
+            return 1
+            ;;
+        *) 
+            printf '%s\n' "${retval}"
+            return 0
+            ;;
+    esac
+}
+
+function JAMF_force_ddm_sync ()
+{
+    # PURPOSE: uses the ManagementId to sync info to the workstation
+    # RETURN: the device ID for the device in question.
+    # PARMS: $1 - Management ID
+    local retval=$(/usr/bin/curl -s -X 'POST' -H "Authorization: Bearer ${api_token}" -H "accept: */*" "${jamfpro_url}api/v1/ddm/${1}/sync" -d '')
     case "${retval}" in
-        *"INVALID"* | *"PRIVILEGE"* ) printf '%s\n' "ERR" ;;
-        *"Client $1 not found"* ) printf '%s\n' "NOT FOUND" ;;  # DDM not active
-        *) printf '%s\n' "${retval}";;
+        *"PRIVILEGE"* ) 
+            printf '%s\n' "ERR"
+            display_failure_message "Invalid Privilege to Send DDM Commands"
+            return 1
+             ;;
+        *"INVALID"* )
+            printf '%s\n' "ERR"
+            display_failure_message $retval
+            return 1
+             ;;        
+        *"Client $1 not found"* )
+             printf '%s\n' "NOT FOUND" 
+             return 1
+             ;;  
+        *) 
+            printf '%s\n' "${retval}"
+            return 0
+            ;;
     esac
 }
 
@@ -974,7 +1040,7 @@ function welcomemsg ()
         --titlefont shadow=1
         --message $message
         --messagefont name=Arial,size=17
-        --selecttitle "View DDM data from:",radio --selectvalues "Blueprint ID, Single System, Smart/Static Group"
+        --selecttitle "DDM Action (Read / Sync):",radio --selectvalues "Scan Blueprint ID, View Single System, Scan Smart/Static Group, Force Sync Single System"
         --helpmessage $helpmessage
         --helpimage "qr="$helpmessageurl
         --button1text "Continue"
@@ -990,7 +1056,6 @@ function welcomemsg ()
     buttonpress=$?
     [[ $buttonpress = 2 ]] && DDMoption="quit" || DDMoption=$(echo $message | plutil -extract 'SelectedOption' 'raw' -)
     logMe "$DDMoption was choosen"
-    echo $DDMoption
 }
 
 function execute_in_parallel ()
@@ -1134,21 +1199,22 @@ function process_blueprint_computer ()
     managementId=$(printf "%s" "$JSONblob" | jq -r '.general.managementId')
 
     DDMInfo=$(JAMF_get_DDM_info "$managementId")
-    [[ "$DDMInfo" == "ERR" ]] && { 
-        logMe "ERROR: Insufficient privileges to read DDM Info for $name" >&2
-        return 1
-    }
-    [[ "$DDMInfo" == "NOT FOUND" ]] && {
-        logMe "ERROR: DDM may not be active on device: $name"
-        update_display_list "Update" "" "${name}" "DDM may not be active" "error" 
-        return 0
-    }
-    # See if the BP exists in the DDM record, if nothing found, exit early
-    if [[ -z $(echo $DDMInfo | grep "$blueprintID") ]]; then
-        update_display_list "Update" "" "${name}" "BP not found." "pending"
-        return 0
+    if [[ $? -ne 0 ]]; then
+        [[ "$DDMInfo" == "ERR" ]] && { 
+            logMe "ERROR: Insufficient privileges to read DDM Info for $name" >&2
+            return 1
+        }
+        [[ "$DDMInfo" == *"not found"* ]] && {
+            logMe "ERROR: DDM may not be active on device: $name"
+            update_display_list "Update" "" "${name}" "DDM may not be active" "error" 
+            return 0
+        }
+        # See if the BP exists in the DDM record, if nothing found, exit early
+        if [[ -z $(echo $DDMInfo | grep "$blueprintID") ]]; then
+            update_display_list "Update" "" "${name}" "BP not found." "pending"
+            return 0
+        fi
     fi
-
     DDMInfo_clean=$(tr -d '[:cntrl:]' <<< "$DDMInfo")
     DDMKeys=$(jq -r '.statusItems[] | select(.key == "management.declarations.activations")' <<< "$DDMInfo_clean")
     lastUpdateTime=$(jq -r '(.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"' <<< "$DDMInfo_clean")
@@ -1190,7 +1256,7 @@ function process_blueprint_computer ()
 
 ###########################
 #
-# Individual computer functions
+# View Individual computer functions
 #
 ##########################
 
@@ -1230,14 +1296,14 @@ function welcomemsg_individual ()
     search_type=$(echo $message | jq -r '.SelectedOption')
     computer_id=$(echo $message | jq -r '.Device')
     writeTXTFile=$(echo $message | jq -r '.writeTXTFile')
-    process_individual $search_type $computer_id
+    process_individual $search_type $computer_id "View"
 }
 
 function process_individual ()
 {
-
     local search_type=$1
     local computer_id=$2
+    local action_type=$3
     local DDMInfo
     local DDMKeys
     local DDMDevicename
@@ -1250,11 +1316,15 @@ function process_individual ()
 
     ID=$(JAMF_get_deviceID "${search_type}" ${computer_id} ".results[].general.managementId")
     [[ $ID == *"ERR"* ]] && cleanup_and_exit 1
+    [[ $ID == *"NOT FOUND"* || $ID == *"PRIVILEGE"* ]] && return 1
 
     # Second is to extract the DDM info for the machine
     DDMInfo=$(JAMF_get_DDM_info $ID)
-    logMe "INFO: JAMF ID: $ID"
-
+    if [[ $? -eq 1 ]]; then
+        logMe "INFO: JAMF ID: $ID"
+        [[ $DDMInfo == *"not found"* ]] && display_failure_message "No DDM info found for ${2}!<br>Is DDM enabled on that Mac?"
+        [[ $DDMInfo == *"not found"* || $DDMInfo == *"PRIVILEGE"* ]] && return 1
+    fi
     # Lets extract all the DDM info from this JSON blob
 
     DDMBatteryHealth=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.power.battery-health").value')
@@ -1264,7 +1334,8 @@ function process_individual ()
     DDMDeviceCurrentOSBuild=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.operating-system.build-version").value')
     DDMDeviceSecurityCertificates=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "security.certificate.list").value')
     DDMClientSupportedVersions=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "management.client-capabilities.supported-versions").value')
-    DDMClientSupportedPayload=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "management.client-capabilities.supported-payloads.declarations.configurations").value')
+    DDMClientSupportedPayload=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "management.client-capabilities.supported-payloads.declarations.configurations").value' | tr ',' '\n')
+
 
     # Third, extract the DDM Software Update info for the machine
     JAMF_retrieve_ddm_softwareupdate_info "$DDMInfo"
@@ -1299,11 +1370,11 @@ function process_individual ()
     message+="<br><br>**DDM Software Update Info**<br>${(j:<br>:)DDMSoftwareUpdateActive}<br>"
     message+="<br><br>**DDM Software Update Failures**<br>${(j:<br>:)DDMSoftwareUpdateFailures}<br>"
     message+="<br><br>**DDM Client Supported Payload**<br>$DDMClientSupportedPayload"
-    message+="<br><br>**DDM Security Certificaes**<br>$DDMDeviceSecurityCertificates"
+    message+="<br><br>**DDM Security Certificates**<br>$DDMDeviceSecurityCertificates"
 
 
     # Log and show the results
-    display_results $message
+    display_results $message $ID $action_type
  
     if [[ ! -z "$writeTXTFile" ]]; then
         CSV_OUTPUT="$writeTXTFile/DDM Resuults for $computer_id.txt"
@@ -1316,6 +1387,9 @@ function process_individual ()
 
 function display_results ()
 {
+    local message=$1
+    local computer_id=$2
+    local action_type=$3
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
@@ -1324,22 +1398,41 @@ function display_results ()
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
         --titlefont shadow=1
-        --message "Here are the result of the DDM info for this mac:<br><br>$1"
+        --message "Here are the result of the DDM info for this mac:<br><br>$message"
         --messagefont name=Arial,size=14
-        --helpmessage "Add this URL prefix to the Blueprint ID to find the Blueprint details<br>$jamfpro_url/view/mfe/blueprints/"
+        --helpmessage "Add this URL prefix to the Blueprint ID to find the Blueprint details<br>${jamfpro_url}view/mfe/blueprints/"
         --button1text "OK"
         --ontop
         --width 850
         --height 750
-        --json
         --moveable
     )
 
     [[ $extractRAWData == "true" ]] && MainDialogBody+=(--infotext "The CSV file will be stored in $USER_DIR/Desktop") || MainDialogBody+=(--infotext $SCRIPT_VERSION)
-    [[ ! -z $DDMBlueprintSuccess ]] && MainDialogBody+=(--button2text "Open BP Links")
+    if [[ $action_type == "View" ]]; then
+        [[ ! -z $DDMBlueprintSuccess ]] && MainDialogBody+=(--button2text "Open BP Links")
+    elif [[ $action_type == "Sync" ]]; then
+        MainDialogBody+=(--button2text "Force Sync")
+    fi
+
+
     $($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null)
     buttonpress=$?
-    [[ $buttonpress = 2 ]] && openn_blueprint_links
+    [[ $buttonpress = 0 ]] && return
+
+    if [[ $action_type == "View" ]]; then
+        openn_blueprint_links
+    elif [[ $action_type == "Sync" ]]; then
+        retval=$(JAMF_force_ddm_sync $computer_id)
+        if [[ $? -eq 0 ]]; then
+            ${SW_DIALOG} --message "Sync Command successful for system $computer_id" \
+                --bannerimage "${SD_BANNER_IMAGE}" \
+                --bannertitle "${SD_WINDOW_TITLE}" \
+                --icon "${SD_ICON_FILE}" \
+                --ontop
+        fi
+    fi
+
 }
 
 function openn_blueprint_links ()
@@ -1479,16 +1572,18 @@ function process_group_computer ()
     managementId=$(printf "%s" "$JSONblob" | jq -r '.general.managementId')
 
     DDMInfo=$(JAMF_get_DDM_info "$managementId")
-    [[ "$DDMInfo" == "ERR" ]] && { 
-        logMe "ERROR: Insufficient privileges to read DDM Info for $name" >&2
-        return 1
-    }
-    [[ "$DDMInfo" == "NOT FOUND" ]] && {
-        logMe "ERROR: DDM may not be active on device: $name"
-        update_display_list "Update" "" "${name}" "DDM may not be active" "error" 
-        return 0
-    }
-
+    if [[ $? -eq 1 ]]; then
+        # got some errrors from reading in DDM info
+        [[ "$DDMInfo" == "ERR" ]] && { 
+            logMe "ERROR: Insufficient privileges to read DDM Info for $name" >&2
+            return 1
+        }
+        [[ "$DDMInfo" == *"not found"* ]] && {
+            logMe "ERROR: DDM may not be active on device: $name"
+            update_display_list "Update" "" "${name}" "DDM may not be active" "error" 
+            return 0
+        }
+    fi
     DDMInfo_clean=$(tr -d '[:cntrl:]' <<< "$DDMInfo")
     DDMKeys=$(jq -r '.statusItems[] | select(.key == "management.declarations.activations")' <<< "$DDMInfo_clean")
     lastUpdateTime=$(jq -r '(.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"' <<< "$DDMInfo_clean")
@@ -1526,6 +1621,49 @@ function process_group_computer ()
         printf "%s, %s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$lastUpdateTime" "$DDMDeviceCurrentOSName" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
         logMe "Writing DDM $liststatus for system: $name"
     fi
+}
+
+###########################
+#
+# Force Sync functions
+#
+##########################
+
+function welcomemsg_forcesync ()
+{
+    message="**Force Sync Individual System**<br><br>Please enter the serial or hostname of the device you wish to see the DDM information for.  The results for Software Updates, Active & Failed Blueprints, as well as any error messages will be displayed.<br><br>"
+    message+="There will be an option to force sync DDM data to the machine on the next screen."
+    MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${SD_ICON_FILE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --overlayicon "${OVERLAY_ICON}"
+        --iconsize 128
+        --infotext $SCRIPT_VERSION
+        --titlefont shadow=1
+        --message $message
+        --messagefont name=Arial,size=17
+        --vieworder "dropdown,textfield"
+        --textfield "Device,required"
+        --selecttitle "Serial,required"
+        --checkboxstyle switch
+        --selectvalues "Serial Number, Hostname"
+        --selectdefault "Hostname"
+        --button1text "Continue"
+        --button2text "Cancel"
+        --ontop
+        --height 520
+        --json
+        --moveable
+    )
+
+    message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+    buttonpress=$?
+    [[ $buttonpress = 2 ]] && return
+    search_type=$(echo $message | jq -r '.SelectedOption')
+    computer_id=$(echo $message | jq -r '.Device')
+    process_individual $search_type $computer_id "Sync"
 }
 
 ####################################################################################################
@@ -1573,9 +1711,10 @@ while true; do
     [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token  
 
     case "${DDMoption}" in
-        *"Single"* )    welcomemsg_individual ;;
-        *"Group"* )     welcomemsg_group ;;
-        *"Blueprint"* ) welcomemsg_blueprint ;;
-        *"quit"* )      { JAMF_invalidate_token; cleanup_and_exit 0; } ;;
+        *"Force Sync"* )   welcomemsg_forcesync ;;
+        *"View Single"* ) welcomemsg_individual ;;
+        *"Group"* )       welcomemsg_group ;;
+        *"Blueprint"* )   welcomemsg_blueprint ;;
+        *"quit"* )        { JAMF_invalidate_token; cleanup_and_exit 0; } ;;
     esac
 done
