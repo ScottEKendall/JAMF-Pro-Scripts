@@ -39,7 +39,7 @@
 # Global "Common" variables
 #
 ######################################################################################################
-
+#set -x
 SCRIPT_NAME="DialogMsg"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -195,6 +195,32 @@ function check_support_files ()
     [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -trigger ${SD_IMAGE_POLICY}
 }
 
+function check_logged_in_user ()
+{
+    if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
+        logMe "INFO: No user logged in, exiting"
+        cleanup_and_exit 0
+    else
+        logMe "INFO: User $LOGGED_IN_USER is logged in"
+    fi
+}
+
+function check_display_sleep ()
+{
+    local sleepval
+    local retval=0
+    logMe "INFO: Checking sleep status"
+    sleepval=$(pmset -g systemstate | tail -1 | awk '{print $4}')
+    echo $sleepval
+    if [[ $sleepval -eq 4 ]]; then
+        logMe "INFO: System appears to be awake"
+    else
+        logMe "INFO: System appears to be asleep, will pause notifications"
+        retval=1
+    fi
+    return $retval
+}
+
 function display_msg ()
 {
     MainDialogBody=(
@@ -218,6 +244,9 @@ function display_msg ()
     # Show the dialog screen and allow the user to choose
 
     "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+    returnCode=$?
+    [[ $returnCode = 4 ]] && logMe "Timer Expired"
+    [[ $returnCode = 0 ]] && logMe "User Click $SD_BUTTON1_PROMPT"
 }
 
 function create_infobox_message()
@@ -281,12 +310,18 @@ function check_language_support ()
 # Main Script
 #
 ####################################################################################################
-
 autoload 'is-at-least'
+sleep 10
 
 check_swift_dialog_install
 check_support_files
+# Check and make sure there is a user logged in and system is awake
+check_logged_in_user
+if ! check_display_sleep; then    
+    exit 1
+fi
 create_infobox_message
 DISPLAY_MESSAGE=$(check_language_support)
+logMe "Displaying Message"
 display_msg
 exit 0
