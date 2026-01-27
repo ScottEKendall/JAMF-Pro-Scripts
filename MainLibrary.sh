@@ -29,27 +29,27 @@
 # 1.12 -Added function "admin_user" to detect if user is admin or not. 
 #       Changed logging functions to only record if a user is admin
 # 1.13 -Added more JAMF API calls
+# 1.14 -Optimized Common section
+#       Added functions for check_display_sleep and logged_in_user
+#       Added JAMF DDM libraries
 
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
+#set -x 
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
-SCRIPT_NAME="GetBundleID"
+SCRIPT_NAME="GetDDMInfo"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_NAME=$( /usr/bin/sw_vers -productName )
-MACOS_VERSION=$( /usr/bin/sw_vers -productVersion )
-MAC_RAM=$( /usr/sbin/sysctl -n hw.memsize 2>/dev/null | /usr/bin/awk '{printf "%.0f GB", $1/1024/1024/1024}' )
-MAC_CPU=$( /usr/sbin/sysctl -n machdep.cpu.brand_string 2>/dev/null )
-# Fallback to uname if sysctl fails
-[[ -z "$MAC_CPU" ]] && [[ "$(/usr/bin/uname -m)" == "arm64" ]] && MAC_CPU="Apple Silicon" || MAC_CPU="Intel"
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -57,17 +57,20 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
+HOUR=$(date +%H)
+case $HOUR in
+    0[0-9]|1[0-1]) GREET="morning" ;;
+    1[2-7])        GREET="afternoon" ;;
+    *)             GREET="evening" ;;
+esac
+SD_DIALOG_GREETING="Good $GREET"
 
 # Make some temp files
 
-JSON_DIALOG_BLOB=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
+JSON_DIALOG_BLOB=$(mktemp -t "${SCRIPT_NAME}_json.XXXXX")
+DIALOG_COMMAND_FILE=$(mktemp -t "${SCRIPT_NAME}_cmd.XXXXX")
 chmod 666 $JSON_DIALOG_BLOB
 chmod 666 $DIALOG_COMMAND_FILE
-
 ###################################################
 #
 # App Specific variables (Feel free to change these)
@@ -76,18 +79,17 @@ chmod 666 $DIALOG_COMMAND_FILE
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e "${DEFAULTS_DIR}" ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read "${DEFAULTS_DIR}" "SupportFiles")
-    SD_BANNER_IMAGE=$(defaults read "${DEFAULTS_DIR}" "BannerImage")
-    spacing=$(defaults read "${DEFAULTS_DIR}" "BannerPadding")
-    SD_BANNER_IMAGE="${SUPPORT_DIR}${SD_BANNER_IMAGE}"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
     spacing=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -95,10 +97,13 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Extract BundleID"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
+SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Retrieve JAMF DDM Info"
+SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
 OVERLAY_ICON="/System/Applications/App Store.app"
 
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+JQ_FILE_INSTALL_POLICY="install_jq"
 ##################################################
 #
 # Passed in variables
@@ -106,7 +111,10 @@ OVERLAY_ICON="/System/Applications/App Store.app"
 #################################################
 
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"    
+SD_FIRST_NAME="${(C)${JAMF_LOGGED_IN_USER%%.*}}"
+CLIENT_ID=${4}                               # user name for JAMF Pro
+CLIENT_SECRET=${5}
+[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF credentials we are using 
 
 ####################################################################################################
 #
@@ -167,9 +175,8 @@ function check_swift_dialog_install ()
     if [[ ! -x "${SW_DIALOG}" ]]; then
         logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
         install_swift_dialog
-        SD_VERSION=$( ${SW_DIALOG} --version)        
     fi
-
+    SD_VERSION=$( ${SW_DIALOG} --version) 
     if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
         logMe "Swift Dialog is outdated - Installing version '${MIN_SD_REQUIRED_VERSION}' from JAMF..."
         install_swift_dialog
@@ -211,11 +218,28 @@ function create_infobox_message()
 }
 
 function check_logged_in_user ()
-{
+{    
+    # PURPOSE: Make sure there is a logged in user
+    # RETURN: None
+    # EXPECTED: $LOGGED_IN_USER
     if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
-        logMe "INFO: No user logged in"
+        logMe "INFO: No user logged in, exiting"
         cleanup_and_exit 0
+    else
+        logMe "INFO: User $LOGGED_IN_USER is logged in"
     fi
+}
+
+function check_display_sleep ()
+{
+    # PURPOSE: Determine if the mac is asleep or awake.
+    # RETURN: will return 0 if awake, otherwise will return 1
+    # EXPECTED: None
+    local sleepval=$(pmset -g systemstate | tail -1 | awk '{print $4}')
+    local retval=0
+    logMe "INFO: Checking sleep status"
+    [[ $sleepval -eq 4 ]] && logMe "INFO: System appears to be awake" || { logMe "INFO: System appears to be asleep, will pause notifications"; retval=1; }
+    return $retval
 }
 
 function cleanup_and_exit ()
@@ -765,15 +789,6 @@ function create_photo_dir ()
 #
 ###########################
 
-function JAMF_which_self_service ()
-{
-    # PURPOSE: Function to see which Self service to use (SS / SS+)
-    # RETURN: None
-    # EXPECTED: None
-    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
-    echo $retval
-}
 
 function JAMF_check_credentials ()
 {
@@ -1059,18 +1074,33 @@ function JAMF_retrieve_static_group_members ()
 
 function JAMF_retrieve_data_blob ()
 {    
-    # PURPOSE: Extract the summary of the JAMF conmand results
-    # RETURN: XML contents of command
-    # PARAMTERS: $1 = The API command of the JAMF atrribute to read
-    #            $2 = format to return XML or JSON
-    # EXPECTED: 
-    #   JAMF_COMMAND_SUMMARY - specific JAMF API call to execute
-    #   api_token - base64 hex code of your bearer token
-    #   jamppro_url - the URL of your JAMF server  
+    local format="${2:-xml}"
+    local retval
+    
+    retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}")
+    [[ "$retval" == *"INVALID_ID"* ]] && printf "INVALID_ID" || printf "%s" "$reval"
+    [[ "$retval" == *"PRIVILEGE"* || -z "$retval" ]] && printf "ERR" || printf "%s" "$retval"
+}
 
-    declare format=$2
-    [[ -z "${format}" ]] && format="xml"
-    echo -E $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}" )
+function JAMF_get_deviceID ()
+{
+    # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server.
+    # RETURN: the device ID for the device in question.
+    # PARMS: $1 - search identifier to use (serial or Hostname)
+    #        $2 - Conputer ID (serial/hostname)
+    local retval
+    local ID
+    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
+    retval=$(/usr/bin/curl -s --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&filter=${type}=='${2}'")
+    ID=$(echo $retval |  tr -d '[:cntrl:]' | jq -r "${3}")
+
+    # 4. Streamlined Error Handling
+    if [[ -z "$ID" ]]; then
+        display_failure_message
+        echo "ERR"
+        return 1
+    fi
+    echo "$ID"
 }
 
 function JAMF_static_group_action_by_serial ()
@@ -1108,87 +1138,51 @@ function JAMF_static_group_action_by_serial ()
     echo $retval
 }
 
-function JAMF_retrieve_ddm_softwareupdate_info ()
+function JAMF_get_DDM_info ()
+{
+    # PURPOSE: uses the ManagementId to retrieve the DDM info
+    # RETURN: the device ID for the device in question.
+    # PARMS: $1 - Management ID
+    local retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items")
+    case "${retval}" in
+        *"INVALID"* | *"PRIVILEGE"* ) printf '%s\n' "ERR" ;;
+        *"Client $1 not found"* ) printf '%s\n' "NOT FOUND" ;;  # DDM not active
+        *) printf '%s\n' "${retval}";;
+    esac
+}
+
+function JAMF_retrieve_ddm_softwareupdate_info () 
 {
     # PURPOSE: extract the DDM Software update info from the computer record
     # RETURN: array of the DDM software update information
     # PARMS: $1 - DDM JSON blob of the computer
-
-    retval=$(echo "$1" | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.pending")) | select(.value != null) | "\(.key):\(.value)"' | sed 's/^softwareupdate.pending-version.//')
-    DDMSoftwareUpdateInfo=("${(f)retval}")
+    local results
+    results=$(jq -r '[.statusItems[]? | select(.key | startswith("softwareupdate.pending-version.")) | select(.value != null) | (.key | ltrimstr("softwareupdate.pending-version.")) + ":" + (.value | tostring)] +
+        [.statusItems[]? | select(.key | startswith("softwareupdate.install-")) | .value] | join("\n")' <<< "$1")
+    DDMSoftwareUpdateActive=("${(f)results}")
 }
 
-function JAMF_retrieve_ddm_softwareupdate_failures ()
+function JAMF_retrieve_ddm_softwareupdate_failures () 
 {
-    # PURPOSE: extract the DDM Software update failures from the computer record
-    # RETURN: array of the DDM software update information
-    # PARMS: $1 - DDM JSON blob of the computer
-
-    retval=$(echo -E $1 | jq -r '.statusItems[] | select(.key | startswith("softwareupdate.failure-reason")) | select(.value != null) | "\(.key):\(.value)"'| sed 's/^softwareupdate.failure-reason.//')
-    DDMSoftwareUpdateFailures=("${(f)retval}")
+    cleaned=$(printf '%s' "$1" | perl -pe 's/([\x00-\x1F])/sprintf("\\u%04X", ord($1))/eg')
+    results=$(printf '%s' "$cleaned" | jq -r '.statusItems[]? | select(.key | startswith("softwareupdate.failure-reason.")) | select(.value != null) | "\(.key | ltrimstr("softwareupdate.failure-reason.")):\(.value)"')
+    DDMSoftwareUpdateFailures=("${(f)results}")
 }
 
 function JAMF_retrieve_ddm_blueprint_active ()
 {
-    local json_blob="$1"
-    local value_content
-    local identifier
-    local declarations
-    
-    # 1. Use 'sed' to extract the raw 'value' content and replace the '},{' separator with a specific unique temporary delimiter.
-    # We remove the outer quotes and "value": part as well.
-    value_content=$(echo "$json_blob" | sed -n 's/.*"value" : "\({.*\)}".*/\1/p' | sed 's/},{/|NEWLINE|/g')
-
-    # 2. Use Zsh parameter expansion to split by the temporary delimiter into an array.
-    # The (ps/|NEWLINE|/) flags mean 'Parameter Split by the string |NEWLINE|'
-    declarations=("${(ps/|NEWLINE|/)value_content}")
-
-    # 3. Iterate over each declaration block
-    for item in "${declarations[@]}"; do
-        # Check if the block contains 'active=true'
-        if [[ "$item" == *"active=true"* ]]; then
-            # Extract the identifier value specifically using sed within the loop
-            identifier=$(echo "$item" | sed -E 's/.*identifier=([^,>]*).*/\1/')
-            if [[ "$identifier" == "Blueprint_"* ]]; then
-                DDMBlueprintInfo+=($(echo $identifier | sed 's/^Blueprint_//; s/_s1_sys_act1$//'))
-            fi
-        fi
-    done
+    # 1. jq extracts the inner 'value' string.
+    # 2. perl searches for blocks containing active=false.
+    # 3. The regex captures the ID, optionally skipping the 'Blueprint_' prefix.
+    DDMBlueprintSuccess=(${(f)"$(printf "%s" "$1" | jq -r '.value' | perl -nle 'while(/active=true, identifier=(Blueprint_)?([^,}_]+)(?:_s1_sys_act1)?/g) { print $2 }')"})
 }
 
-function JAMF_retrieve_ddm_inactive_blueprint_errors ()
+function JAMF_retrieve_ddm_blueprint_errrors ()
 {
-    local json_blob="$1"
-    local declarations
-    local delimiter="}], "
-    
-    # 1. Use 'sed' to extract the raw 'value' content and replace the '},{' separator with a specific unique temporary delimiter.
-    # We remove the outer quotes and "value": part as well.
-    local value_content=$(echo "$json_blob" | sed -n 's/.*"value" : "\({.*\)}".*/\1/p' | sed 's/},{/|NEWLINE|/g')
-
-    # 2. Use Zsh parameter expansion to split by the temporary delimiter into an array.
-    # The (ps/|NEWLINE|/) flags mean 'Parameter Split by the string |NEWLINE|'
-    declarations=("${(ps/|NEWLINE|/)value_content}")
-
-    # 3. Iterate over each declaration block
-    for decl in "${declarations[@]}"; do
-        # Check if the block contains 'active=false'
-        if [[ "$decl" == *"active=false"* ]]; then
-            # Extract the identifier value specifically using sed within the loop
-            code_value=$(echo "$decl" |  awk -F "code=" '{print $NF}')
-            if [[ -n "$code_value" ]]; then
-                # Clean up potential trailing braces/brackets that might be captured
-                error_code=$(echo "$code_value" | awk -F "code=" '{print $NF}')
-                error_code="${error_code%%$delimiter*}"
-            fi
-            local identifier=$(echo "$decl" | sed -E 's/.*identifier=([^,>]*).*/\1/')
-
-            # Check if the extracted identifier starts with 'Blueprint_'
-            if [[ "$identifier" == "Blueprint_"* ]]; then
-                DDMBlueprintErrors+=($(echo $identifier | sed 's/^Blueprint_//; s/_s1_sys_act1$//')" - "$error_code)
-            fi
-        fi
-    done
+    # 1. jq extracts the inner 'value' string.
+    # 2. perl searches for blocks containing active=false.
+    # 3. The regex captures the ID, optionally skipping the 'Blueprint_' prefix.
+    DDMBlueprintErrors=(${(f)"$(printf "%s" "$1" | jq -r '.value' | perl -nle 'while(/active=false, identifier=(Blueprint_)?([^,}_]+)(?:_s1_sys_act1)?/g) { print $2 }')"})
 }
 
 function JAMF_retrieve_ddm_keys ()
@@ -1197,18 +1191,26 @@ function JAMF_retrieve_ddm_keys ()
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - Management ID
     #        $2 - Specific DDM Keys to extract
-
-    echo $(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items/$2")
+    printf "%s" $1 | jq -r '.statusItems[] | select(.key == "'$2'")'
 }
 
-function JAMF_DDM_extract_summary ()
+function JAMF_DDM_export_summary_to_csv ()
 {
     # PURPOSE: Extract (display) all of the DDM entries and store them in a CSV file for better readability
     # RETURN: None
     # PARMS: $1 - DDMInfo for the computer record (should have already been populated)
-    # EXPECTED: CSV_OUTPUT must be declare with full path
-    echo "LastUpdate,Key,Value" > $CSV_OUTPUT
-    echo -E $1 | jq -r '.statusItems[] | select(.key) | [.lastUpdateTime, .key, .value] | @csv' >> $CSV_OUTPUT
+
+    printf "%s" $1 | jq -r '.statusItems[] | select(.key) | [.lastUpdateTime, .key, .value] | @csv' >> $CSV_OUTPUT
+}
+
+function JAMF_which_self_service ()
+{
+    # PURPOSE: Function to see which Self service to use (SS / SS+)
+    # RETURN: None
+    # EXPECTED: None
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
+    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    echo $retval
 }
 
 #######################################################################################################
