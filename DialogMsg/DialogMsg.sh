@@ -247,7 +247,7 @@ function display_msg ()
     "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
     returnCode=$?
     [[ $returnCode = 4 ]] && logMe "Timer Expired"
-    [[ $returnCode = 0 ]] && logMe "User Click $SD_BUTTON1_PROMPT"
+    [[ $returnCode = 0 ]] && logMe "User Clicked $SD_BUTTON1_PROMPT"
 }
 
 function create_infobox_message()
