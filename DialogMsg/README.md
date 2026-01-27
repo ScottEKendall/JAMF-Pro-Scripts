@@ -42,6 +42,6 @@ The script will determine the country code of the local Mac and display the appr
 | 1.5 | Fixed typos
 |     | Optimized "Common" section for better performance
 |     | Fixed Swift Dialog not reporting properly
-| 2.0 | Add functions to check for a logged in user and that the system is awake
+| 2.0 | Add functions to check for a logged in user and that the system is awake (message will only display if system is awake and a user is logged in)
 ||       Added more logged in sleep status, message button status
 

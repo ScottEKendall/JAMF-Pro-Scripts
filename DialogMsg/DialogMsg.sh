@@ -198,7 +198,10 @@ function check_support_files ()
 }
 
 function check_logged_in_user ()
-{
+{    
+    # PURPOSE: Make sure there is a logged in user
+    # RETURN: None
+    # EXPECTED: $LOGGED_IN_USER
     if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
         logMe "INFO: No user logged in, exiting"
         cleanup_and_exit 0
@@ -209,16 +212,13 @@ function check_logged_in_user ()
 
 function check_display_sleep ()
 {
-    local sleepval
+    # PURPOSE: Determine if the mac is asleep or awake.
+    # RETURN: will return 0 if awake, otherwise will return 1
+    # EXPECTED: None
+    local sleepval=$(pmset -g systemstate | tail -1 | awk '{print $4}')
     local retval=0
     logMe "INFO: Checking sleep status"
-    sleepval=$(pmset -g systemstate | tail -1 | awk '{print $4}')
-    if [[ $sleepval -eq 4 ]]; then
-        logMe "INFO: System appears to be awake"
-    else
-        logMe "INFO: System appears to be asleep, will pause notifications"
-        retval=1
-    fi
+    [[ $sleepval -eq 4 ]] && logMe "INFO: System appears to be awake" || { logMe "INFO: System appears to be asleep, will pause notifications"; retval=1; }
     return $retval
 }
 
