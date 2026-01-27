@@ -8,6 +8,7 @@
 # Last updated: 01/27/2026
 #
 # Script Purpose: Read the DDM Software Update settings and show the info in a GUI window
+# Based on Der Flounders article: https://derflounder.wordpress.com/2025/12/17/reading-ddm-managed-apple-software-update-settings-from-the-command-line-on-macos-tahoe-26-2-0/
 #
 # 1.0 - Initial
 
