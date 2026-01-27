@@ -9,11 +9,15 @@ To scope this in JAMF, we used the following SmartGroup, it runs on a daily basi
 
 ![](./Device%20Compliance%20SmartGroup.png)
 
-#### 1.0 - Initial rewrite using Swift Dialog prompts
-#### 1.1 - Merge updated global library functions into app
-#### 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 1.3 - Refresh library calls / Add shadow on banner title / Increased timer / Adjusted window height
-#### 1.4 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial rewrite using Swift Dialog prompts
+| 1.1 | Merge updated global library functions into app
+| 1.2 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.3 | Refresh library calls / Add shadow on banner title / Increased timer / Adjusted window height
+| 1.4 | Code cleanup
+|     | Added feature to read in defaults file
+|     | removed unnecessary variables.
+|     | Fixed typos
+| 1.5 | Optimized Common section
+|     | Added check for logged in user and system not asleep
