@@ -5,7 +5,7 @@
 # Written by: Scott Kendall
 #
 # Created Date: 01/227/2025
-# Last modified: 01/21/2026
+# Last modified: 01/27/2026
 #
 # Script Purpose: Display a generic SWifDialog notification to JAMF users.  Pass in variables to customize display
 #
@@ -23,6 +23,8 @@
 # 1.5 - Fixed typos
 #       Optimized "Common" section for better performance
 #       Fixed Swift Dialog not reporting properly
+# 2.0 - Add functions to check for a logged in user and that the system is awake (message will only display if system is awake and a user is logged in)
+#       Added more logged in sleep status, message button status
 #
 # Expected Parameters: 
 # #4 - Title
@@ -211,7 +213,6 @@ function check_display_sleep ()
     local retval=0
     logMe "INFO: Checking sleep status"
     sleepval=$(pmset -g systemstate | tail -1 | awk '{print $4}')
-    echo $sleepval
     if [[ $sleepval -eq 4 ]]; then
         logMe "INFO: System appears to be awake"
     else
@@ -311,7 +312,6 @@ function check_language_support ()
 #
 ####################################################################################################
 autoload 'is-at-least'
-sleep 10
 
 check_swift_dialog_install
 check_support_files
