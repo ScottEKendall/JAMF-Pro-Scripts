@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 01/23/2026
+# Last updated: 01/28/2026
 #
 # Script Purpose: Retrieve the DDM info for JAMF devices
 #
@@ -42,6 +42,7 @@
 # 1.0RC3 - Added more JAMF error trapping
 #       Add option to Force Sync DDM commands
 #       Converted the output of the DDM Supported Payloads into a more readable format
+# 1.0RC4 - Fixed reporting for blueprint not found when scanning for blueprint IDs
 ######################################################################################################
 #
 # Global "Common" variables
@@ -51,7 +52,7 @@
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="1.0RC3"
+SCRIPT_VERSION="1.0RC4"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -993,6 +994,24 @@ function JAMF_retrieve_ddm_blueprint_errrors ()
     DDMBlueprintErrors=(${(f)"$(printf "%s" "$1" | jq -r '.value' | perl -nle 'while(/active=false, identifier=(Blueprint_)?([^,}_]+)(?:_s1_sys_act1)?/g) { print $2 }')"})
 }
 
+function JAMF_retrieve_ddm_blueprint_invalid ()
+{
+    local json="$1"
+    local value_str=$(printf '%s\n' "$json" | perl -ne 'print $1 if /"value":\s*"([^"]*)"/')
+
+    # From that blob, print only Blueprint_* identifiers where the same record has valid=invalid
+    results=$(echo "$value_str" | tr '{}' '\n\n' | grep 'valid=invalid' |  grep -oE 'identifier=Blueprint[^,]+' | sed 's/^identifier=//' | sed 's/^Blueprint_//' | sed 's/_s1_c1.*$//' )
+    DDMBlueprintInvalid=("${(f)results}")
+}
+
+function JAMF_retrieve_ddm_blueprint_invalid_reason ()
+{
+    local json="$1"
+    local value_str=$(printf '%s\n' "$json" | perl -ne 'print $1 if /"value":\s*"([^"]*)"/')
+    results=$(printf '%s\n' "$value_str" | tr '{}' '\n\n' | grep -oE 'Error=[^}]+' | sed 's/^Error=//')
+    DDMBlueprintInvalidReason=("${(f)results}")
+}
+
 function JAMF_retrieve_ddm_keys ()
 {
     # PURPOSE: uses the ManagementId to retrieve the DDM info
@@ -1066,6 +1085,7 @@ function execute_in_parallel ()
     current_jobs=0
     item_count=1
     numberOfComputers=${#ids}
+
     for ID in "${ids[@]}"; do
         while (( (current_jobs=${#jobstates}) >= BACKGROUND_TASKS )); do sleep 0.05; done  # Tighter polling
         progress=$(( (item_count * 100) / numberOfComputers ))
@@ -1142,7 +1162,7 @@ function process_blueprint ()
     # Remove double quotes and split by '-' into an array 'parts'
     local blueprintID=$1    
     local shouldWrite=false
-    local CSV_HEADER="System, ManagementID, Current OS, LastUpdate, Status, Blueprint Failed IDs, Blueprint Failed Reason, Software Update Failures"
+
     local computerList numberOfComputers ids
     local CSVfile
 
@@ -1216,15 +1236,28 @@ function process_blueprint_computer ()
         fi
     fi
     DDMInfo_clean=$(tr -d '[:cntrl:]' <<< "$DDMInfo")
-    DDMKeys=$(jq -r '.statusItems[] | select(.key == "management.declarations.activations")' <<< "$DDMInfo_clean")
+    DDMKeys=$(jq -r '.statusItems[] | select(.key == "management.declarations.configurations")' <<< "$DDMInfo_clean")
     lastUpdateTime=$(jq -r '(.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"' <<< "$DDMInfo_clean")
     DDMDeviceCurrentOSName=$(jq -r '.statusItems[] | select(.key == "device.operating-system.marketing-name").value' <<< "$DDMInfo_clean")
 
     JAMF_retrieve_ddm_blueprint_active "$DDMKeys"
     JAMF_retrieve_ddm_blueprint_errrors "$DDMKeys"
     JAMF_retrieve_ddm_softwareupdate_failures "$DDMInfo_clean"
+    JAMF_retrieve_ddm_blueprint_invalid "$DDMKeys"
+    JAMF_retrieve_ddm_blueprint_invalid_reason "$DDMKeys"
 
-    [[ -n "$DDMBlueprintErrors" ]] && { liststatus="fail"; statusmessage="BP found (Failed)"; }
+    if [[ -z $(echo "$DDMBlueprintSuccess" | grep "$blueprintID") ]]; then
+        liststatus="pending"
+        statusmessage="BP nout found"
+    elif [[ -n $DDMBlueprintInvalid ]]; then
+        echo $DDMBlueprintInvalid
+        liststatus="error"
+        statusmessage="BP Invalid"
+    elif [[ -n "$DDMBlueprintErrors" ]]; then
+        liststatus="fail"
+        statusmessage="BP found (Failed)"
+    fi
+
     update_display_list "Update" "" "${name}" "${statusmessage}" "${liststatus}"
 
     # Eval criteria
@@ -1241,7 +1274,8 @@ function process_blueprint_computer ()
 
     sanitized_clean_swu="${DDMSoftwareUpdateFailures//,/;}"
     sanitized_bperrors="${DDMBlueprintErrors//,/;}" 
-    sanitized_bperrors_reason=""
+    sanitized_bpinvalid="${DDMBlueprintInvalid//,/;}" 
+    sanitized_bpinvalid_reason="${DDMBlueprintInvalidReason//,/;}"
     if [[ -n "$DDMBlueprintErrors" ]]; then
         DDMErrorReason=$(printf "%s" "$DDMKeys" | perl -ne 'print "$1\n" if /code=([^},]+)/')
         sanitized_bperrors_reason="${DDMErrorReason//,/;}"
@@ -1249,7 +1283,8 @@ function process_blueprint_computer ()
 
     if [[ $canWrite  = true ]]; then
         # Write out this info to the CSV file
-        printf "%s, %s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$DDMDeviceCurrentOSName" "$lastUpdateTime" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
+        [[ $liststatus == "pending" ]] && liststatus="BP Not Installed"
+        printf "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$DDMDeviceCurrentOSName" "$lastUpdateTime" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_bpinvalid" "$sanitized_bpinvalid_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
         logMe "$statusmessage found on system: $name"
     fi
 }
@@ -1346,8 +1381,8 @@ function process_individual ()
     logMe "INFO: Software Update Failures: "$DDMSoftwareUpdateFailures
 
     # Fifth, extract the DDM blueprint IDs assigned to the machine
-    DDMKeys=$(JAMF_retrieve_ddm_keys $DDMInfo "management.declarations.activations")
-
+    DDMKeys=$(JAMF_retrieve_ddm_keys $DDMInfo "management.declarations.configurations")
+    echo $DDMKeys
     JAMF_retrieve_ddm_blueprint_active "$DDMKeys"
     logMe "INFO: Active Blueprints: "$DDMBlueprintSuccess
 
@@ -1355,8 +1390,18 @@ function process_individual ()
     JAMF_retrieve_ddm_blueprint_errrors "$DDMKeys"
     logMe "INFO: Inactive Blueprints: "$DDMBlueprintErrors
 
+    #Lastly, see if there are any invalid blueprints
+    JAMF_retrieve_ddm_blueprint_invalid "$DDMKeys"
+    logMe "INFO: Invalid Blueprints: "$DDMBlueprintInvalid
+
+    JAMF_retrieve_ddm_blueprint_invalid_reason "$DDMKeys"
+    echo "Reason: "$DDMBlueprintInvalidReason
+    logMe "INFO: Invalid Blueprint Reason: "$DDMBlueprintInvalidReason
+
+    for i in {1..${#DDMBlueprintInvalid[@]}}; do
+        DDMBlueprintInvalidCombined+="${DDMBlueprintInvalid[i]} (${DDMBlueprintInvalidReason[i]})\n"
+    done
     if [[ ! -z $DDMBlueprintErrors ]]; then
-        #DDMErrorReason=$(echo $DDMKeys)
         DDMErrorReason=$(echo $DDMKeys | perl -ne 'print "$1\n" if /code=([^},]+)/')
     fi
     #Show the results and log it
@@ -1365,6 +1410,8 @@ function process_individual ()
     message+="**Device Info**<br>$DDMDevicename ($DDMDeviceModel)<br>Running: $DDMDeviceCurrentOSName ($DDMDeviceCurrentOSBuild)<br>Battery Health: $DDMBatteryHealth<br>"
     message+="<br><br>**DDM Client Supported Version**<br>$DDMClientSupportedVersions"
     message+="<br><br>**DDM Blueprints Active**<br>${(j:<br>:)DDMBlueprintSuccess}<br>"
+    message+="<br><br>**DDM Blueprint Invalid**<br>${(j:<br>:)DDMBlueprintInvalidCombined}<br>"
+    #message+="<br><br>**DDM Blueprint Invalid Reason**<br>${(j:<br>:)DDMBlueprintInvalidReason}<br>"
     message+="<br><br>**DDM Blueprint Failures**<br>${(j:<br>:)DDMBlueprintErrors}<br>"
     message+="<br><br>**DDM Blueprint Failure Reason**<br>$DDMErrorReason<br>"
     message+="<br><br>**DDM Software Update Info**<br>${(j:<br>:)DDMSoftwareUpdateActive}<br>"
@@ -1403,7 +1450,7 @@ function display_results ()
         --helpmessage "Add this URL prefix to the Blueprint ID to find the Blueprint details<br>${jamfpro_url}view/mfe/blueprints/"
         --button1text "OK"
         --ontop
-        --width 850
+        --width 900
         --height 750
         --moveable
     )
@@ -1421,7 +1468,7 @@ function display_results ()
     [[ $buttonpress = 0 ]] && return
 
     if [[ $action_type == "View" ]]; then
-        openn_blueprint_links
+        open_blueprint_links
     elif [[ $action_type == "Sync" ]]; then
         retval=$(JAMF_force_ddm_sync $computer_id)
         if [[ $? -eq 0 ]]; then
@@ -1435,7 +1482,7 @@ function display_results ()
 
 }
 
-function openn_blueprint_links ()
+function open_blueprint_links ()
 {
     declare -a BPLinks
     for item in "${DDMBlueprintSuccess[@]}"; do
@@ -1514,7 +1561,6 @@ function process_group ()
     local GroupName="${parts[2]}"
     local JAMF_API_KEY="JSSResource/computergroups/id"
     local computerList
-    local CSV_HEADER="System, ManagementID, LastUpdate, Current OS, Status, Blueprint Failed IDs, Blueprint Failed Reason, Software Update Failures"
     local shouldWrite=false
     local numberOfComputers
     local ids
@@ -1522,7 +1568,7 @@ function process_group ()
 
     # Initialize CSV if needed
     if [[ "$writeCSVFile" == true ]]; then
-        CSV_OUTPUT+="$GroupName ($displayResults).csv"
+        CSV_OUTPUT="${CSV_PATH}${GroupName} ($displayResults).csv"
         printf "%s\n" "$CSV_HEADER" > "$CSV_OUTPUT"
         logMe "Creating file: $CSV_OUTPUT"
     fi
@@ -1585,15 +1631,22 @@ function process_group_computer ()
         }
     fi
     DDMInfo_clean=$(tr -d '[:cntrl:]' <<< "$DDMInfo")
-    DDMKeys=$(jq -r '.statusItems[] | select(.key == "management.declarations.activations")' <<< "$DDMInfo_clean")
+    DDMKeys=$(jq -r '.statusItems[] | select(.key == "management.declarations.configurations")' <<< "$DDMInfo_clean")
     lastUpdateTime=$(jq -r '(.statusItems[] | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"' <<< "$DDMInfo_clean")
     DDMDeviceCurrentOSName=$(jq -r '.statusItems[] | select(.key == "device.operating-system.marketing-name").value' <<< "$DDMInfo_clean")
 
     JAMF_retrieve_ddm_blueprint_active "$DDMKeys"
     JAMF_retrieve_ddm_blueprint_errrors "$DDMKeys"
     JAMF_retrieve_ddm_softwareupdate_failures "$DDMInfo_clean"
+    JAMF_retrieve_ddm_blueprint_invalid "$DDMKeys"    
 
-    [[ -n "$DDMBlueprintErrors" ]] && { liststatus="fail"; statusmessage="BP errors found"; }
+    if [[ -n $DDMBlueprintInvalid ]]; then
+        liststatus="error"
+        statusmessage="BP Invalid"
+    elif [[ -n "$DDMBlueprintErrors" ]]; then
+        liststatus="fail"
+        statusmessage="BP found (Failed)"
+    fi
     update_display_list "Update" "" "${name}" "${statusmessage}" "${liststatus}"
 
     # Eval criteria
@@ -1610,6 +1663,7 @@ function process_group_computer ()
 
     sanitized_clean_swu="${DDMSoftwareUpdateFailures//,/;}"
     sanitized_bperrors="${DDMBlueprintErrors//,/;}" 
+    sanitized_bpinvalid="${DDMBlueprintInvalid//,/;}" 
     sanitized_bperrors_reason=""
     if [[ -n "$DDMBlueprintErrors" ]]; then
         DDMErrorReason=$(printf "%s" "$DDMKeys" | perl -ne 'print "$1\n" if /code=([^},]+)/')
@@ -1618,7 +1672,7 @@ function process_group_computer ()
 
     if [[ $canWrite  = true ]]; then
         # Write out this info to the CSV file
-        printf "%s, %s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$lastUpdateTime" "$DDMDeviceCurrentOSName" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
+        printf "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$DDMDeviceCurrentOSName" "$lastUpdateTime" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_bpinvalid" "$sanitized_bpinvalid_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
         logMe "Writing DDM $liststatus for system: $name"
     fi
 }
@@ -1681,7 +1735,9 @@ declare -a DDMSoftwareUpdateActive
 declare -a DDMSoftwareUpdateFailures
 declare -a DDMBlueprintErrors
 declare -a DDMBlueprintSuccess
+declare -a DDMBlueprintInvalid
 declare -a writeCSVFile
+declare  CSV_HEADER="System, ManagementID, Current OS, LastUpdate, Status, Blueprint Failed IDs, Failed IDs (Reason), Blueprint Invalid IDs, Failed Reason, Software Update Failures"
 #declare jamfGroup
 #declare displayResults
 

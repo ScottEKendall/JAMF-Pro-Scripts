@@ -101,6 +101,9 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 | 1.0RC3 | Added more JAMF error trapping
 ||       Add option to Force Sync DDM commands
 ||       Converted the output of the DDM Supported Payloads into a more readable format
+| 1.0RC4 | Fixed reporting for blueprint not found when scanning for blueprint IDs
+||       Add invalid blueprint information to system display and CSV output file
+||      Significant rework of logic to determine valid, invalid or unknown deployments
 
 
 ## Gemini results of what can be extracted from JAMF about DDM: ##
