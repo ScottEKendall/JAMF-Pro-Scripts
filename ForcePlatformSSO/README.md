@@ -37,6 +37,8 @@ To set this up you will need the following:
 
 Once you configure these variables inside of your policy, you can scope this policy to your users.
 
+![Scoping of Config Profile](ForcePlatformSSO-Scoping.png)
+
 ## Release Notes ##
 
 | **Version**|**Notes**|
