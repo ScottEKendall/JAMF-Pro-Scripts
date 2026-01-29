@@ -111,7 +111,8 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Register Platform Single Sign-on"
 OVERLAY_ICON="${ICON_FILES}UserIcon.icns"
-PSSO_ICON="${SUPPORT_DIR}/SupportFiles/sso.png"
+SD_ICON_FILE="${SUPPORT_DIR}/SupportFiles/sso.png"
+SSO_GRAPHIC="${SUPPORT_DIR}/SupportFiles/pSSO_Notification.png"
 
 
 # Trigger installs for Images & icons
@@ -122,6 +123,7 @@ SD_TIMER=300    #Length of time you want the message on the screen (300=5 mins)
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 PSSO_ICON_POLICY="install_psso_icon"
+SSO_GRAPHIC_POLICY="install_sso_graphic"
 PORTAL_APP_POLICY="install_mscompanyportal"
 
 ##################################################
@@ -213,8 +215,7 @@ function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
     [[ ! -e "${SD_ICON_FILE}" ]] && /usr/local/bin/jamf policy -trigger ${PSSO_ICON_POLICY}
-    [[ ! -e "${PSSO_ICON}" ]] && /usr/local/bin/jamf policy -trigger ${PSSO_ICON_POLICY}
-
+    [[ ! -e "${SSO_GRAPHIC}" ]] && /usr/local/bin/jamf policy -trigger ${SSO_GRAPHIC_POLICY}
 }
 
 function cleanup_and_exit ()
@@ -645,12 +646,13 @@ check_swift_dialog_install
 check_support_files
 JAMF_check_connection
 JAMF_get_server
-focus_status=$(check_focus_status)
-[[ $focus_status = "On" ]] && logMe "User has focus mode turned on!"
 
 # Check if the JAMF Pro server is using the new API or the classic API
 # If the client ID is longer than 30 characters, then it is using the new API
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
+
+focus_status=$(check_focus_status)
+[[ $focus_status = "On" ]] && logMe "INFO: User has focus mode turned on!"
 
 # See if the portal is installed.  If you do not need to remove the app, then comment the following line
 #reinstall_companyportal
@@ -670,7 +672,7 @@ deviceID=$(JAMF_get_deviceID "Serials" $MAC_SERIAL)
 
 logMe "Group ID is: $groupID"
 logMe "Device ID is: $deviceID"
-
+exit 0
 # If the profile is not installed, then install it
 if [[ "$installed" == "No" ]]; then
     retval=$(JAMF_static_group_action $groupID $MAC_SERIAL "add")
