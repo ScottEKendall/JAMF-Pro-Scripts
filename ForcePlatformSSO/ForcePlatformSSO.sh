@@ -573,7 +573,7 @@ function displaymsg ()
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
 		--commandfile "${DIALOG_COMMAND_FILE}"
-		--image "${PSSO_ICON}"
+		--image "${SSO_GRAPHIC}"
         --helpmessage "Contact the TSD or put in a ticket if you are having problems registering your device."
         --width 740
         --height 450
@@ -672,7 +672,7 @@ deviceID=$(JAMF_get_deviceID "Serials" $MAC_SERIAL)
 
 logMe "Group ID is: $groupID"
 logMe "Device ID is: $deviceID"
-exit 0
+
 # If the profile is not installed, then install it
 if [[ "$installed" == "No" ]]; then
     retval=$(JAMF_static_group_action $groupID $MAC_SERIAL "add")
