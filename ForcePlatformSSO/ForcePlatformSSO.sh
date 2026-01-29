@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/02/2025
-# Last updated: 10/31/2025
+# Last updated: 01/29/2026
 #
 # Script Purpose: Deploys Platform Single Sign-on
 #
@@ -38,6 +38,11 @@
 #       Change the gatherAADInfo to RunAsUser vs root
 # 1.3 - removed the app-sso -l command...wasn't really needed 
 # 1.4 - Added feature to check for focus status and change the alert message accordingly
+# 1.5 - Used modern JAMF API wherever possible
+#       More logging of events
+#       More error trapping of failures
+#       Reworked Common section to be more inline with the rest of my apps
+#       Fixed Typos
 
 ######################################################################################################
 #
@@ -133,7 +138,8 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 CLIENT_ID=${4}                               # user name for JAMF Pro
 CLIENT_SECRET=${5}
 MDM_PROFILE=${6}
-JAMF_GROUP_NAME=${7}               
+JAMF_GROUP_NAME=${7}
+RUN_JAMF_AAD=${8:-"NO"}
 
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
 
@@ -184,7 +190,8 @@ function check_swift_dialog_install ()
     if [[ ! -x "${SW_DIALOG}" ]]; then
         logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
         install_swift_dialog
-        SD_VERSION=$( ${SW_DIALOG} --version)        
+        SD_VERSION=$( ${SW_DIALOG} --version)
+        [[  -z $SD_VERSION ]]; { logMe "SD Not reporting installed version!"; cleanup_and_exit 1; }
     fi
 
     if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
@@ -217,6 +224,7 @@ function cleanup_and_exit ()
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
+    JAMF_invalidate_token
 	exit $1
 }
 
@@ -371,14 +379,40 @@ function JAMF_get_deviceID ()
     #        $2 - Conputer ID (serial/hostname)
     local type retval ID
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-    ID=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v3/computers-inventory?filter=$type==$2" |  tr -d '[:cntrl:]' | jq -r '.results[].id')
-    # 4. Streamlined Error Handling
-    if [[ -z "$ID" ]]; then
-        display_failure_message
+    retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v3/computers-inventory?filter=${type}=='${2}'") || {
+        display_failure_message "Failed to contact Jamf Pro"
+        echo "ERR"
+        return 1
+    }
+
+    # Basic JSON validity check
+    if ! jq -e . >/dev/null 2>&1 <<<"$retval"; then
+        display_failure_message "Invalid JSON response from Jamf Pro"
         echo "ERR"
         return 1
     fi
-    echo ${ID}
+
+    if [[ $retval == *"PRIVILEGE"* ]]; then
+        display_failure_message "Invalid Privilege to read inventory"
+        echo "PRIVILEGE"
+        return 1
+    fi
+
+    total=$(jq '.totalCount' <<<"$retval")
+    if [[ $total -eq 0 ]]; then
+        display_failure_message "Inventory Record '${2}' not found"
+        echo "NOT FOUND"
+        return 1
+    fi
+
+    id=$(echo $retval | tr -d '[:cntrl:]' | jq -r '.results[].id')
+    if [[ -z $id || $id == "null" ]]; then
+        display_failure_message "$retval"
+        echo "ERR"
+        return 1
+    fi
+    printf '%s\n' "$id"
+    return 0
 }
 
 function JAMF_retrieve_static_groupID ()
@@ -387,9 +421,40 @@ function JAMF_retrieve_static_groupID ()
     # RETURN: ID # of static group
     # EXPECTED: jamppro_url, api_token
     # PARMATERS: $1 = JAMF Static group name
-    local tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computer-groups/static-groups?sort=id%3Aasc")
-    retval=$(echo printf "%s" $tmp | echo $tmp | jq -r --arg name "$1" '.results[] | select(.name == $name) | .id')
-    echo ${retval}
+    local tmp
+    tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computer-groups/static-groups?sort=id%3Aasc") || {
+        display_failure_message "Failed to contact Jamf Pro"
+        echo "ERR"
+        return 1
+    }
+
+    # Basic JSON validity check
+    if ! jq -e . >/dev/null 2>&1 <<<"$tmp"; then
+        display_failure_message "Invalid JSON response from Jamf Pro"
+        echo "ERR"
+        return 1
+    fi
+
+    if [[ $tmp == *"PRIVILEGE"* ]]; then
+        display_failure_message "Invalid Privilege to read groups"
+        echo "PRIVILEGE"
+        return 1
+    fi
+
+    total=$(jq '.totalCount' <<<"$tmp")
+    if [[ $total -eq 0 ]]; then
+        display_failure_message "Inventory Record '${2}' not found"
+        echo "NOT FOUND"
+        return 1
+    fi
+    id=$(echo $tmp | jq -r --arg name "$1" '.results[] | select(.name == $name) | .id')
+    if [[ -z $id || $id == "null" ]]; then
+        display_failure_message "$tmp"
+        echo "ERR"
+        return 1
+    fi
+    printf '%s\n' "$id"
+    return 0
 }
 
 function JAMF_static_group_action ()
@@ -425,7 +490,7 @@ function JAMF_static_group_action ()
     esac
 }
 
-function resintall_companyportal ()
+function reinstall_companyportal ()
 {
     # PURPOSE: Reinstall the MS Company Portal app if found
     # RETURN: None
@@ -589,14 +654,20 @@ focus_status=$(check_focus_status)
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
 
 # See if the portal is installed.  If you do not need to remove the app, then comment the following line
-#resintall_companyportal
+#reinstall_companyportal
 
 # Check to see if the profile is installed
 installed=(check_for_profile $MDM_PROFILE)
 
 # retrieve the JAMF ID # of the static group name
 groupID=$(JAMF_retrieve_static_groupID $JAMF_GROUP_NAME)
+[[ $groupID == *"ERR"* ]] && cleanup_and_exit 1
+[[ $groupID == *"NOT FOUND"* || $groupID == *"PRIVILEGE"* ]] && cleanup_and_exit 1
+
 deviceID=$(JAMF_get_deviceID "Serials" $MAC_SERIAL)
+[[ $deviceID == *"ERR"* ]] && cleanup_and_exit 1
+[[ $deviceID == *"NOT FOUND"* || $deviceID == *"PRIVILEGE"* ]] && cleanup_and_exit 1
+
 logMe "Group ID is: $groupID"
 logMe "Device ID is: $deviceID"
 
@@ -646,9 +717,12 @@ until [[ $(getValueOf registrationCompleted "$ssoStatus") == true ]]; do
     get_sso_status
 done
 logMe "INFO: Registration Finished Successfully"
-logMe "INFO: Sleeping for 20 secs and then running the gatherAADInfo command"
-sleep 60
-runAsUser /usr/local/jamf/bin/jamfAAD gatherAADInfo
-
+if [[ $RUN_JAMF_AAD == "YES" ]]; then
+    logMe "INFO: Sleeping for 20 secs and then running the gatherAADInfo command"
+    ${SW_DIALOG} --notification --identifier "registration" --title "Doing some Platform SSO registration" --message "Please be patient" --button1text "Dismiss"
+    sleep 20
+    runAsUser /usr/local/jamf/bin/jamfAAD gatherAADInfo
+    ${SW_DIALOG} --notification --identifier "registration" --remove
+fi
 echo "quit:" > ${DIALOG_COMMAND_FILE}
 cleanup_and_exit 0

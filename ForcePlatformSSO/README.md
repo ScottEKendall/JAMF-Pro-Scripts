@@ -24,6 +24,8 @@ If the user has focus mode turned on, they will get a slightly different message
 If you are using the Modern JAMF API credentials, you need to set:
 
 `Update Static Computer Groups`
+`Read Computers`
+`Read Static Groups`
 
 ## Setup ##
 
