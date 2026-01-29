@@ -111,11 +111,8 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Register Platform Single Sign-on"
 OVERLAY_ICON="${ICON_FILES}UserIcon.icns"
-SD_ICON_FILE="${SUPPORT_DIR}/SupportFiles/sso.png"
+PSSO_ICON="${SUPPORT_DIR}/SupportFiles/sso.png"
 
-# Provide the NAMES of the local profile and the JAMF group name to remove/add the users to
-MDM_PROFILE="Apps | Microsoft | Platform SSO Extension"
-JAMF_GROUP_NAME="Users | Microsoft | Platform SSO"
 
 # Trigger installs for Images & icons
 
@@ -216,6 +213,7 @@ function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
     [[ ! -e "${SD_ICON_FILE}" ]] && /usr/local/bin/jamf policy -trigger ${PSSO_ICON_POLICY}
+    [[ ! -e "${PSSO_ICON}" ]] && /usr/local/bin/jamf policy -trigger ${PSSO_ICON_POLICY}
 
 }
 
@@ -574,7 +572,7 @@ function displaymsg ()
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
 		--commandfile "${DIALOG_COMMAND_FILE}"
-		--image "${SUPPORT_DIR}/SupportFiles/pSSO_Notification.png"
+		--image "${PSSO_ICON}"
         --helpmessage "Contact the TSD or put in a ticket if you are having problems registering your device."
         --width 740
         --height 450
@@ -648,6 +646,7 @@ check_support_files
 JAMF_check_connection
 JAMF_get_server
 focus_status=$(check_focus_status)
+[[ $focus_status = "On" ]] && logMe "User has focus mode turned on!"
 
 # Check if the JAMF Pro server is using the new API or the classic API
 # If the client ID is longer than 30 characters, then it is using the new API
@@ -661,6 +660,7 @@ installed=(check_for_profile $MDM_PROFILE)
 
 # retrieve the JAMF ID # of the static group name
 groupID=$(JAMF_retrieve_static_groupID $JAMF_GROUP_NAME)
+[[ -z $groupID ]] && { display_failure_message "Group ID came back empty!"; cleanup_and_exit 1; }
 [[ $groupID == *"ERR"* ]] && cleanup_and_exit 1
 [[ $groupID == *"NOT FOUND"* || $groupID == *"PRIVILEGE"* ]] && cleanup_and_exit 1
 
