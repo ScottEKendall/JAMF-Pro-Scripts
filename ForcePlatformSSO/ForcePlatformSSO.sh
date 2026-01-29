@@ -405,7 +405,7 @@ function JAMF_get_deviceID ()
         return 1
     fi
 
-    id=$(echo $retval | tr -d '[:cntrl:]' | jq -r '.results[].id')
+    id=$(printf "%s" $retval | tr -d '[:cntrl:]' | jq -r '.results[].id')
     if [[ -z $id || $id == "null" ]]; then
         display_failure_message "$retval"
         echo "ERR"
@@ -447,7 +447,7 @@ function JAMF_retrieve_static_groupID ()
         echo "NOT FOUND"
         return 1
     fi
-    id=$(echo $tmp | jq -r --arg name "$1" '.results[] | select(.name == $name) | .id')
+    id=$(printf "%s" $tmp | tr -d '[:cntrl:]' | jq -r --arg name "$1" '.results[] | select(.name == $name) | .id')
     if [[ -z $id || $id == "null" ]]; then
         display_failure_message "$tmp"
         echo "ERR"
