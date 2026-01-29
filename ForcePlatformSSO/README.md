@@ -25,14 +25,20 @@ If you are using the Modern JAMF API credentials, you need to set:
 
 * `Update Static Computer Groups`
 
-
-##### _v1.0 - Initial Commit_
-##### _1.1 - Made MDM profile and JAMF group mame passed in variables vs hard coded_
-* _Make sure that all exit processes go thru the cleanup_and_exit function_
-* _Made the psso command run as current user (Thanks Adam N)_
-* _Perform a gatherAADInfo command after successful registration_
-#### _1.2 - Put in the --silent flag for the curl commands to not clutter the log_
-* _Changed logic in the detection of SS+...it was not returning expected value_
-* _Change the gatherAADInfo to RunAsUser vs root_
-#### _1.3 - removed the app-sso -l command.not sure if it is needed or not_
-#### _1.4 - Added feature to check for focus status and change the alert message accordingly_
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Made MDM profile and JAMF group name passed in variables vs hard coded
+||      Make sure that all exit processes go thru the cleanup_and_exit function
+||      Made the psso command run as current user (Thanks Adam N)
+||      Perform a gatherAADInfo command after successful registration
+| 1.2 | Put in the --silent flag for the curl commands to not clutter the log
+||      changed logic in the detection of SS+...it was not returning expected value
+||      Change the gatherAADInfo to RunAsUser vs root
+| 1.3 | removed the app-sso -l command...wasn't really needed 
+| 1.4 | Added feature to check for focus status and change the alert message accordingly
+| 1.5 | Used modern JAMF API wherever possible
+||      More logging of events
+||      More error trapping of failures
+||      Reworked Common section to be more inline with the rest of my apps
+||      Fixed Typos

@@ -1,6 +1,6 @@
 #!/bin/zsh --no-rcs
 #
-# FocePlatformSSO.sh
+# ForcePlatformSSO.sh
 #
 # by: Scott Kendall
 #
@@ -9,7 +9,7 @@
 #
 # Script Purpose: Deploys Platform Single Sign-on
 #
-# Contrubtions by: Howie Canterbury
+# Contributions by: Howie Canterbury
 #
 #	1 - Installs Microsoft Company Portal
 #	2 - Triggers install of Platform SSO for Microsoft Entra ID configuration profile by adding the Mac to 
@@ -29,7 +29,7 @@
 #   Parameter 7: JAMF Static Group name (for Platform SSO Users)
 #
 # 1.0 - Initial
-# 1.1 - Made MDM profile and JAMF group mame passed in variables vs hard coded
+# 1.1 - Made MDM profile and JAMF group name passed in variables vs hard coded
 #       Make sure that all exit processes go thru the cleanup_and_exit function
 #       Made the psso command run as current user (Thanks Adam N)
 #       Perform a gatherAADInfo command after successful registration
@@ -41,18 +41,22 @@
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
+#set -x
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+SCRIPT_NAME="ForcePlatformSSO"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-USER_ID=$(id -u "$LOGGED_IN_USER")
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
+USER_UID=$(id -u "$LOGGED_IN_USER")
+MAC_SERIAL=$(ioreg -l | grep IOPlatformSerialNumber | cut -d'"' -f4)
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_SERIAL=$(echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.serial_number' 'raw' -)
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -60,34 +64,47 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="2.5.0"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
+HOUR=$(date +%H)
+case $HOUR in
+    0[0-9]|1[0-1]) GREET="morning" ;;
+    1[2-7])        GREET="afternoon" ;;
+    *)             GREET="evening" ;;
+esac
+SD_DIALOG_GREETING="Good $GREET"
 
-# Make some temp files for this app
+# Make some temp files
 
-DIALOG_COMMAND_FILE=$(mktemp /var/tmp/AppDelete.XXXXX)
-/bin/chmod 666 $DIALOG_COMMAND_FILE
-
-FOCUS_FILE="/Users/${LOGGED_IN_USER}/Library/DoNotDisturb/DB/Assertions.json"
-
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-
+DIALOG_COMMAND_FILE=$(mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX")
+JSON_DIALOG_BLOB=$(mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX")
+chmod 666 $DIALOG_COMMAND_FILE
+chmod 666 $JSON_DIALOG_BLOB
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
+   
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -f "$DEFAULTS_DIR" ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    spacing=5 #5 spaces to accommodate for icon offset
+fi
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
-# Support / Log files location
+# Log files location
 
-SUPPORT_DIR="/Library/Application Support/GiantEagle"
-LOG_FILE="${SUPPORT_DIR}/logs/pSSORegistration.log"
+LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Register Platform Single Sign-on"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-SD_ICON="/Applications/Self Service.app"
 OVERLAY_ICON="${ICON_FILES}UserIcon.icns"
 SD_ICON_FILE="${SUPPORT_DIR}/SupportFiles/sso.png"
 
@@ -96,6 +113,9 @@ MDM_PROFILE="Apps | Microsoft | Platform SSO Extension"
 JAMF_GROUP_NAME="Users | Microsoft | Platform SSO"
 
 # Trigger installs for Images & icons
+
+FOCUS_FILE="$USER_DIR/Library/DoNotDisturb/DB/Assertions.json"
+SD_TIMER=300    #Length of time you want the message on the screen (300=5 mins)
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
@@ -130,8 +150,8 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
-    LOG_DIR=${LOG_FILE%/*}
+	# If the log directory doesnt exist - create it and set the permissions (using zsh paramter expansion to get directory)
+	LOG_DIR=${LOG_FILE%/*}
 	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
 	/bin/chmod 755 "${LOG_DIR}"
 
@@ -206,8 +226,21 @@ function JAMF_which_self_service ()
     # RETURN: None
     # EXPECTED: None
     local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
+}
+
+function JAMF_check_credentials ()
+{
+    # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
+    # RETURN: None
+    # EXPECTED: None
+
+    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
+        logMe "Client/Secret info is not valid"
+        exit 1
+    fi
+    logMe "Valid credentials passed"
 }
 
 function JAMF_check_connection ()
@@ -335,21 +368,28 @@ function JAMF_get_deviceID ()
     # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server.
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - search identifier to use (serial or Hostname)
-    #        $2 - Device name/serial # to search for
-
+    #        $2 - Conputer ID (serial/hostname)
+    local type retval ID
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-    ID=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc&filter=$type=='$2'"| jq -r '.results[].id')
-    echo $ID
+    ID=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v3/computers-inventory?filter=$type==$2" |  tr -d '[:cntrl:]' | jq -r '.results[].id')
+    # 4. Streamlined Error Handling
+    if [[ -z "$ID" ]]; then
+        display_failure_message
+        echo "ERR"
+        return 1
+    fi
+    echo ${ID}
 }
 
-function JAMF_retreive_static_group_id ()
+function JAMF_retrieve_static_groupID ()
 {
     # PURPOSE: Retrieve the ID of a static group
     # RETURN: ID # of static group
     # EXPECTED: jamppro_url, api_token
     # PARMATERS: $1 = JAMF Static group name
-    declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/computergroups")
-    echo $tmp | xmllint --xpath 'string(//computer_group[name="'$1'"]/id)' -
+    local tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computer-groups/static-groups?sort=id%3Aasc")
+    retval=$(echo printf "%s" $tmp | echo $tmp | jq -r --arg name "$1" '.results[] | select(.name == $name) | .id')
+    echo ${retval}
 }
 
 function JAMF_static_group_action ()
@@ -361,15 +401,28 @@ function JAMF_static_group_action ()
     #            $2 - Serial # of device
     #            $3 = Acton to take "Add/Remove"
     declare apiData
+    local groupID="$1" serial="$2" action="$3"
+    local action_lower=${action:l}
 
-    if [[ ${3:l} == "remove" ]]; then
-        apiData="<computer_group><computer_deletions><computer><serial_number>${MAC_SERIAL}</serial_number></computer></computer_deletions></computer_group>"
+    # Validate action
+    [[ "$action_lower" != (add|remove) ]] && {echo "ERROR: Action must be 'add' or 'remove'" >&2; return 1; }
+     # Validate groupID is numeric
+    [[ ! "$groupID" =~ '^[0-9]+$' ]] && { echo "ERROR: Group ID must be numeric" >&2; return 1; }
+    # Generate XML payload
+    if [[ $action_lower == "remove" ]]; then
+        api_data='<computer_group><computer_deletions><computer><serial_number>'${serial}'</serial_number></computer></computer_deletions></computer_group>'
     else
-        apiData="<computer_group><computer_additions><computer><serial_number>${MAC_SERIAL}</serial_number></computer></computer_additions></computer_group>"
+        api_data='<computer_group><computer_additions><computer><serial_number>'${serial}'</serial_number></computer></computer_additions></computer_group>'
     fi
     ## curl call to the API to add the computer to the provided group ID
-    retval=$(curl -s -f -H "Authorization: Bearer ${api_token}" -H "Content-Type: application/xml" ${jamfpro_url}JSSResource/computergroups/id/${1} -X PUT -d "${apiData}")
-    [[ $retval == *"409"* ]] && echo "ERROR: System not in group" 1>&2
+    retval=$(curl -w "%{http_code}" -s -H "Authorization: Bearer ${api_token}" -H "Content-Type: application/xml" "${jamfpro_url}JSSResource/computergroups/id/${groupID}" --request PUT --data "$api_data" -o /dev/null)
+    case "$retval" in
+        200|201) return 0 ;;  # Success
+        409) echo "ERROR: Computer not in group" >&2; return 1 ;;
+        401) echo "ERROR: API token invalid/expired" >&2; return 1 ;;
+        404) echo "ERROR: Group ID $groupID not found" >&2; return 1 ;;
+        *) echo "ERROR: HTTP $retval" >&2; return 1 ;;
+    esac
 }
 
 function resintall_companyportal ()
@@ -401,12 +454,33 @@ function resintall_companyportal ()
     fi
 }
 
+function display_failure_message ()
+{
+     MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
+        --message "**Problems retrieving JAMF Info**<br><br>Error Message: $1"
+        --icon "${SD_ICON_FILE}"
+        --overlayicon warning
+        --iconsize 128
+        --messagefont name=Arial,size=17
+        --button1text "OK"
+        --ontop
+        --moveable
+    )
+
+    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    buttonpress=$?
+
+}
+
 function check_for_profile ()
 {
     # PURPOSE: Check to see if a profile is installed
-    # RETURN: Profile Insalled (Yes/No)
+    # RETURN: Profile Installed (Yes/No)
     # EXPECTED: None
-    # PARMATERS: $1 = Profile name to search for
+    # PARAMETERS: $1 = Profile name to search for
     LogMe "Checking if Platform Single Sign-on profile is installed..."
 	check_installed=$(/usr/bin/profiles -C -v | /usr/bin/awk -F: '/attribute: name/{print $NF}' | /usr/bin/grep "${1}" | xargs)
 	
@@ -473,13 +547,13 @@ function check_focus_status ()
 {
     # PURPOSE: Check to see if the user is in focus mode
     # RETURN: in focus mode (Off/On)
-    # EXPECTED: None
-    # PARMATERS: None
+    # EXPECTED: FOCUS_FILE is the location of FocusMode settings
+    # PARAMETERS: None
 
     results="Off"
     if [[ -e $FOCUS_FILE ]]; then
-        retval=$(plutil -extract data.0.storeAssertionRecords.0.assertionDetails.assertionDetailsModeIdentifier raw -o - $FOCUS_FILE | grep -ic 'com.apple.')
-        [[ $retval == "1" ]] && results="On"
+        retval=$(grep -c '"storeAssertionRecords"' "$FOCUS_FILE" 2>/dev/null)
+        [[ $retval == 1 ]] && results="On"
     fi
     echo $results
 }
@@ -515,23 +589,31 @@ focus_status=$(check_focus_status)
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
 
 # See if the portal is installed.  If you do not need to remove the app, then comment the following line
-resintall_companyportal
+#resintall_companyportal
 
 # Check to see if the profile is installed
 installed=(check_for_profile $MDM_PROFILE)
 
 # retrieve the JAMF ID # of the static group name
-group_id=$(JAMF_retreive_static_group_id $JAMF_GROUP_NAME)
-deviceID=$(JAMF_get_deviceID "Serial" $MAC_SERIAL)
+groupID=$(JAMF_retrieve_static_groupID $JAMF_GROUP_NAME)
+deviceID=$(JAMF_get_deviceID "Serials" $MAC_SERIAL)
+logMe "Group ID is: $groupID"
+logMe "Device ID is: $deviceID"
 
 # If the profile is not installed, then install it
 if [[ "$installed" == "No" ]]; then
-    JAMF_static_group_action $group_id $deviceID "add"
+    retval=$(JAMF_static_group_action $groupID $MAC_SERIAL "add")
+    [[ -z $retval ]] && logMe "Successfull addition" || {logMe $retval; cleanup_and_exit 1; }
 else
+    # System was found, so lets remove it first and then re-add it to force the prompt to appear
     logMe "Platform SSO for Microsoft Entra ID profile is already installed. Uninstalling and reinstalling..."
-    JAMF_static_group_action $group_id $deviceID "remove"
+    logMe "Removing $MAC_SERIAL from $JAMF_GROUP_NAME ($groupID)"
+    retval=$(JAMF_static_group_action $groupID $MAC_SERIAL "remove")
+    [[ -z $retval ]] && logMe "Successfull removal" || {logMe $retval; cleanup_and_exit 1; }
     sleep 5
-    JAMF_static_group_action $group_id $deviceID "add"
+    logMe "Adding $MAC_SERIAL to $JAMF_GROUP_NAME ($groupID)"
+    retval=$(JAMF_static_group_action $groupID $MAC_SERIAL "add")
+    [[ -z $retval ]] && logMe "Successfull addition" || {logMe $retval; cleanup_and_exit 1; }
 fi
 
 # Prompt the user to register if needed
@@ -557,14 +639,15 @@ until [[ $(getValueOf registrationCompleted "$ssoStatus") == true ]]; do
     logMe "Device has not been registered yet."
     now_ts=$(date +%s)
     if (( now_ts - start_ts >= max_wait )); then
-        logMe "ERROR: Timed out after ${max_wait}s waiting for PSSO."
+        logMe "ERROR: Timed out after ${max_wait}s waiting for User Registration."
         cleanup_and_exit 1
     fi
     sleep $interval
     get_sso_status
 done
 logMe "INFO: Registration Finished Successfully"
-logMe "INFO: running the gatherAADInfo command"
+logMe "INFO: Sleeping for 20 secs and then running the gatherAADInfo command"
+sleep 60
 runAsUser /usr/local/jamf/bin/jamfAAD gatherAADInfo
 
 echo "quit:" > ${DIALOG_COMMAND_FILE}
