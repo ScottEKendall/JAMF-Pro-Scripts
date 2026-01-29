@@ -23,7 +23,21 @@ If the user has focus mode turned on, they will get a slightly different message
 
 If you are using the Modern JAMF API credentials, you need to set:
 
-* `Update Static Computer Groups`
+`Update Static Computer Groups`
+
+## Setup ##
+
+To set this up you will need the following:
+
+1.  Your JAMF credentials (Classic or Modern API)
+1.  The Config Profile (name) of your Platform SSO extension.  I scope this to users that are part of a static group
+2.  The static group (name) that you add users to which will deliver the pSSO Config Profile
+   
+![](./ForcePlatformSSO-Settings.png)
+
+Once you configure these variables inside of your policy, you can scope this policy to your users.
+
+## Release Notes ##
 
 | **Version**|**Notes**|
 |:--------:|-----|
