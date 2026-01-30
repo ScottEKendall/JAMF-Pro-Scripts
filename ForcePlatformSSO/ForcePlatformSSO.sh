@@ -119,6 +119,7 @@ SSO_GRAPHIC="${SUPPORT_DIR}/SupportFiles/pSSO_Notification.png"
 
 FOCUS_FILE="$USER_DIR/Library/DoNotDisturb/DB/Assertions.json"
 SD_TIMER=300    #Length of time you want the message on the screen (300=5 mins)
+JAMF_AAD_BINARY="/usr/local/jamf/bin/jamfAAD"
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
@@ -138,7 +139,7 @@ CLIENT_ID=${4}                               # user name for JAMF Pro
 CLIENT_SECRET=${5}
 MDM_PROFILE=${6}
 JAMF_GROUP_NAME=${7}
-RUN_JAMF_AAD=${8:-"NO"}
+RUN_JAMF_AAD_ON_ERROR=${8:-"YES"}
 
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
 
@@ -489,6 +490,21 @@ function JAMF_static_group_action ()
     esac
 }
 
+function JAMF_check_AAD ()
+{
+    local jamf_response
+    local retval=1
+    logMe "Checking for JAMF Pro compliance information"
+    jamf_response=$(runAsUser "${JAMF_AAD_BINARY}" gatherAADInfo ) #2>&1)
+    if [[ $(echo "${jamf_response}" | grep -c 'AAD ID acquired') -gt 0 ]]; then
+        logMe "INFO: JAMF Pro registration successfully updated."
+    else
+        logMe "ERROR: Could not gather Jamf Pro device compliance information:\n${jamf_response}"
+        retval=0
+    fi
+    return $retval
+}
+
 function reinstall_companyportal ()
 {
     # PURPOSE: Reinstall the MS Company Portal app if found
@@ -545,15 +561,15 @@ function check_for_profile ()
     # RETURN: Profile Installed (Yes/No)
     # EXPECTED: None
     # PARAMETERS: $1 = Profile name to search for
-    LogMe "Checking if Platform Single Sign-on profile is installed..."
+    logMe "Checking if Platform Single Sign-on profile is installed..."
 	check_installed=$(/usr/bin/profiles -C -v | /usr/bin/awk -F: '/attribute: name/{print $NF}' | /usr/bin/grep "${1}" | xargs)
 	
 	# Confirm installed
 	if [[ "$check_installed" == "$1" ]]; then
-		LogMe "Platform SSO for Microsoft Entra ID profile is installed"
+		logMe "Platform SSO for Microsoft Entra ID profile is installed"
 		echo "Yes"
 	else
-		LogMe "Platform SSO for Microsoft Entra ID profile is not installed"
+		logMe "Platform SSO for Microsoft Entra ID profile is not installed"
 		echo "No"
 	fi
 }
@@ -604,7 +620,8 @@ function kill_sso_agent()
 
 function runAsUser () 
 {  
-    launchctl asuser "$USER_ID" sudo -u "$LOGGED_IN_USER" "$@"
+    launchctl asuser "${USER_UID}" sudo -u "${LOGGED_IN_USER}" "$@"
+
 }
 
 function check_focus_status ()
@@ -693,7 +710,7 @@ fi
 get_sso_status
 if [[ $(getValueOf registrationCompleted "$ssoStatus") == true ]]; then
     logMe "User already registered"
-    exit 0
+    cleanup_and_exit 0
 fi
 
 logMe "Prompting user to register device"
@@ -719,12 +736,15 @@ until [[ $(getValueOf registrationCompleted "$ssoStatus") == true ]]; do
     get_sso_status
 done
 logMe "INFO: Registration Finished Successfully"
-if [[ $RUN_JAMF_AAD == "YES" ]]; then
-    logMe "INFO: Sleeping for 20 secs and then running the gatherAADInfo command"
-    ${SW_DIALOG} --notification --identifier "registration" --title "Doing some Platform SSO registration" --message "Please be patient" --button1text "Dismiss"
-    sleep 20
-    runAsUser /usr/local/jamf/bin/jamfAAD gatherAADInfo
-    ${SW_DIALOG} --notification --identifier "registration" --remove
+if  JAMF_check_AAD; then
+    logMe "ERROR: jamfAADInfo doesn't report successful registration!"
+    if [[ $RUN_JAMF_AAD_ON_ERROR == "YES" ]]; then
+        logMe "INFO: Sleeping for 5 secs and then running the gatherAADInfo command"
+        ${SW_DIALOG} --notification --identifier "registration" --title "Doing some Platform SSO registration" --message "Please be patient" --button1text "Dismiss"
+        sleep 5
+        runAsUser /usr/local/jamf/bin/jamfAAD gatherAADInfo
+        ${SW_DIALOG} --notification --identifier "registration" --remove
+    fi
 fi
 echo "quit:" > ${DIALOG_COMMAND_FILE}
 cleanup_and_exit 0
