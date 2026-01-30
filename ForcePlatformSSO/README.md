@@ -21,19 +21,22 @@ If the user has focus mode turned on, they will get a slightly different message
 
 ![](./ForcePlatformSSO-Focus.png)
 
+
+## Setup / Configuration ##
+
 If you are using the Modern JAMF API credentials, you need to set:
 
 `Update Static Computer Groups`
 `Read Computers`
 `Read Static Groups`
-## Setup ##
 
-To set this up you will need the following:
+To configure this script, you will need the following:
 
 1.  Your JAMF credentials (Classic or Modern API)
 2.  The Config Profile (name) of your Platform SSO extension.  I scope this to users that are part of a static group
-3.  The static group (name) that you add users to which will deliver the pSSO Config Profile
-4.  Optional.   If the `jamfAAD gatherAADInfo` command shows that the device is not registered, it can attempt to fix
+3.  The Static Group (name) that you add users to, which installs the pSSO Config Profile
+4.  Optional -  Attempt to fix the JAMF registration if `jamfAAD gatherAADInfo` command shows that the device is not registered.
+5.  Optional - You can force the TouchID registration on system that have it available.
    
 ![](./ForcePlatformSSO-Settings.png)
 
@@ -60,3 +63,8 @@ Once you configure these variables inside of your policy, you can scope this pol
 ||      More error trapping of failures
 ||      Reworked Common section to be more inline with the rest of my apps
 ||      Fixed Typos
+| 1.6 | Added option to check for valid "jamfAAD gatherAADInfo" and attempt to fix if not registered properly
+||       Also added parameter to force gatherAADInfo to run if failure detected
+||       Fixed issue of runAsUsers not using correct USER_UID variable
+| 1.7 | Added option to force a touchID fingerprint if not already set
+||       More reporting for focus status & touchID status

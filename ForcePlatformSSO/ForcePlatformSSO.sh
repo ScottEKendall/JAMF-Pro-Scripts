@@ -15,7 +15,8 @@
 #	2 - Triggers install of Platform SSO for Microsoft Entra ID configuration profile by adding the Mac to 
 #	    Platform Single Sign-on group
 #	3 - Deploys password expiration check to alert users when their password is due to expire in 14 days or less
-#   NOTE: If profile or Company Portal app are found to already be on the computer they are uninstalled and reinstalled.
+#   4 - Can force touchID enrollment if available
+#   5 - Optionally choose to remove/reinstall CompanyPortal if present
 
 ######################
 #
@@ -27,6 +28,9 @@
 #   Parameter 5: API client secret
 #   Parameter 6: MDM Profile Name
 #   Parameter 7: JAMF Static Group name (for Platform SSO Users)
+#   Parameter 8: Attempt to run "jamfAAD gatherSSOStatus" if JAMF not showing as compliant after registration
+#   Parameter 9: Force touchID fingerprint enrollment if not already set
+
 #
 # 1.0 - Initial
 # 1.1 - Made MDM profile and JAMF group name passed in variables vs hard coded
@@ -46,6 +50,8 @@
 # 1.6 - Added option to check for valid "jamfAAD gatherAADInfo" and attempt to fix if not registered properly
 #       Also added parameter to force gatherAADInfo to run if failure detected
 #       Fixed issue of runAsUsers not using correct USER_UID variable
+# 1.7 - Added option to force a touchID fingerprint if not already set
+#       More reporting for focus status & touchID status
 
 ######################################################################################################
 #
@@ -117,7 +123,6 @@ OVERLAY_ICON="${ICON_FILES}UserIcon.icns"
 SD_ICON_FILE="${SUPPORT_DIR}/SupportFiles/sso.png"
 SSO_GRAPHIC="${SUPPORT_DIR}/SupportFiles/pSSO_Notification.png"
 
-
 # Trigger installs for Images & icons
 
 FOCUS_FILE="$USER_DIR/Library/DoNotDisturb/DB/Assertions.json"
@@ -142,7 +147,8 @@ CLIENT_ID=${4}                               # user name for JAMF Pro
 CLIENT_SECRET=${5}
 MDM_PROFILE=${6}
 JAMF_GROUP_NAME=${7}
-RUN_JAMF_AAD_ON_ERROR=${8:-"YES"}
+RUN_JAMF_AAD_ON_ERROR=${8:-"yes"}
+CHECK_FOR_TOUCHID=${9:-"yes"}
 
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
 
@@ -580,7 +586,7 @@ function check_for_profile ()
 function displaymsg ()
 {
 	message="When you see this macOS notification appear, please click the register button within the prompt, and go through the registration process."
-    if [[ $focus_status = "On" ]] && message+="<br><br>**Since your focus mode is turned on, you will need to click in the notification center to see this prompt**"
+    if [[ $FOCUS_STATUS = "On" ]] && message+="<br><br>**Since your focus mode is turned on, you will need to click in the notification center to see this prompt**"
 	MainDialogBody=(
         --message "<br>$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
         --titlefont shadow=1 size=24
@@ -634,12 +640,59 @@ function check_focus_status ()
     # EXPECTED: FOCUS_FILE is the location of FocusMode settings
     # PARAMETERS: None
 
-    results="Off"
-    if [[ -e $FOCUS_FILE ]]; then
-        retval=$(grep -c '"storeAssertionRecords"' "$FOCUS_FILE" 2>/dev/null)
-        [[ $retval == 1 ]] && results="On"
+    local results="off"
+    if [[ -f "$FOCUS_FILE" ]] && grep -q '"storeAssertionRecords"' "$FOCUS_FILE" 2>/dev/null; then
+        results="on"
     fi
     echo $results
+}
+
+function touch_id_status ()
+{
+    # PURPOSE: Check the status of the TouchID
+    # RETURN: one of four possible values  (absent, present, enabled, not enabled)
+    # EXPECTED: USER_UID - internal UUID of the logged in user
+    # PARAMETERS: None
+    local retval="absent"
+    local tmp
+    # Detect if this system has TouchID
+    if bioutil -r -s 2>/dev/null | grep -q "System Touch ID configuration"; then
+        retval="present"
+    fi
+    # If it does have touch ID, then see if it is enabled
+    if [[ "$retval" == "present" ]]; then
+        tmp=($(bioutil -c -s | awk '/User/ {print $2 $3}'))
+    	[[ $(echo "${tmp[*]}" | grep -c "${USER_UID}") -gt 0 ]] && retval="enabled" || retval="not enabled"
+    fi
+    echo $retval
+}
+
+function force_touch_id ()
+{
+    # PURPOSE: Forces touchID registration
+    # RETURN: 0 if successful, 1 if aborted
+    # EXPECTED: TOUCH_ID_STATUS = Status of TouchID sensor
+    # PARAMETERS: None
+    while true; do
+        open "x-apple.systempreferences:com.apple.Touch-ID-Settings.extension"
+        "${SW_DIALOG}" \
+        --title "Touch ID Required" \
+        --message "Touch ID needs to be enabled on your system.  Please add at least one fingerprint.  Close this window when you are done adding your fingerprint." \
+        --icon "SF=touchid,colour=auto" \
+        --style mini \
+        --position "topright" \
+        --button1text "Close" \
+        --button2text "Abort" \
+        --quitkey 0 \
+        --ontop \
+
+        buttonpress=$?
+        TOUCH_ID_STATUS=$(touch_id_status)
+        [[ $TOUCH_ID_STATUS == "enabled" || $buttonpress == 2 ]] && break
+    done
+    killall "System Settings" >/dev/null 2>&1
+    # Set the status code
+    [[ $buttonpress == 2 ]] && return 1 || return 0
 }
 
 ####################################################################################################
@@ -651,7 +704,9 @@ function check_focus_status ()
 declare api_token
 declare jamfpro_url
 declare ssoStatus
-declare focus_status
+declare FOCUS_STATUS
+declare TOUCH_ID_STATUS
+declare DIALOG_PID
 
 autoload 'is-at-least'
 
@@ -671,30 +726,54 @@ JAMF_get_server
 # If the client ID is longer than 30 characters, then it is using the new API
 [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token   
 
-focus_status=$(check_focus_status)
-[[ $focus_status = "On" ]] && logMe "INFO: User has focus mode turned on!"
+##
+## Check the status of Focus Mode
+##
+FOCUS_STATUS=$(check_focus_status)
+logMe "INFO: User has focus mode turned $FOCUS_STATUS"
 
-# See if the portal is installed.  If you do not need to remove the app, then comment the following line
+##
+## Check for TouchID and enforce if requested
+##
+if [[ "${CHECK_FOR_TOUCHID:l}" == "yes" ]]; then
+    TOUCH_ID_STATUS=$(touch_id_status)
+    logMe "INFO: Touch ID Status: $TOUCH_ID_STATUS"
+    if [[ "${TOUCH_ID_STATUS}" == "not enabled" ]]; then
+        logMe "Forcing TouchID Registration"
+        # if it present, but not enabled, then force the user into adding their fingerprint
+        [[ ${TOUCH_ID_STATUS} == "not enabled" ]] && force_touch_id
+        [[ $? -ne 0 ]] && { logMe "Script Aborted"; cleanup_and_exit 1; }
+        logMe "INFO: Touch ID Status: $TOUCH_ID_STATUS"
+    fi
+fi
+##
+## Reinstall the companyportal app..uncomment the below line to perform operation
+##
 #reinstall_companyportal
 
-# Check to see if the profile is installed
-installed=(check_for_profile $MDM_PROFILE)
-
-# retrieve the JAMF ID # of the static group name
+##
+## retrieve the JAMF ID # of the static group name
+##
 groupID=$(JAMF_retrieve_static_groupID $JAMF_GROUP_NAME)
 [[ -z $groupID ]] && { display_failure_message "Group ID came back empty!"; cleanup_and_exit 1; }
 [[ $groupID == *"ERR"* ]] && cleanup_and_exit 1
 [[ $groupID == *"NOT FOUND"* || $groupID == *"PRIVILEGE"* ]] && cleanup_and_exit 1
+logMe "Group ID is: $groupID"
 
+##
+## Retrieve JAMF Device ID (conputer record)
+##
 deviceID=$(JAMF_get_deviceID "Serials" $MAC_SERIAL)
 [[ $deviceID == *"ERR"* ]] && cleanup_and_exit 1
 [[ $deviceID == *"NOT FOUND"* || $deviceID == *"PRIVILEGE"* ]] && cleanup_and_exit 1
-
-logMe "Group ID is: $groupID"
 logMe "Device ID is: $deviceID"
 
-# If the profile is not installed, then install it
-if [[ "$installed" == "No" ]]; then
+##
+## Profile check
+##
+profileInstalled=(check_for_profile $MDM_PROFILE)
+
+if [[ "$profileInstalled" == "No" ]]; then
     retval=$(JAMF_static_group_action $groupID $MAC_SERIAL "add")
     [[ -z $retval ]] && logMe "Successfull addition" || {logMe $retval; cleanup_and_exit 1; }
 else
@@ -709,7 +788,9 @@ else
     [[ -z $retval ]] && logMe "Successfull addition" || {logMe $retval; cleanup_and_exit 1; }
 fi
 
-# Prompt the user to register if needed
+##
+## Platform SSO registration
+##
 get_sso_status
 if [[ $(getValueOf registrationCompleted "$ssoStatus") == true ]]; then
     logMe "User already registered"
@@ -739,9 +820,14 @@ until [[ $(getValueOf registrationCompleted "$ssoStatus") == true ]]; do
     get_sso_status
 done
 logMe "INFO: Registration Finished Successfully"
+echo "quit:" > ${DIALOG_COMMAND_FILE}
+
+##
+## double check JAMF to make sure if is marked as registered
+##
 if  JAMF_check_AAD; then
     logMe "ERROR: jamfAADInfo doesn't report successful registration!"
-    if [[ $RUN_JAMF_AAD_ON_ERROR == "YES" ]]; then
+    if [[ "${RUN_JAMF_AAD_ON_ERROR:l}" == "yes" ]]; then
         logMe "INFO: Sleeping for 5 secs and then running the gatherAADInfo command"
         ${SW_DIALOG} --notification --identifier "registration" --title "Doing some Platform SSO registration" --message "Please be patient" --button1text "Dismiss"
         sleep 5
@@ -749,5 +835,5 @@ if  JAMF_check_AAD; then
         ${SW_DIALOG} --notification --identifier "registration" --remove
     fi
 fi
-echo "quit:" > ${DIALOG_COMMAND_FILE}
+
 cleanup_and_exit 0
