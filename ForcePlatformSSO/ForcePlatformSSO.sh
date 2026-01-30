@@ -649,7 +649,7 @@ function touch_id_status ()
         tmp=($(bioutil -c -s | awk '/User/ {print $2 $3}'))
         [[ $(echo "${tmp[*]}" | grep -c "${USER_UID}") -gt 0 ]] && retval="Enabled" || retval="Not enabled"
     fi
-    echo "<result>$retval</result>"
+    echo "$retval"
 }
 
 function force_touch_id ()
