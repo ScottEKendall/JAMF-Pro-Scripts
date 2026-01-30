@@ -26,14 +26,14 @@ If you are using the Modern JAMF API credentials, you need to set:
 `Update Static Computer Groups`
 `Read Computers`
 `Read Static Groups`
-
 ## Setup ##
 
 To set this up you will need the following:
 
 1.  Your JAMF credentials (Classic or Modern API)
-1.  The Config Profile (name) of your Platform SSO extension.  I scope this to users that are part of a static group
-2.  The static group (name) that you add users to which will deliver the pSSO Config Profile
+2.  The Config Profile (name) of your Platform SSO extension.  I scope this to users that are part of a static group
+3.  The static group (name) that you add users to which will deliver the pSSO Config Profile
+4.  Optional.   If the `jamfAAD gatherAADInfo` command shows that the device is not registered, it can attempt to fix
    
 ![](./ForcePlatformSSO-Settings.png)
 
