@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/02/2025
-# Last updated: 01/29/2026
+# Last updated: 01/30/2026
 #
 # Script Purpose: Deploys Platform Single Sign-on
 #
@@ -43,6 +43,9 @@
 #       More error trapping of failures
 #       Reworked Common section to be more inline with the rest of my apps
 #       Fixed Typos
+# 1.6 - Added option to check for valid "jamfAAD gatherAADInfo" and attempt to fix if not registered properly
+#       Also added parameter to force gatherAADInfo to run if failure detected
+#       Fixed issue of runAsUsers not using correct USER_UID variable
 
 ######################################################################################################
 #
