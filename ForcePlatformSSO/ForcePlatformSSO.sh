@@ -237,16 +237,6 @@ function cleanup_and_exit ()
 	exit $1
 }
 
-function JAMF_which_self_service ()
-{
-    # PURPOSE: Function to see which Self service to use (SS / SS+)
-    # RETURN: None
-    # EXPECTED: None
-    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
-    echo $retval
-}
-
 function JAMF_check_credentials ()
 {
     # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
@@ -476,14 +466,13 @@ function JAMF_static_group_action ()
     #            $3 = Acton to take "Add/Remove"
     declare apiData
     local groupID="$1" serial="$2" action="$3"
-    local action_lower=${action:l}
 
     # Validate action
-    [[ "$action_lower" != (add|remove) ]] && {echo "ERROR: Action must be 'add' or 'remove'" >&2; return 1; }
+    [[ "${action:l}" != (add|remove) ]] && {echo "ERROR: Action must be 'add' or 'remove'" >&2; return 1; }
      # Validate groupID is numeric
     [[ ! "$groupID" =~ '^[0-9]+$' ]] && { echo "ERROR: Group ID must be numeric" >&2; return 1; }
     # Generate XML payload
-    if [[ $action_lower == "remove" ]]; then
+    if [[ "${action:l}" == "remove" ]]; then
         api_data='<computer_group><computer_deletions><computer><serial_number>'${serial}'</serial_number></computer></computer_deletions></computer_group>'
     else
         api_data='<computer_group><computer_additions><computer><serial_number>'${serial}'</serial_number></computer></computer_additions></computer_group>'
@@ -653,18 +642,14 @@ function touch_id_status ()
     # RETURN: one of four possible values  (absent, present, enabled, not enabled)
     # EXPECTED: USER_UID - internal UUID of the logged in user
     # PARAMETERS: None
-    local retval="absent"
+    local retval="Absent"
     local tmp
     # Detect if this system has TouchID
     if bioutil -r -s 2>/dev/null | grep -q "System Touch ID configuration"; then
-        retval="present"
-    fi
-    # If it does have touch ID, then see if it is enabled
-    if [[ "$retval" == "present" ]]; then
         tmp=($(bioutil -c -s | awk '/User/ {print $2 $3}'))
-    	[[ $(echo "${tmp[*]}" | grep -c "${USER_UID}") -gt 0 ]] && retval="enabled" || retval="not enabled"
+        [[ $(echo "${tmp[*]}" | grep -c "${USER_UID}") -gt 0 ]] && retval="Enabled" || retval="Not enabled"
     fi
-    echo $retval
+    echo "<result>$retval</result>"
 }
 
 function force_touch_id ()
