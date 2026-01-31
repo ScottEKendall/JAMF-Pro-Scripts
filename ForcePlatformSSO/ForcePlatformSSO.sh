@@ -723,10 +723,10 @@ logMe "INFO: User has focus mode turned $FOCUS_STATUS"
 if [[ "${CHECK_FOR_TOUCHID:l}" == "yes" ]]; then
     TOUCH_ID_STATUS=$(touch_id_status)
     logMe "INFO: Touch ID Status: $TOUCH_ID_STATUS"
-    if [[ "${TOUCH_ID_STATUS}" == "not enabled" ]]; then
-        logMe "Forcing TouchID Registration"
+    if [[ "${TOUCH_ID_STATUS}" == "Not enabled" ]]; then
         # if it present, but not enabled, then force the user into adding their fingerprint
-        [[ ${TOUCH_ID_STATUS} == "not enabled" ]] && force_touch_id
+        logMe "Forcing TouchID Registration"
+        force_touch_id
         [[ $? -ne 0 ]] && { logMe "Script Aborted"; cleanup_and_exit 1; }
         logMe "INFO: Touch ID Status: $TOUCH_ID_STATUS"
     fi
