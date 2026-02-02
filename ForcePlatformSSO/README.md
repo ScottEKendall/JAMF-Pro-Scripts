@@ -21,14 +21,17 @@ If the user has focus mode turned on, they will get a slightly different message
 
 ![](./ForcePlatformSSO-Focus.png)
 
+During the registration of pSSO into Entra, the user will be asked to verify that the Company Portal extension is enabled in the Autofill & Password section of System Settings - This script will auto-enable that feature in case the user doesn't.
+
+![](ForcePlatformSSO-Extensions.png)
 
 ## Setup / Configuration ##
 
 If you are using the Modern JAMF API credentials, you need to set:
 
-`Update Static Computer Groups`
-`Read Computers`
-`Read Static Groups`
+    Update Static Computer Groups
+    Read Computers
+    Read Static Groups
 
 To configure this script, you will need the following:
 
@@ -68,3 +71,4 @@ Once you configure these variables inside of your policy, you can scope this pol
 ||       Fixed issue of runAsUsers not using correct USER_UID variable
 | 1.7 | Added option to force a touchID fingerprint if not already set
 ||       More reporting for focus status & touchID status
+| 1.8 | Add section to enable the microsoft Autofill extension automatically

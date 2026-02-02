@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/02/2025
-# Last updated: 01/30/2026
+# Last updated: 02/02/2026
 #
 # Script Purpose: Deploys Platform Single Sign-on
 #
@@ -52,6 +52,7 @@
 #       Fixed issue of runAsUsers not using correct USER_UID variable
 # 1.7 - Added option to force a touchID fingerprint if not already set
 #       More reporting for focus status & touchID status
+# 1.8 - Add section to enable the microsoft Autofill extension automatically
 
 ######################################################################################################
 #
@@ -128,6 +129,8 @@ SSO_GRAPHIC="${SUPPORT_DIR}/SupportFiles/pSSO_Notification.png"
 FOCUS_FILE="$USER_DIR/Library/DoNotDisturb/DB/Assertions.json"
 SD_TIMER=300    #Length of time you want the message on the screen (300=5 mins)
 JAMF_AAD_BINARY="/usr/local/jamf/bin/jamfAAD"
+APP_EXTENSIONS=("com.microsoft.CompanyPortalMac.ssoextension"
+                "com.microsoft.CompanyPortalMac.Mac-Autofill-Extension")
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
@@ -680,6 +683,36 @@ function force_touch_id ()
     [[ $buttonpress == 2 ]] && return 1 || return 0
 }
 
+function enable_app_extension ()
+{
+    # PURPOSE: Enable the auto fill extension for TouchID
+    #          check each extension listed in the array to see if it is enabled in PlugKit
+    # RETURN: None
+    # EXPECTED: APP_EXTENSIONS array of extensions to check / enable
+    # PARAMETERS: None
+    # 
+
+    for extension in "${APP_EXTENSIONS[@]}"; do
+        logMe "Checking for extension: $extension"
+        results=$(runAsUser pluginkit -m | grep "${extension}")
+        # Check if extension exists
+        if [[ -z $results ]]; then
+            logMe "Error: Extension not found: ${extension}"
+            logMe "Skipping..."
+            continue
+        fi
+        logMe "Extension found: $extension"
+        # Check if the extension is enabled
+        if [[ $(echo $results | awk '{print $1}') == "+" ]]; then
+            logMe "INFO: $extension is already enabled"
+        else
+            logMe "WARNING: $extension is not enabled. Enabling now..."
+            runAsUser pluginkit -e use -i "${extension}"
+            logMe "INFO: $extension has been enabled"
+        fi
+    done
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -772,6 +805,11 @@ else
     retval=$(JAMF_static_group_action $groupID $MAC_SERIAL "add")
     [[ -z $retval ]] && logMe "Successfull addition" || {logMe $retval; cleanup_and_exit 1; }
 fi
+
+##
+## Check App extensions and enable
+##
+enable_app_extension
 
 ##
 ## Platform SSO registration
