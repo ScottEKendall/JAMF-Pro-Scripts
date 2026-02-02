@@ -43,6 +43,8 @@
 #       Add option to Force Sync DDM commands
 #       Converted the output of the DDM Supported Payloads into a more readable format
 # 1.0RC4 - Fixed reporting for blueprint not found when scanning for blueprint IDs
+#       Add invalid blueprint information to system display and CSV output file
+#       Significant rework of logic to determine valid, invalid or unknown deployments
 ######################################################################################################
 #
 # Global "Common" variables
