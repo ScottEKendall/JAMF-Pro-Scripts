@@ -32,6 +32,7 @@
 # 1.14 -Optimized Common section
 #       Added functions for check_display_sleep and logged_in_user
 #       Added JAMF DDM libraries
+# 1.15 - Add functions to detect touchID, enable TouchID & enable pluginkit extensions
 
 ######################################################################################################
 #
@@ -39,8 +40,8 @@
 #
 ######################################################################################################
 #set -x 
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 SCRIPT_NAME="GetDDMInfo"
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -104,6 +105,10 @@ OVERLAY_ICON="/System/Applications/App Store.app"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 JQ_FILE_INSTALL_POLICY="install_jq"
+
+APP_EXTENSIONS=("com.microsoft.CompanyPortalMac.ssoextension"
+                "com.microsoft.CompanyPortalMac.Mac-Autofill-Extension")
+                
 ##################################################
 #
 # Passed in variables
@@ -308,15 +313,88 @@ function check_focus_status ()
 {
     # PURPOSE: Check to see if the user is in focus mode
     # RETURN: in focus mode (Off/On)
-    # EXPECTED: None
-    # PARMATERS: None
+    # EXPECTED: FOCUS_FILE is the location of FocusMode settings
+    # PARAMETERS: None
 
-    results="Off"
-    if [[ -e $FOCUS_FILE ]]; then
-        retval=$(plutil -extract data.0.storeAssertionRecords.0.assertionDetails.assertionDetailsModeIdentifier raw -o - $FOCUS_FILE | grep -ic 'com.apple.')
-        [[ $retval == "1" ]] && results="On"
+    local results="off"
+    if [[ -f "$FOCUS_FILE" ]] && grep -q '"storeAssertionRecords"' "$FOCUS_FILE" 2>/dev/null; then
+        results="on"
     fi
     echo $results
+}
+
+function touch_id_status ()
+{
+    # PURPOSE: Check the status of the TouchID
+    # RETURN: one of four possible values  (absent, present, enabled, not enabled)
+    # EXPECTED: USER_UID - internal UUID of the logged in user
+    # PARAMETERS: None
+    local retval="Absent"
+    local tmp
+    # Detect if this system has TouchID
+    if bioutil -r -s 2>/dev/null | grep -q "System Touch ID configuration"; then
+        tmp=($(bioutil -c -s | awk '/User/ {print $2 $3}'))
+        [[ $(echo "${tmp[*]}" | grep -c "${USER_UID}") -gt 0 ]] && retval="Enabled" || retval="Not enabled"
+    fi
+    echo "$retval"
+}
+
+function force_touch_id ()
+{
+    # PURPOSE: Forces touchID registration
+    # RETURN: 0 if successful, 1 if aborted
+    # EXPECTED: TOUCH_ID_STATUS = Status of TouchID sensor
+    # PARAMETERS: None
+    while true; do
+        open "x-apple.systempreferences:com.apple.Touch-ID-Settings.extension"
+        "${SW_DIALOG}" \
+        --title "Touch ID Required" \
+        --message "Touch ID needs to be enabled on your system.  Please add at least one fingerprint.  Close this window when you are done adding your fingerprint." \
+        --icon "SF=touchid,colour=auto" \
+        --style mini \
+        --position "topright" \
+        --button1text "Close" \
+        --button2text "Abort" \
+        --quitkey 0 \
+        --ontop \
+
+        buttonpress=$?
+        TOUCH_ID_STATUS=$(touch_id_status)
+        [[ $TOUCH_ID_STATUS == "enabled" || $buttonpress == 2 ]] && break
+    done
+    killall "System Settings" >/dev/null 2>&1
+    # Set the status code
+    [[ $buttonpress == 2 ]] && return 1 || return 0
+}
+
+function enable_app_extension ()
+{
+    # PURPOSE: Enable the auto fill extension for TouchID
+    #          check each extension listed in the array to see if it is enabled in PlugKit
+    # RETURN: None
+    # EXPECTED: APP_EXTENSIONS array of extensions to check / enable
+    # PARAMETERS: None
+    # 
+
+    for extension in "${APP_EXTENSIONS[@]}"; do
+        logMe "Checking for extension: $extension"
+        results=$(runAsUser pluginkit -m | grep "${extension}")
+        # Check if extension exists
+        if [[ -z $results ]]; then
+            logMe "Error: Extension not found: ${extension}"
+            logMe "Skipping..."
+            continue
+        fi
+        logMe "Extension found: $extension"
+        # Check if the extension is enabled
+        if [[ $(echo $results | awk '{print $1}') == "+" ]]; then
+            logMe "INFO: $extension is already enabled"
+        else
+            logMe "WARNING: $extension is not enabled. Enabling now..."
+            runAsUser pluginkit -e use -i "${extension}"
+            logMe "INFO: $extension has been enabled"
+        fi
+    done
 }
 
 ####################################################################################################
