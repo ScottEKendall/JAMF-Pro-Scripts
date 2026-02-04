@@ -72,3 +72,4 @@ Once you configure these variables inside of your policy, you can scope this pol
 | 1.7 | Added option to force a touchID fingerprint if not already set
 ||       More reporting for focus status & touchID status
 | 1.8 | Add section to enable the microsoft Autofill extension automatically
+| 1.9 | Reworked logic to detect the presence of TouchID better

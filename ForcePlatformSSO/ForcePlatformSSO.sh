@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/02/2025
-# Last updated: 02/02/2026
+# Last updated: 02/04/2026
 #
 # Script Purpose: Deploys Platform Single Sign-on
 #
@@ -53,6 +53,7 @@
 # 1.7 - Added option to force a touchID fingerprint if not already set
 #       More reporting for focus status & touchID status
 # 1.8 - Add section to enable the microsoft Autofill extension automatically
+# 1.9 - Reworked logic to detect the presence of TouchID better
 
 ######################################################################################################
 #
@@ -641,16 +642,33 @@ function check_focus_status ()
 
 function touch_id_status ()
 {
-    # PURPOSE: Check the status of the TouchID
-    # RETURN: one of four possible values  (absent, present, enabled, not enabled)
-    # EXPECTED: USER_UID - internal UUID of the logged in user
-    # PARAMETERS: None
-    local retval="Absent"
-    local tmp
-    # Detect if this system has TouchID
-    if bioutil -r -s 2>/dev/null | grep -q "System Touch ID configuration"; then
-        tmp=($(bioutil -c -s | awk '/User/ {print $2 $3}'))
-        [[ $(echo "${tmp[*]}" | grep -c "${USER_UID}") -gt 0 ]] && retval="Enabled" || retval="Not enabled"
+    local hw="Absent"
+    retval="$hw"
+    local enrolled="false"
+    local bioCount="0"
+    # --- Detect Touch ID–capable hardware (internal or external) ---
+    bioOutput=$(ioreg -l 2>/dev/null)
+
+    # Check for the device entry indicating hardware presence
+    if [[ $bioOutput == *"+-o AppleBiometricSensor"* ]]; then
+        hw="Present"
+    else
+        # Fallback: Parse IOKitDiagnostics for class instance count
+        if [[ $bioOutput =~ '"AppleBiometricSensor"=([0-9]+)' && ${match[1]} -gt 0 ]]; then
+            hw="Present"
+        # Fallback: Magic Keyboard with Touch ID
+        elif system_profiler SPUSBDataType 2>/dev/null | grep -q "Magic Keyboard.*Touch ID"; then
+            hw="Present"
+        fi
+    fi
+
+    if [[ "${hw}" == "Present" ]]; then
+        # Enrollment check
+
+        bioCount=$(runAsUser bioutil -c 2>/dev/null | awk '/biometric template/{print $3}' | grep -Eo '^[0-9]+$' || echo "0")
+        [[ "${bioCount}" -gt 0 ]] && enrolled="true"
+
+        [[ "${enrolled}" == "true" ]] && retval="Enabled" || retval="Not enabled"
     fi
     echo "$retval"
 }
