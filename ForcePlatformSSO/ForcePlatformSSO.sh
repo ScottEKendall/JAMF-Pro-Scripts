@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/02/2025
-# Last updated: 02/04/2026
+# Last updated: 02/25/2026
 #
 # Script Purpose: Deploys Platform Single Sign-on
 #
@@ -54,6 +54,7 @@
 #       More reporting for focus status & touchID status
 # 1.8 - Add section to enable the microsoft Autofill extension automatically
 # 1.9 - Reworked logic to detect the presence of TouchID better
+# 2.0 - Fixed display issues with Swift Dialog 3.0
 
 ######################################################################################################
 #
@@ -582,10 +583,8 @@ function displaymsg ()
     if [[ $FOCUS_STATUS = "On" ]] && message+="<br><br>**Since your focus mode is turned on, you will need to click in the notification center to see this prompt**"
 	MainDialogBody=(
         --message "<br>$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-        --titlefont shadow=1 size=24
+        --titlefont shadow=1
         --appearance light
-        --ontop
-        --moveable
         --icon "${SD_ICON_FILE}"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
@@ -593,12 +592,15 @@ function displaymsg ()
 		--commandfile "${DIALOG_COMMAND_FILE}"
 		--image "${SSO_GRAPHIC}"
         --helpmessage "Contact the TSD or put in a ticket if you are having problems registering your device."
+        --button1text "Dismiss"
         --width 740
         --height 450
-        --ignorednd
         --timer 300
         --quitkey 0
-        --button1text "Dismiss"
+        --ontop
+        --moveable
+        --ignorednd
+
     )
 
 	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null &
@@ -811,17 +813,17 @@ profileInstalled=(check_for_profile $MDM_PROFILE)
 
 if [[ "$profileInstalled" == "No" ]]; then
     retval=$(JAMF_static_group_action $groupID $MAC_SERIAL "add")
-    [[ -z $retval ]] && logMe "Successfull addition" || {logMe $retval; cleanup_and_exit 1; }
+    [[ -z $retval ]] && logMe "Successful addition" || {logMe $retval; cleanup_and_exit 1; }
 else
     # System was found, so lets remove it first and then re-add it to force the prompt to appear
     logMe "Platform SSO for Microsoft Entra ID profile is already installed. Uninstalling and reinstalling..."
     logMe "Removing $MAC_SERIAL from $JAMF_GROUP_NAME ($groupID)"
     retval=$(JAMF_static_group_action $groupID $MAC_SERIAL "remove")
-    [[ -z $retval ]] && logMe "Successfull removal" || {logMe $retval; cleanup_and_exit 1; }
+    [[ -z $retval ]] && logMe "Successful removal" || {logMe $retval; cleanup_and_exit 1; }
     sleep 5
     logMe "Adding $MAC_SERIAL to $JAMF_GROUP_NAME ($groupID)"
     retval=$(JAMF_static_group_action $groupID $MAC_SERIAL "add")
-    [[ -z $retval ]] && logMe "Successfull addition" || {logMe $retval; cleanup_and_exit 1; }
+    [[ -z $retval ]] && logMe "Successful addition" || {logMe $retval; cleanup_and_exit 1; }
 fi
 
 ##
