@@ -3,7 +3,7 @@
 # by: Scott Kendall
 #
 # Written: 04/16/2025
-# Last updated: 11/15/2025
+# Last updated: 02/26/2026
 
 # Script for store users to request an Adobe license transfer 
 #
@@ -11,6 +11,7 @@
 # 1.1 - more concise model name ("2023 Macbook Pro") vs ("MacBook Pro (14-inch, Nov 2023)")
 # 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 1.3 - Code cleanup / Added feature to read in defaults file / removed unnecessary variables.
+# 1.4 - Fixed window layout for Tahoe & SD v3.0
 #
 ######################################################################################################
 #
@@ -49,23 +50,24 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 ###################################################
 
 # See if there is a "defaults" file...if so, read in the contents
-
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
 LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Title Header
-BANNER_TEXT_PADDING="      " #5 spaces to accommodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Adobe License Transfer"
 SD_INFO_BOX_MSG=""
 OVERLAY_ICON="/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"
@@ -209,7 +211,7 @@ function display_welcome_message ()
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --ontop
-        --height 460
+        --height 480
         --json
         --moveable
      )
@@ -235,7 +237,7 @@ function TSD_Ticket_message ()
         --button1action $TSD_URL
         --infobox "${SD_INFO_BOX_MSG}"
         --ontop
-        --height 460
+        --height 480
         --json
         --moveable
      )
