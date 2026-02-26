@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 12/11/2025
-# Last updated: 01/21/2026
+# Last updated: 02/24/2026
 #
 # Script Purpose: set the default UTI applications (mailto, url, http, etc)
 #
@@ -14,6 +14,7 @@
 #       Fixed the mktemp command to use the SCRIPT_NAME variable vs hardcoded.
 #       Changed logic on detection of utiluti command so it does not needlessly install the utiluti app
 # 1.2 - Optimized "Common" section for better performance
+# 1.3 - Had to increase window height for Tahoe & SD v3.0
 
 ######################################################################################################
 #
@@ -49,8 +50,8 @@ SD_DIALOG_GREETING="Good $GREET"
 
 # Make some temp files
 
-JSON_DIALOG_BLOB=$(mktemp -t "${SCRIPT_NAME}_json.XXXXX")
-DIALOG_COMMAND_FILE=$(mktemp -t "${SCRIPT_NAME}_cmd.XXXXX")
+JSON_DIALOG_BLOB=$(mktemp /var/tmp/"${SCRIPT_NAME}_json.XXXXX")
+DIALOG_COMMAND_FILE=$(mktemp /var/tmp/"${SCRIPT_NAME}_cmd.XXXXX")
 chmod 666 $JSON_DIALOG_BLOB
 chmod 666 $DIALOG_COMMAND_FILE
 ###################################################
@@ -88,6 +89,7 @@ OVERLAY_ICON=$ICON_FILES"ToolbarCustomizeIcon.icns"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 UTILUTI_INSTALL_POLICY="install_utiluti"
+UTI_COMMAND="/usr/local/bin/utiluti"
 
 ##################################################
 #
@@ -300,7 +302,7 @@ function construct_dialog_header_settings ()
         "infobutton" : "More Info",
         "infobuttonaction" : "https://github.com/scriptingosx/utiluti",        
         "width" : 920,
-        "height" : 520,
+        "height" : 540,
         "button1text" : "OK",
         "button2text" : "Cancel",
         "moveable" : "true",
@@ -457,7 +459,7 @@ create_dropdown_message_body "Portable Doc Format (pdf):" "$utiPDF" "$(get_defau
 echo "}]}" >> $JSON_DIALOG_BLOB
 
 # Show the dialog screen and get the results
-results=$(${SW_DIALOG} --json --jsonfile "${JSON_DIALOG_BLOB}") 2>/dev/null
+results=$(${SW_DIALOG} --jsonfile "${JSON_DIALOG_BLOB}" --json ) 2>/dev/null
 returnCode=$?
 
 [[ $returnCode == 2 ]] && {logMe "Cancel button pressed"; cleanup_and_exit 0;}

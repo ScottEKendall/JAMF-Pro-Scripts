@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 12/20/2024
-# Last updated: 01/06/2025
+# Last updated: 02/24/2026
 #
 # Script Purpose: View Users Filevault Key
 #
@@ -20,6 +20,7 @@
 #       Added feature to read in defaults file
 #       Add verification of JAMF credentials and error trapping if ID doesn't have rights
 #       Compatible with JAMF 11.21 and higher using the new APIs
+# 2.1 - Had to increase window height for Tahoe & SD v3.0
 
 ######################################################################################################
 #
@@ -39,8 +40,6 @@ MACOS_NAME=$( /usr/bin/sw_vers -productName )
 MACOS_VERSION=$( /usr/bin/sw_vers -productVersion )
 MAC_RAM=$( /usr/sbin/sysctl -n hw.memsize 2>/dev/null | /usr/bin/awk '{printf "%.0f GB", $1/1024/1024/1024}' )
 MAC_CPU=$( /usr/sbin/sysctl -n machdep.cpu.brand_string 2>/dev/null )
-# Fallback to uname if sysctl fails
-[[ -z "$MAC_CPU" ]] && [[ "$(/usr/bin/uname -m)" == "arm64" ]] && MAC_CPU="Apple Silicon" || MAC_CPU="Intel"
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -60,18 +59,17 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e "${DEFAULTS_DIR}" ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read "${DEFAULTS_DIR}" "SupportFiles")
-    SD_BANNER_IMAGE=$(defaults read "${DEFAULTS_DIR}" "BannerImage")
-    spacing=$(defaults read "${DEFAULTS_DIR}" "BannerPadding")
-    SD_BANNER_IMAGE="${SUPPORT_DIR}${SD_BANNER_IMAGE}"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
     spacing=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
@@ -180,14 +178,13 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##\n"
+	SD_INFO_BOX_MSG="## System Info ##<br>"
 	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="${MAC_SERIAL_NUMBER}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="macOS ${MACOS_VERSION}<br>"
+	SD_INFO_BOX_MSG+="${MACOS_NAME} ${MACOS_VERSION}<br>"
 }
-
 function cleanup_and_exit ()
 {
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
@@ -389,7 +386,7 @@ function display_welcome_message ()
         --button1text "Continue"
         --button2text "Quit"
         --ontop
-        --height 400
+        --height 480
         --json
         --moveable
     )
@@ -416,7 +413,7 @@ function display_status_message ()
         --messagefont "name=Arial,size=17"
         --titlefont shadow=1
         --width 900
-        --height 420
+        --height 460
         --ontop
         --moveable
     )
@@ -436,7 +433,7 @@ function invalid_device_message ()
         --message "Device inventory not found for $computer_id. \nPlease make sure the device name or serial is correct."
         --messagefont "name=Arial,size=17"
         --ontop
-        --height 420
+        --height 460
         --titlefont shadow=1
         --moveable
     )

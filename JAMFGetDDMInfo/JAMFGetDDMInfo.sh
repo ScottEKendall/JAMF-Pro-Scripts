@@ -873,18 +873,18 @@ function JAMF_get_deviceID()
         return 1
     }
 
-    # Basic JSON validity check
-    if ! jq -e . >/dev/null 2>&1 <<<"$retval"; then
-        display_failure_message "Invalid JSON response from Jamf Pro"
-        echo "ERR"
-        return 1
-    fi
-
     if [[ $retval == *"PRIVILEGE"* ]]; then
         display_failure_message "Invalid Privilege to read inventory"
         echo "PRIVILEGE"
         return 1
     fi
+
+    # Basic JSON validity check
+    #if ! jq -e . >/dev/null 2>&1 <<<"$retval"; then
+    #    display_failure_message "Invalid JSON response from Jamf Pro"
+    #    echo "ERR"
+    #    return 1
+    #fi
 
     total=$(jq '.totalCount' <<<"$retval")
     if [[ $total -eq 0 ]]; then
@@ -1067,7 +1067,7 @@ function welcomemsg ()
         --button1text "Continue"
         --button2text "Quit"
         --ontop
-        --height 440
+        --height 460
         --json
         --moveable
     )

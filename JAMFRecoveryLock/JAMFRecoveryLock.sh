@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 11/14/2025
+# Last updated: 02/24/2026
 
 # Script to Set/Remove Recovery Lock on Apple Silicon Macs using the Jamf API.
 # Works based on the 'lockMode' variable (Set/Remove) to configure Recovery Lock.
@@ -41,7 +41,7 @@
 # 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 1.2 - Reworked top section for better idea of what can be modified
 #       renamed all JAMF functions to begin with JAMF_
-# 1.3 - Verified working agains JAMF API 11.20
+# 1.3 - Verified working against JAMF API 11.20
 #       Added option to detect which SS/SS+ we are using and grab the appropriate icon
 #       Now works with JAMF Client/Secret or Username/password authentication
 #       Change variable declare section around for better readability
@@ -53,12 +53,14 @@
 # 1.5 - Added option to view recovery password
 #       new APIs for set/clear recovery Lock
 #       Show http results after set/clear command
+# 1.6 - Had to increase window height for Tahoe & SD v3.0
 #
 ######################################################################################################
 #
-# Gobal "Common" variables (do not change these!)
+# Global "Common" variables (do not change these!)
 #
 ######################################################################################################
+#set -x
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -93,24 +95,24 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 #
 ###################################################
 
-
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
-# Support / Log files location
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 LOG_FILE="${SUPPORT_DIR}/logs/JAMF_RecoveryLock.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accommodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Recovery Lock Actions"
 OVERLAY_ICON=""
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
@@ -416,7 +418,7 @@ function JAMF_send_recovery_lock_command()
 
     [[ -z $1 ]] && httpString+='"newPassword": ""}}' || httpString+='"newPassword": "'$2'"}}'
 
-    #echo $httpString 1>&2
+    echo $httpString 1>&2
 
     returnval=$(curl -X POST -s "$jamfpro_url/api/v2/mdm/commands" \
         -H "Authorization: Bearer ${api_token}" \
@@ -424,7 +426,7 @@ function JAMF_send_recovery_lock_command()
         --data-raw "$httpString")
 
     logMe "Recovery Lock ${lockMode} for ${computer_id}"
-    echo $returnval
+    echo $returnval 
 }
 
 function JAMF_view_recovery_lock ()
@@ -466,7 +468,7 @@ function display_welcome_message ()
 		--selectvalues "View, Set, Clear"
 		--selectdefault "View"
         --ontop
-        --height 440
+        --height 460
         --json
         --moveable
      )

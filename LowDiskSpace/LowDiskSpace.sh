@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2025
-# Last updated: 11/15/2025
+# Last updated: 02/26/2026
 #
 # Script Purpose: Display user friendly dialog to users about their disk space
 #
@@ -17,6 +17,7 @@
 #       Fixed Show Files option to call correct trigger
 #       removed unnecessary variables.
 #       Fixed typos
+# 1.4 - Fixed window layout for Tahoe & SD v3.0
 ######################################################################################################
 #
 # Global "Common" variables
@@ -58,17 +59,17 @@ SHOW_DISK_USAGE="ShowDiskUsage"
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -204,7 +205,7 @@ function welcomemsg ()
 	MainDialogBody=(
 		--message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $messagebody"
 		--icon "${OVERLAY_ICON}"
-		--height 520
+		--height 540
         --width 850
 		--ontop
 		--bannerimage "${SD_BANNER_IMAGE}"

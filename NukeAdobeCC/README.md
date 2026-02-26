@@ -1,6 +1,6 @@
 ## Nuke Adobe CC
 
-Sometimes applications in the Adobe CC suite just refuse to work properly and the "offical" Adobe uninstaller just doesn't seem to fix the issue, so here is a script to do a "seek & destroy" of anything Adobe related on the user's Mac.
+Sometimes applications in the Adobe CC suite just refuse to work properly and the "official" Adobe uninstaller just doesn't seem to fix the issue, so here is a script to do a "seek & destroy" of anything Adobe related on the user's Mac.
 
 ![](./NukeAdobeCC.png)
 

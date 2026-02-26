@@ -773,7 +773,7 @@ fi
 #
 
 # Disk Space calculation
-DiskFreeSpace=$((100 * $deviceAvailStorage / $deviceTotalStorage ))
+DiskFreeSpace=0 #$((100 * $deviceAvailStorage / $deviceTotalStorage ))
 
 # Password age calculation
 

@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/11/25
-# Last updated: 01/08/26
+# Last updated: 02/24/2026
 #
 # Script Purpose: GUI Prompt to set the Secure Token to any user
 #
@@ -26,6 +26,7 @@
 #       Added logic to make sure jq was installed.
 #       Fixed issue of defaults variables not getting set properly
 #       Fixed typos
+# 1.5 - Had to increase window height for Tahoe & SD v3.0
 
 ######################################################################################################
 #
@@ -224,7 +225,7 @@ function display_msg ()
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
-        --height 445
+        --height 470
         --width 760
         --quitkey 0
         --json

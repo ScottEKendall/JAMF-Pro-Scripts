@@ -70,17 +70,17 @@ chmod 666 ${TMP_FILE_STORAGE}
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -370,13 +370,12 @@ function update_display_list ()
 
 function display_welcome_message ()
 {
-    message="The below listed Adobe applications are installed on your system.  You can remove any of previously installed products. _NOTE: You cannot remove the most recently installed version._<br>"
-    [[ $ADOBE_CURRENT_YEAR -ne $adobeLatestYearFound ]] && message+="<br><br>**NOTE:  Creative Cloud $ADOBE_CURRENT_YEAR is available at this time for installation.**"
+    message="The below listed Adobe applications are installed on your system.  You can remove any of previously installed products. :red[IMPORTANT: You cannot remove the most recently installed version.]<br>"
+    [[ $ADOBE_CURRENT_YEAR -ne $adobeLatestYearFound ]] && message+="<br><br>:blue[NOTICE:  Creative Cloud $ADOBE_CURRENT_YEAR is available at this time for installation.]"
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
         --titlefont shadow=1
-        --ontop
         --icon "${SD_ICON_FILE}"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
@@ -386,15 +385,16 @@ function display_welcome_message ()
         --width 900
         --height 700
         --ignorednd
-        --moveable
-        --json
         --jsonfile "${JSON_OPTIONS}"
         --quitkey 0
         --button1text "Next"
         --button2text "Cancel"
         --infobutton 
         --infobuttontext "Get Help" 
-        --infobuttonaction "${HELP_DESK_TICKET}" 
+        --infobuttonaction "${HELP_DESK_TICKET}"
+        --ontop
+        --moveable
+        --json
     )
 
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
