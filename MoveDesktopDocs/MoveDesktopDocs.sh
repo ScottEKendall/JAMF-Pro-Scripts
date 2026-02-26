@@ -5,11 +5,12 @@
 # by: Scott Kendall
 #
 # Written: 02/02/2026
-# Last updated: 02/02/2026
+# Last updated: 02/26/2026
 #
 # Script Purpose: Move Desktop & Documents to /Users/Shared so other users can access files
 #
 # 1.0 - Initial
+# 1.1 - Fixed window layout for Tahoe & SD v3.0
 ######################################################################################################
 #
 # Global "Common" variables
@@ -60,7 +61,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -241,7 +242,7 @@ function welcomemsg ()
         --infobox "${SD_INFO_BOX_MSG}"
         --helpmessage ""
         --width 820
-        --height 460
+        --height 480
         --ignorednd
         --quitkey 0
         --moveable
