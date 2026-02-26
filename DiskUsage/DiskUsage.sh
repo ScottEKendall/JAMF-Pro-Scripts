@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/2/2022
-# Last updated: 11/15/2025
+# Last updated: 02/26/2026
 #
 # Script Purpose: 
 #
@@ -18,13 +18,13 @@
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
 #       Fixed typos
-
+# 1.5 - Had to fix some dialog logic for  Tahoe & SD v3.0
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
-
+#set -x
 SCRIPT_NAME="DiskUsage"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -61,17 +61,17 @@ DU_OUTPUT=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -205,11 +205,10 @@ function display_welcome_message ()
         --message "${WelcomeMsg}"
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
-        --moveable
         --overlayicon "${SD_ICON}"
         --icon computer
         --quitkey 0
-        --titlefont shadow=1, size=24
+        --titlefont shadow=1
         --messagefont size=18
         --checkbox "Directories only"
         --infobox "${SD_INFO_BOX_MSG}"
@@ -217,10 +216,10 @@ function display_welcome_message ()
         --height 480
         --button1text "Ok"
         --button2text "Cancel"
-        --ontop
         )
 
         [[ -x "${GRAND_PERSPECTIVE_APP}" ]] && MainDialogBody+=(--infobuttontext "Grand Perspective")
+        MainDialogBody+=(--moveable --ontop)
         temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
         returnCode=$?
 
@@ -261,13 +260,13 @@ function show_results ()
         --messagefont size=12
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
-        --moveable
         --quitkey 0
-        --titlefont shadow=1, size=24
+        --titlefont shadow=1
         --width 1000
         --height 800
         --button1text "Ok"
         --ontop
+        --moveable
         )
 
         "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
