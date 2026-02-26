@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 09/01/2023
-# Last updated: 11/16/2025
+# Last updated: 02/26/2026
 #
 # Script Purpose: Clear all cache/cookies from all browsers currently installed
 #
@@ -15,6 +15,7 @@
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
 #       Fixed typos
+# 1.3 - Fixed window layout for Tahoe & SD v3.0
 
 ######################################################################################################
 #
@@ -60,17 +61,17 @@ edge_tmp_dir=$(mktemp -d /var/tmp/$SCRIPT_NAME.XXXXX)
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -229,16 +230,16 @@ function display_welcome_message()
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --titlefont shadow=1
-        --moveable
         --height 550
         --width 920
-        --ontop
         --button1text "Ok"
         --button2text "Cancel"
         --checkboxstyle switch,regular
         --quitkey 0
-        --json
         --jsonfile "${JSON_OPTIONS}"
+        --ontop
+        --json
+        --moveable
     )
     browser_choice=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
 }
