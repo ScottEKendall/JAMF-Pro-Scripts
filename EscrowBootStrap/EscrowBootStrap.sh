@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/18/2025
-# Last updated: 11/15/2025
+# Last updated: 02/24/2026
 #
 # Script Purpose: Escrow a users bootstrap token to the server if it isn't already.
 # Based off of script by: Robert Schroeder
@@ -20,6 +20,7 @@
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
 #       Fixed typos
+# 1.4 - Had to increase window height for Tahoe & SD v3.0
 
 ######################################################################################################
 #
@@ -210,7 +211,7 @@ function display_msg ()
         --titlefont shadow=1
         --infobox "${SD_INFO_BOX_MSG}"
         --position "center"
-        --height 450
+        --height 480
 		--width 760
 		--quitkey 0
         --moveable
