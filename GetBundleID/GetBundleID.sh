@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 07/11/2025
-# Last updated: 07/11/2025
+# Last updated: 02/26/2026
 #
 # Script Purpose: Extract the bundle ID of all of the apps found in a given directory
 #
@@ -14,6 +14,7 @@
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
 #       Fixed typos
+# 1.2 - Fixed window layout for Tahoe & SD v3.0
 
 ######################################################################################################
 #
@@ -57,17 +58,17 @@ chmod 666 $DIALOG_COMMAND_FILE
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -200,7 +201,7 @@ function welcomemsg ()
         --infobox "${SD_INFO_BOX_MSG}"
         --textfield "Select a file location to scan",fileselect,filetype=folder,required,name=fileLocation
         --checkbox "Export list",checked,name=ExportList
-        --height 460
+        --height 480
         --ignorednd
         --json
         --quitkey 0
