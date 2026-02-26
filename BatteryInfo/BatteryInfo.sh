@@ -3,8 +3,9 @@
 # BatteryInfo.sh
 #
 # Written by: Scott E. Kendall
+#
 # Created: 01/25/2025
-# Last Modified: 11/15/2025
+# Last updated: 02/24/2026
 #
 # Script Purpose: Prompt user if battery needs service
 #
@@ -19,6 +20,7 @@
 #       removed unnecessary variables.
 #       Bumped min version of SD to 2.5.0
 #       Fixed typos
+# 1.7 - Had to increase window height for Tahoe & SD v3.0
 
 ######################################################################################################
 #
@@ -222,7 +224,7 @@ function welcomemsg ()
         --message "${messagebody}"
         --icon computer
         --overlayicon "${OVERLAY_ICON}"
-		--height 460
+		--height 480
         --width 760
 		--ontop
 		--bannerimage "${SD_BANNER_IMAGE}"
