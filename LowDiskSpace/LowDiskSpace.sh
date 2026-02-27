@@ -67,7 +67,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    SPACING=3 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -205,7 +205,7 @@ function welcomemsg ()
 	MainDialogBody=(
 		--message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $messagebody"
 		--icon "${OVERLAY_ICON}"
-		--height 540
+		--height 560
         --width 850
 		--ontop
 		--bannerimage "${SD_BANNER_IMAGE}"
