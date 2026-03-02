@@ -45,6 +45,8 @@
 # 1.0RC4 - Fixed reporting for blueprint not found when scanning for blueprint IDs
 #       Add invalid blueprint information to system display and CSV output file
 #       Significant rework of logic to determine valid, invalid or unknown deployments
+# 1.0RC5 - Fixed issue of failed blueprints not returning correct results when doing a blueprint scan
+#       Added option for cross reference file so you can associate Blueprint IDs to Names and it will show the name results during scans
 ######################################################################################################
 #
 # Global "Common" variables
@@ -54,7 +56,7 @@
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="1.0RC4"
+SCRIPT_VERSION="1.0RC5"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
@@ -123,6 +125,7 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 JQ_FILE_INSTALL_POLICY="install_jq"
 CSV_PATH="$USER_DIR/Desktop/DDM Data Dump for "
+DDM_CROSS_REF_FILE="${USER_DIR}/Documents/DDMCrossRef.csv"
 
 # Multitasking items
 
@@ -1061,13 +1064,13 @@ function welcomemsg ()
         --titlefont shadow=1
         --message $message
         --messagefont name=Arial,size=17
-        --selecttitle "DDM Action (Read / Sync):",radio --selectvalues "Scan Blueprint ID, View Single System, Scan Smart/Static Group, Force Sync Single System"
+        --selecttitle "DDM Action (Read / Sync):",radio --selectvalues "Scan Blueprint ID, View Single System, Scan Smart/Static Group, Force Sync Single System, Populate Cross Reference File"
         --helpmessage $helpmessage
         --helpimage "qr="$helpmessageurl
         --button1text "Continue"
         --button2text "Quit"
         --ontop
-        --height 460
+        --height 480
         --json
         --moveable
     )
@@ -1101,6 +1104,135 @@ function execute_in_parallel ()
     done
 }
 
+###########################
+#
+# Populate Cross Reference functions
+#
+##########################
+
+function welcomemsg_crossreference ()
+{
+    DDMCrossRef=$(read_crossref_file)
+
+    message="**Populate Cross Reference File**<br><br>JAMF does not support viewing of Blueprints by Name. Follow the below instructions to create a cross reference file"
+    message+=" that will display the name of the Blueprint with the ID:<br><br>"
+    message+="1.  Enter just the blueprint ID and the name of your blueprint seperated by a comma<br>"
+    message+="    _ex: 8bb536f0-140a-44e5-8e88-fe88523e9742,OS | Sequoia | Minor | Update_<br>"
+    message+="2.  Make sure to put a return at the end of each line.<br>"
+    message+="3.  The file will be saved here: **$DDM_CROSS_REF_FILE**<br>"
+    message+="4.  The Blueprint Name will be included when possible in tasks & reports.<br>"
+    MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --icon "${SD_ICON_FILE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --overlayicon "${OVERLAY_ICON}"
+        --iconsize 128
+        --infotext $SCRIPT_VERSION
+        --titlefont shadow=1
+        --message "$message"
+        --messagefont name=Arial,size=17
+        --textfield "DDM Cross Reference,editor",value="$DDMCrossRef",name=crossref
+        --button1text "Continue"
+        --button2text "Cancel"
+        --width 950
+        --height 720
+        --moveable
+    )
+    retval=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+    buttonpress=$?
+    [[ $buttonpress -eq 0 ]] && write_crossref_file $retval
+
+}
+
+function read_crossref_file ()
+{
+    local CSV_CONTENT
+    if [[ -f "$DDM_CROSS_REF_FILE" ]]; then
+        # Read file, replace newlines with spaces to maintain single-line# then remove trailing spaces.
+        CSV_CONTENT=$(cat "$DDM_CROSS_REF_FILE") # | sed 's/  */ /g' | sed 's/^ //;s/ $//')
+        logMe "File '$DDM_CROSS_REF_FILE' loaded into the editor" 1>&2
+    else
+        logMe "Error: File '$DDM_CROSS_REF_FILE' not found." 1>&2
+    fi
+    echo $CSV_CONTENT
+}
+
+function write_crossref_file ()
+{
+    local input_data="$1"
+    clean_string="${input_data#crossref : }"
+    # Initialize the file
+    : > "$DDM_CROSS_REF_FILE"
+    # Write out each line and make sure there is a CRLF at the end of each line
+    for line in "${(f)clean_string}"; do
+        clean_line=$(printf '%s\n' "$line")
+        if [[ -n "$clean_line" ]]; then
+            printf '%s\n' "$clean_line" >> "$DDM_CROSS_REF_FILE"
+        fi
+    done
+    logMe "Contents written out to: "$DDM_CROSS_REF_FILE 1>&2
+}
+
+function crossref_lookup ()
+{
+    local -a target_list=("$@")
+    local uuid name rest item
+    local -A xref
+    [[ -f $DDM_CROSS_REF_FILE ]] || { echo "File not found: $DDM_CROSS_REF_FILE"; return 1; }
+
+    # Read CSV lines; split on first comma only
+    while IFS= read -r line; do
+        [[ -z $line ]] && continue
+
+        uuid=${line%%,*}
+        rest=${line#*,}
+        name=${rest%%,*}   # keep only field 2; ignore extra columns
+
+        # trim leading/trailing whitespace
+        uuid=${uuid##[[:space:]]#}; uuid=${uuid%%[[:space:]]#}
+        name=${name##[[:space:]]#}; name=${name%%[[:space:]]#}
+
+        [[ -n $uuid ]] && xref[$uuid]=$name
+    done < "$DDM_CROSS_REF_FILE"
+
+    # export results
+    for item in "${target_list[@]}"; do
+        if [[ -n ${xref[$item]-} ]]; then
+            reply+=("$item (${xref[$item]})")
+        else
+            reply+=("$item")
+        fi
+    done
+}
+
+update_array_from_csv() 
+{
+    set -x
+    local csv_file=$DDM_CROSS_REF_FILE
+    target_array="$1"  # Use a nameref to modify the original array
+    local -A csv_map
+    local -A current_val
+
+    # 1. Check if file exists
+    [[ ! -f "$csv_file" ]] && echo "Error: File $csv_file not found." && return 1
+
+    # 2. Load CSV into an associative array (field1 -> field2)
+    # Using IFS=',' to split lines; assuming no complex quoted commas
+    while IFS=',' read -r key value; do
+        [[ -n "$key" ]] && csv_map[$key]="$value"
+    done < "$csv_file"
+    echo $csv_map 1>&2
+
+    # 3. Iterate through the array and replace if a match is found
+    for i in {1..${#target_array}}; do
+        current_val="${target_array[$i]}"
+        if [[ -n "${csv_map[$current_val]}" ]]; then
+            target_array[$i]="${csv_map[$current_val]}"
+        fi
+    done
+    printf '%s\n' "${target_array[@]}"
+}
 ###########################
 #
 # Blueprint functions
@@ -1252,10 +1384,11 @@ function process_blueprint_computer ()
         liststatus="pending"
         statusmessage="BP nout found"
     elif [[ -n $DDMBlueprintInvalid ]]; then
-        echo $DDMBlueprintInvalid
+        #echo $DDMBlueprintInvalid
         liststatus="error"
         statusmessage="BP Invalid"
-    elif [[ -n "$DDMBlueprintErrors" ]]; then
+    elif [[ -n "$DDMBlueprintErrors" ]] && [[ ! -z $(echo "$DDMBlueprintErrors" | grep "$blueprintID") ]]; then
+        # See if our particular blueprint is in the error field
         liststatus="fail"
         statusmessage="BP found (Failed)"
     fi
@@ -1384,8 +1517,11 @@ function process_individual ()
 
     # Fifth, extract the DDM blueprint IDs assigned to the machine
     DDMKeys=$(JAMF_retrieve_ddm_keys $DDMInfo "management.declarations.configurations")
-    echo $DDMKeys
+    #echo $DDMKeys
     JAMF_retrieve_ddm_blueprint_active "$DDMKeys"
+    reply=()
+    crossref_lookup $DDMBlueprintSuccess
+    [[ -f $DDM_CROSS_REF_FILE ]] && DDMBlueprintSuccess=("${reply[@]}")
     logMe "INFO: Active Blueprints: "$DDMBlueprintSuccess
 
     # Sixth, see if there are any inactive Blueprints
@@ -1413,7 +1549,7 @@ function process_individual ()
     message+="<br><br>**DDM Client Supported Version**<br>$DDMClientSupportedVersions"
     message+="<br><br>**DDM Blueprints Active**<br>${(j:<br>:)DDMBlueprintSuccess}<br>"
     message+="<br><br>**DDM Blueprint Invalid**<br>${(j:<br>:)DDMBlueprintInvalidCombined}<br>"
-    #message+="<br><br>**DDM Blueprint Invalid Reason**<br>${(j:<br>:)DDMBlueprintInvalidReason}<br>"
+    message+="<br><br>**DDM Blueprint Invalid Reason**<br>${(j:<br>:)DDMBlueprintInvalidReason}<br>"
     message+="<br><br>**DDM Blueprint Failures**<br>${(j:<br>:)DDMBlueprintErrors}<br>"
     message+="<br><br>**DDM Blueprint Failure Reason**<br>$DDMErrorReason<br>"
     message+="<br><br>**DDM Software Update Info**<br>${(j:<br>:)DDMSoftwareUpdateActive}<br>"
@@ -1759,6 +1895,8 @@ while true; do
     computer_id=''
     DDMSoftwareUpdateActive=''
     DDMSoftwareUpdateFailures=''
+    DDMBlueprintInvalidCombined=''
+    DDMBlueprintInvalid=''
     DDMBlueprintErrors=''
     DDMBlueprintSuccess=''
     writeCSVFile=''
@@ -1769,7 +1907,8 @@ while true; do
     [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token  
 
     case "${DDMoption}" in
-        *"Force Sync"* )   welcomemsg_forcesync ;;
+        *"Populate"* )    welcomemsg_crossreference ;;
+        *"Force Sync"* )  welcomemsg_forcesync ;;
         *"View Single"* ) welcomemsg_individual ;;
         *"Group"* )       welcomemsg_group ;;
         *"Blueprint"* )   welcomemsg_blueprint ;;
