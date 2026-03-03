@@ -47,6 +47,12 @@ JAMF Allows you to "force sync" DDM Commands to the workstation. After viewing t
 
 ![](./JAMFGetDDMInfo-ForceSync.png)
 
+### Populate Cross Reference File ###
+
+JAMF (currently) doesn't allow to retrieve Blueprints by name, so when you pull up information by the blueprint ID, you get the unintelligible long string of numbers and you don't know what the Blueprint name associated to it is.  This option allows you to create a cross-reference file of Blueprint IDs associated to Names.  The name (if found) will be displayed in the Single system scan so you can easily recognized Blueprints that are installed.
+
+![](./JAMFGetDDMInfo-CrossRef.png)
+
 
 ## JAMF API Privileges
 
@@ -104,6 +110,9 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 | 1.0RC4 | Fixed reporting for blueprint not found when scanning for blueprint IDs
 ||       Add invalid blueprint information to system display and CSV output file
 ||      Significant rework of logic to determine valid, invalid or unknown deployments
+| 1.0RC5 | Fixed issue of failed blueprints not returning correct results when doing a blueprint scan
+||       Added option for cross reference file so you can associate Blueprint IDs to Names and it will show the name results during scans
+
 
 
 ## Gemini results of what can be extracted from JAMF about DDM: ##

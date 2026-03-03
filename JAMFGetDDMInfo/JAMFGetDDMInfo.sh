@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 01/28/2026
+# Last updated: 03/03/2026
 #
 # Script Purpose: Retrieve the DDM info for JAMF devices
 #
@@ -1206,33 +1206,6 @@ function crossref_lookup ()
     done
 }
 
-update_array_from_csv() 
-{
-    set -x
-    local csv_file=$DDM_CROSS_REF_FILE
-    target_array="$1"  # Use a nameref to modify the original array
-    local -A csv_map
-    local -A current_val
-
-    # 1. Check if file exists
-    [[ ! -f "$csv_file" ]] && echo "Error: File $csv_file not found." && return 1
-
-    # 2. Load CSV into an associative array (field1 -> field2)
-    # Using IFS=',' to split lines; assuming no complex quoted commas
-    while IFS=',' read -r key value; do
-        [[ -n "$key" ]] && csv_map[$key]="$value"
-    done < "$csv_file"
-    echo $csv_map 1>&2
-
-    # 3. Iterate through the array and replace if a match is found
-    for i in {1..${#target_array}}; do
-        current_val="${target_array[$i]}"
-        if [[ -n "${csv_map[$current_val]}" ]]; then
-            target_array[$i]="${csv_map[$current_val]}"
-        fi
-    done
-    printf '%s\n' "${target_array[@]}"
-}
 ###########################
 #
 # Blueprint functions
@@ -1497,14 +1470,14 @@ function process_individual ()
     fi
     # Lets extract all the DDM info from this JSON blob
 
-    DDMBatteryHealth=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.power.battery-health").value')
-    DDMDevicename=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.model.marketing-name").value')
-    DDMDeviceModel=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.model.identifier").value')
-    DDMDeviceCurrentOSName=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.operating-system.marketing-name").value')
-    DDMDeviceCurrentOSBuild=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "device.operating-system.build-version").value')
-    DDMDeviceSecurityCertificates=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "security.certificate.list").value')
-    DDMClientSupportedVersions=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "management.client-capabilities.supported-versions").value')
-    DDMClientSupportedPayload=$(echo $DDMInfo | jq -r '.statusItems[] | select(.key == "management.client-capabilities.supported-payloads.declarations.configurations").value' | tr ',' '\n')
+    DDMBatteryHealth=$(echo -E $DDMInfo | jq -r '.statusItems[] | select(.key == "device.power.battery-health").value')
+    DDMDevicename=$(echo -E $DDMInfo | jq -r '.statusItems[] | select(.key == "device.model.marketing-name").value')
+    DDMDeviceModel=$(echo -E $DDMInfo | jq -r '.statusItems[] | select(.key == "device.model.identifier").value')
+    DDMDeviceCurrentOSName=$(echo -E $DDMInfo | jq -r '.statusItems[] | select(.key == "device.operating-system.marketing-name").value')
+    DDMDeviceCurrentOSBuild=$(echo -E $DDMInfo | jq -r '.statusItems[] | select(.key == "device.operating-system.build-version").value')
+    DDMDeviceSecurityCertificates=$(echo -E $DDMInfo | jq -r '.statusItems[] | select(.key == "security.certificate.list").value')
+    DDMClientSupportedVersions=$(echo -E $DDMInfo | jq -r '.statusItems[] | select(.key == "management.client-capabilities.supported-versions").value')
+    DDMClientSupportedPayload=$(echo -E $DDMInfo | jq -r '.statusItems[] | select(.key == "management.client-capabilities.supported-payloads.declarations.configurations").value' | tr ',' '\n')
 
 
     # Third, extract the DDM Software Update info for the machine
