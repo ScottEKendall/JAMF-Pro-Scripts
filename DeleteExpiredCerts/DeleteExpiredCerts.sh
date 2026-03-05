@@ -5,11 +5,13 @@
 # by: Scott Kendall
 #
 # Written: 03/03/2026
-# Last updated: 03/03/2026
+# Last updated: 03/05/2026
 #
 # Script Purpose: Remove any expired certificates from the current users mac, can be run in prompt or silent mode
 #
 # 1.0 - Initial
+# 1.1 - Added support to delete expired certificates in system keychain as well as user keychain
+#       More logging
 
 ######################################################################################################
 #
@@ -78,7 +80,10 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 JQ_FILE_INSTALL_POLICY="install_jq"
 
-LOGIN_KEYCHAIN="$USER_DIR/Library/Keychains/login.keychain-db"
+KEYCHAINS=(
+    "$USER_DIR/Library/Keychains/login.keychain-db"
+    "/Library/Keychains/System.keychain"
+)
 BACKUP_DIR="$USER_DIR/Desktop/Expired_Certs_Backup_$(date +%Y%m%d_%H%M%S)"
 KEYCHAIN_CERTS=""
 TOTAL_EXPIRED_CERTS=0
@@ -150,8 +155,8 @@ function check_for_sudo ()
     	MainDialogBody=(
         --message "In order for this script to function properly, it must be run as an admin user!"
         --ontop
-        --icon computer
-        --overlayicon "$STOP_ICON"
+        --icon "${SD_ICON_FILE}"
+        --overlayicon warning
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --titlefont shadow=1
@@ -244,32 +249,32 @@ function cleanup_and_exit ()
 
 function welcomemsg ()
 {
-  local actionButton
-  KEYCHAIN_CERTS=$(printf "**%-30s | %-12s | %s**<br><br>" "SHA-1 HASH" "EXPIRED ON" "SUBJECT/CN")
-  parse_keychain "view"
-  message="If you have any expired certificates in your keychain, they will be shown here.  If you choose to delete them, a backup of those certs will be made before deletion.<br><br>"
-  message+=$KEYCHAIN_CERTS
-  [[ $TOTAL_EXPIRED_CERTS == 0 ]] && actionButton="Done" || actionButton="Remove"
+    local actionButton
+    KEYCHAIN_CERTS=$(printf "**%-30s | %-12s | %s**<br><br>" "SHA-1 HASH" "EXPIRED ON" "SUBJECT/CN")
+    parse_keychain "view"
+    message="If you have any expired certificates in your keychain, they will be shown here.  If you choose to delete them, a backup of those certs will be made before deletion.<br><br>"
+    message+=$KEYCHAIN_CERTS
+    [[ $TOTAL_EXPIRED_CERTS == 0 ]] && actionButton="Done" || actionButton="Remove"
 
-  MainDialogBody=(
-    --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-    --messagefont size=16
-    --titlefont shadow=1
-    --icon "${SD_ICON_FILE}"
-    --overlayicon "${OVERLAY_ICON}"
-    --bannerimage "${SD_BANNER_IMAGE}"
-    --bannertitle "${SD_WINDOW_TITLE}"
-    --infobox "${SD_INFO_BOX_MSG}"
-    --helpmessage ""
-    --width 920
-    --height 480
-    --quitkey 0
-    --button1text "$actionButton"
-    --button2text "Cancel"
-    --moveable
-    --ontop
-    --ignorednd
-  )
+    MainDialogBody=(
+        --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
+        --messagefont size=16
+        --titlefont shadow=1
+        --icon "${SD_ICON_FILE}"
+        --overlayicon "${OVERLAY_ICON}"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --helpmessage ""
+        --width 920
+        --height 480
+        --quitkey 0
+        --button1text "$actionButton"
+        --button2text "Cancel"
+        --moveable
+        --ontop
+        --ignorednd
+    )
 
     # Example of appending items to the display array
     #    [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 520 --image "${SD_IMAGE_TO_DISPLAY}")
@@ -286,71 +291,63 @@ function parse_keychain ()
     # PURPOSE: Read in the entire contents of the users keychain file and evaluate each cert
     # RETURN: None
     # PARAMS: $1 - "view" or "delete"
-    # EXPECTED: $LOGIN_KEYCHAIN
+    # EXPECTED: $KEYCHAINS
     local mode="$1"
-    local certs_with_hashes=$(security find-certificate -a -Z -p "$LOGIN_KEYCHAIN" 2>/dev/null)
-    local current_pem="" current_hash=""
+    for kc in "${KEYCHAINS[@]}"; do
+        [[ ! -f "$kc" ]] && continue
+        logMe "Scanning Keychain: $kc"
 
-    echo "$certs_with_hashes" | while read -r line; do
-      # Process each line coming in...
-      if [[ "$line" =~ "^SHA-1 hash: " ]]; then
-        # if we hit the end of the current certificate then see if it should be processed
-        [[ -n "$current_pem" ]] && process_certificate "$mode" "$current_pem" "$current_hash"
-        # Erase the current one in memory and start reading in the new cert
-        current_hash=$(echo "${line#SHA-1 hash: }" | tr -d '[:space:]')
-        current_pem=""
-      elif [[ "$line" == "-----BEGIN CERTIFICATE-----" ]]; then
-        # Start of a new certificate
-        current_pem="$line"$'\n'
-      elif [[ -n "$current_pem" ]]; then
-        # Keep adding lines to the current certificate
-        current_pem+="$line"$'\n'
-      fi
+        local certs_with_hashes=$(security find-certificate -a -Z -p "$kc" 2>/dev/null)
+        local current_pem="" current_hash=""
+
+        # Use ZSH built-in string splitting to handle the buffer
+        while read -r line; do
+            if [[ "$line" =~ "^SHA-1 hash: " ]]; then
+                [[ -n "$current_pem" ]] && process_certificate "$mode" "$current_pem" "$current_hash" "$kc"
+                current_hash=$(echo "${line#SHA-1 hash: }" | tr -d '[:space:]')
+                current_pem=""
+            elif [[ "$line" == "-----BEGIN CERTIFICATE-----" ]]; then
+                current_pem="$line"$'\n'
+            elif [[ -n "$current_pem" ]]; then
+                current_pem+="$line"$'\n'
+            fi
+        done <<< "$certs_with_hashes"
+        
+        [[ -n "$current_pem" ]] && process_certificate "$mode" "$current_pem" "$current_hash" "$kc"
     done
-    [[ -n "$current_pem" ]] && process_certificate "$mode" "$current_pem" "$current_hash"
 }
 
-function process_certificate () 
-{
-    # PURPOSE: Read in the entire contents of the users keychain file and evaluate each cert
-    # RETURN: None
-    # PARAMS: $1 - "view" or "delete"
-    # EXPECTED: $LOGIN_KEYCHAIN
-    local mode="$1" pem="$2" hash="$3"
+function process_certificate () {
+    # PARAMS: $1: mode, $2: pem, $3: hash, $4: keychain_path
+    local mode="$1" pem="$2" hash="$3" kc_path="$4"
+    
     if should_process_cert "$pem"; then
-      ((TOTAL_EXPIRED_CERTS++))
-      # Extract the details of the cert
-      local not_after=$(echo "$pem" | openssl x509 -noout -enddate | cut -d= -f2)
-      local subject=$(echo "$pem" | openssl x509 -noout -subject | sed 's/^subject=//')
-      
-      # Shorten hash for display
-      local short_hash="${hash:0:16}..."
+        ((TOTAL_EXPIRED_CERTS++))
+        local not_after=$(echo "$pem" | openssl x509 -noout -enddate | cut -d= -f2)
+        local subject=$(echo "$pem" | openssl x509 -noout -subject | sed 's/^subject=//')
+        local short_hash="${hash:0:16}..."
 
-      if [[ "$mode" == "view" ]]; then
-        cert=$(printf "%-20s | %-12s | %-30.50s" "$short_hash" "$(echo $not_after | awk '{print $1,$2,$4}')" "$subject")
-        KEYCHAIN_CERTS+="$cert<br>"
-        logMe "Found Expired Cert: "$cert
-      else
-        mkdir -p "$BACKUP_DIR"
-        echo "$pem" > "$BACKUP_DIR/${hash}.pem"
-        logMe "Storing $hash into $BACKUP_DIR"
-        security delete-certificate -Z "$hash" "$LOGIN_KEYCHAIN" >/dev/null 2>&1
-        logMe "DELETED: $short_hash"
-      fi
+        if [[ "$mode" == "view" ]]; then
+            cert=$(printf "%-20s | %-12s | %-30.50s" "$short_hash" "$(echo $not_after | awk '{print $1,$2,$4}')" "$subject")
+            KEYCHAIN_CERTS+="$cert<br>"
+            logMe "Found Expired Cert: "$cert
+        else
+            mkdir -p "$BACKUP_DIR"
+            echo "$pem" > "$BACKUP_DIR/${hash}.pem"
+            logMe "Storing $hash into $BACKUP_DIR"
+            security delete-certificate -Z "$hash" "$kc_path" >/dev/null 2>&1
+            logMe "DELETED from $(basename $kc_path): $short_hash"
+        fi
     fi
 }
 
-function should_process_cert () 
-{
-    # PURPOSE: Determine if the cert is expired or not
-    # RETURN: 0 if active / 1 if expired
-    # PARAMS: $1 - Certificate Hash
-    # EXPECTED: $EXCLUDE_PATTERNS 
+function should_process_cert () {
     local pem="$1"
     local cert_info
     cert_info=$(echo "$pem" | openssl x509 -noout -subject -issuer 2>/dev/null) || return 1
+    # ZSH lowercase conversion syntax
     for pattern in "${EXCLUDE_PATTERNS[@]}"; do
-      [[ "${cert_info:l}" == *"${pattern:l}"* ]] && return 1
+        [[ "${(L)cert_info}" == *"${(L)pattern}"* ]] && return 1
     done
 
     local not_after=$(echo "$pem" | openssl x509 -noout -enddate 2>/dev/null | cut -d= -f2)
@@ -380,6 +377,8 @@ create_log_directory
 check_swift_dialog_install
 check_support_files
 create_infobox_message
+
+logMe "INFO: Running in ${(C)ACTION_MODE} Mode"
 
 # Determine if we should prompt or run silently
 [[ "${ACTION_MODE:l}" == "verbose" ]] && welcomemsg || parse_keychain "delete"
