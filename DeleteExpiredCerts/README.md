@@ -25,6 +25,22 @@
 
 ![](./DeleteExpiredCerts-Welcome.png)
 
+## Silent / Verbose Mode ##
+
+By default, the script will run in VERBOSE mode, but if you want to run it in SILENT mode, that is Script Param #4
+
+![](DeleteExpiredCerts-Parameters.png)
+
+
+## Certificate Exclussion ##
+
+You can optionally choose which certificates are NOT allowed to be deleted, by adjusting this line:
+
+```Line #85 - EXCLUDE_PATTERNS=("Apple" "Root CA" "Self-Signed" "Intermediate")```
+
+Edit the pattern to EXCLUDE what you do not want the script to remove
+
+
 
 | **Version**|**Notes**|
 |:--------:|-----|
