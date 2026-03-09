@@ -6,7 +6,7 @@
 # Purpose: Provide user notifications of a password expiration.
 #
 # Created: 04/18/2024
-# Last updated: 02/26/2026
+# Last updated: 03/09/2026
 #
 # 1.0 - Initial Release
 # 1.1 - Major code cleanup & documentation
@@ -21,6 +21,7 @@
 #       SD min version is now 2.5.0
 #       Fixed typos
 # 1.6 - Fixed window layout for Tahoe & SD v3.0
+# 1.7 - More comments / fixed code formatting
 #
 # Expected Parameters: 
 # $4 - Password Expiration in Days
@@ -68,17 +69,17 @@ SD_DIALOG_GREETING="Good $GREET"
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -109,7 +110,7 @@ SD_TIMER="240"
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}   # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 PASSWORD_EXPIRE_IN_DAYS=$4
-PASSWORD_CHECK=${5:-"NO"}
+PASSWORD_CHECK=${5:-"NO"}                   # On Demand (Yes) or script processing (No)
 
 ####################################################################################################
 #
@@ -124,14 +125,14 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
-	LOG_DIR=${LOG_FILE%/*}
-	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
-	/bin/chmod 755 "${LOG_DIR}"
+    # If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+    LOG_DIR=${LOG_FILE%/*}
+    [[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
+    /bin/chmod 755 "${LOG_DIR}"
 
-	# If the log file does not exist - create it and set the permissions
-	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
-	/bin/chmod 644 "${LOG_FILE}"
+    # If the log file does not exist - create it and set the permissions
+    [[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
+    /bin/chmod 644 "${LOG_FILE}"
 }
 
 function logMe () 
@@ -176,7 +177,7 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+    /usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
@@ -192,44 +193,47 @@ function create_infobox_message()
 	#
 	################################
 
-	SD_INFO_BOX_MSG="## System Info ##<br>"
-	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
-	SD_INFO_BOX_MSG+="{serialnumber}<br>"
-	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
-	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
+    SD_INFO_BOX_MSG="## System Info ##<br>"
+    SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+    SD_INFO_BOX_MSG+="{serialnumber}<br>"
+    SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
+    SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
+    SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
+    [[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+    [[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit $1
+    exit $1
 }
+
+####################################################################################################
+#
+# Application Specific Functions
+#
+####################################################################################################
 
 function display_msg ()
 {
-    SD_ICON_PRIMARY="/System/Applications/Utilities/Keychain access.app"
-    if is-at-least "15" "${MACOS_VERSION}"; then    #File location change in Sequoia and higher
-        SD_ICON_PRIMARY="/System/Applications/Passwords.app"
-    fi
 	MainDialogBody=(
-		--message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  ${SD_WELCOME_MSG}"
-		--overlayicon "${SD_ICON_PRIMARY}"
-		--icon "SF=person.circle.fill,weight=heavy,bgcolor=none,colour=blue,colour2=purple"
+        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  ${SD_WELCOME_MSG}"
+        --icon "${SD_ICON_PRIMARY}"
+        --overlayicon "SF=person.circle.fill,weight=heavy,bgcolor=none,colour=blue,colour2=purple"
         --titlefont shadow=1
-		--bannerimage "${SD_BANNER_IMAGE}"
-		--bannertitle "${SD_WINDOW_TITLE}"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
-		--quitkey 0
+        --width 840
+        --quitkey 0
         --timer "${SD_TIMER}"
-		--button1text "OK"
+        --button1text "OK"
         --ontop
     )
         [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 540 --image "${SD_IMAGE_TO_DISPLAY}")
 
-	# Show the dialog screen and allow the user to choose
+    # Show the dialog screen and allow the user to choose
 
     "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
     returnCode=$?
@@ -257,10 +261,10 @@ function duration_in_days ()
     # PARMS: $1 - oldest date 
     #        $2 - newest date
     local start end
-    calendar_scandate $1        
-    start=$REPLY        
-    calendar_scandate $2        
-    end=$REPLY        
+    calendar_scandate $1
+    start=$REPLY
+    calendar_scandate $2
+    end=$REPLY
     echo $(( ( end - start ) / ( 24 * 60 * 60 ) ))
 }
 
@@ -273,6 +277,7 @@ function get_password_info()
     declare curUser
     declare passwordAge
 
+    # This will try to extract the Password info from the created Plist files (uses EA)
     passwordExpireDate=$(/usr/libexec/plistbuddy -c "print PasswordLastChanged" $JSS_FILE 2>&1)
 
     if [[ $passwordExpireDate == *"Does Not Exist"* || -z $passwordExpireDate ]]; then
@@ -297,6 +302,10 @@ autoload 'is-at-least'
 check_swift_dialog_install
 check_support_files
 create_infobox_message
+SD_ICON_PRIMARY="/System/Applications/Utilities/Keychain access.app"
+if is-at-least "15" "${MACOS_VERSION}"; then    #File location change in Sequoia and higher
+    SD_ICON_PRIMARY="/System/Applications/Passwords.app"
+fi
 
 # Retrieve the users password ago and display he appropriate dialog box
 passwordAge=$(get_password_info)
@@ -304,12 +313,11 @@ logMe "INFO: Users password age is: "$passwordAge
 
 if [[ ${passwordAge} -le 8 && ${PASSWORD_CHECK:l} == "no" ]]; then
     SD_WELCOME_MSG="Your are receiving this notice because your password is about to expire within the next ${passwordAge} days.  You can click on the 'Unlock / Reset Network Password...' option in **JAMF Connect** to change your password.  You will receive further notices when your password is about to expire within the next 7 days."
-	logMe "INFO: Display prompt for user that password will expire in ${passwordAge} days"
-	display_msg
+    logMe "INFO: Display prompt for user that password will expire in ${passwordAge} days"
+    display_msg
 else
     SD_WELCOME_MSG="Your password will expire in ${passwordAge} days."
     logMe "INFO: Display notification for user that password will expire in ${passwordAge} days"
-
     display_notification
 fi
 exit 0
