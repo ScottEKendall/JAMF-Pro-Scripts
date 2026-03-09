@@ -19,15 +19,21 @@ v1.2 adds the option to view your password days until expiration "on demand" so 
 
 ![](./PasswordExpire-Parameters.png)
 
-#### 1.0 - Initial Release
-#### 1.1 - Major code cleanup & documentation
-####		 Structured code to be more inline / consistent across all apps
-#### 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 1.3 - Fixed password age calculation
-#### 		 Add support for 'on demand' viewing of password
-#### 1.4 - Changed variable declarations around for better readability
-#### 1.5 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       SD min version is now 2.5.0
-####       Fixed typos
+## History ##
+
+| **Version**|**Notes**|
+|:--------:|-----|
+| 0.1 | Initial Release |
+| 1.1 | Major code cleanup & documentation
+|| Structured code to be more inline / consistent across all apps
+| 1.2 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.3 | Fixed password age calculation
+|| Add support for 'on demand' viewing of password
+| 1.4 | Changed variable declarations around for better readability
+| 1.5 | Code cleanup
+|| Added feature to read in defaults file
+|| removed unnecessary variables.
+|| SD min version is now 2.5.0
+|| Fixed typos
+| 1.6 | Fixed window layout for Tahoe & SD v3.0
+| 1.7 | More comments / fixed code formatting
