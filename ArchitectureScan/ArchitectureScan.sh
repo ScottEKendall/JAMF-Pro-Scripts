@@ -85,17 +85,8 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 JQ_FILE_INSTALL_POLICY="install_jq"
 
-    # Define directories to scan (defaulting to /Applications and /System/Applications)
+# Define directories to scan (defaulting to /Applications and /System/Applications)
 APPDIR_SCAN=("/Applications" "/System/Applications")
-
-##################################################
-#
-# Passed in variables
-# 
-#################################################
-
-JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"  
 
 ####################################################################################################
 #
