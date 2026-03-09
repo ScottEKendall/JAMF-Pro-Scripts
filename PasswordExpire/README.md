@@ -23,7 +23,7 @@ v1.2 adds the option to view your password days until expiration "on demand" so 
 
 | **Version**|**Notes**|
 |:--------:|-----|
-| 0.1 | Initial Release |
+| 1.0 | Initial Release |
 | 1.1 | Major code cleanup & documentation
 || Structured code to be more inline / consistent across all apps
 | 1.2 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
