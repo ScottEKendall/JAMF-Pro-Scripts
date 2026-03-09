@@ -4,7 +4,7 @@ Apple said that after macOS  26 (Tahoe), Rosetta apps will no longer be supporte
 
 ![](./ArchitectureScan.png)
 
-If you choose to export the list, it will be store in the User's Desktop Folder
+If you choose to export the list, it will be stored in the User's Desktop Folder
 
 
 | **Version**|**Notes**|
