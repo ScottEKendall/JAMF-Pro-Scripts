@@ -6,9 +6,12 @@ Apple said that after macOS  26 (Tahoe), Rosetta apps will no longer be supporte
 
 If you choose to export the list, it will be stored in the User's Desktop Folder
 
+IMPORTANT!  This script uses the ```lipo``` command which is part of xCode developer.  You can install it by running ```xcode-select --install```
+
+
 
 | **Version**|**Notes**|
 |:--------:|-----|
 | 1.0 |  Initial Release |
 | 1.1 | Changed the -trigger keyword to -event for JAMF policy commands
-
+| 1.2 | Added check for the ```lipo``` command (part of Xcode Developer)

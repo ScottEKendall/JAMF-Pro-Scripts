@@ -11,6 +11,7 @@
 #
 # 1.0 - Initial
 # 1.1 - Changed the -trigger keyword to -event for JAMF policy commands
+# 1.2 - Added check for the Lipo command (part of Xcode Developer)
 
 ######################################################################################################
 #
@@ -157,6 +158,25 @@ function check_for_sudo ()
 	fi
 }
 
+function check_for_lipo ()
+{
+	# Ensures that script is run as ROOT
+    if [[ ! -f /usr/bin/lipo ]]; then
+    	MainDialogBody=(
+        --message "**Lipo command required!**<br><br>In order for this script to function properly, you must have the 'lipo' command installed.  You can install it by running this command 'xcode-select --install' from terminal and accepting the license agreement. "
+        --ontop
+        --icon "${SD_ICON_FILE}"
+        --overlayicon warning
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --width 700
+        --titlefont shadow=1
+        --button1text "OK"
+    )
+    	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+		cleanup_and_exit 1
+	fi
+}
 function check_swift_dialog_install ()
 {
     # Check to make sure that Swift Dialog is installed and functioning correctly
@@ -457,6 +477,7 @@ local -a FAILED_APPS
 autoload 'is-at-least'
 
 check_for_sudo
+check_for_lipo
 create_log_directory
 check_swift_dialog_install
 check_support_files
