@@ -5,11 +5,12 @@
 # by: Scott Kendall
 #
 # Written: 03/05/2026
-# Last updated: 03/09/2026
+# Last updated: 03/10/2026
 #
 # Script Purpose: Scan a user-defined list of applications to determine their architecture type
 #
 # 1.0 - Initial
+# 1.1 - Changed the -trigger keyword to -event for JAMF policy commands
 
 ######################################################################################################
 #
@@ -184,13 +185,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()

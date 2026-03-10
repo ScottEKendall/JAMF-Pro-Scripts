@@ -10,3 +10,5 @@ If you choose to export the list, it will be stored in the User's Desktop Folder
 | **Version**|**Notes**|
 |:--------:|-----|
 | 1.0 |  Initial Release |
+| 1.1 | Changed the -trigger keyword to -event for JAMF policy commands
+
