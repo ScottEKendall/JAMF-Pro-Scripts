@@ -317,13 +317,8 @@ function create_listitem_message_body ()
     declare line && line=""
 
     [[ "$6:l" == "first" ]] && line+='"button1disabled" : "true", "listitem" : ['
-    if [[ ! -z $1 ]]; then
-        if [[ ! -z $2 ]]; then
-            line+='{"title" : "'$1'", "subtitle" : "'$2'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
-        else
-            line+='{"title" : "'$1'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
-        fi
-    fi
+    [[ ! -z $1 ]] && [[ ! -z $2 ]] && line+='{"title" : "'$1'", "subtitle" : "'$2'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
+    [[ ! -z $1 ]] && [[ -z $2 ]] && line+='{"title" : "'$1'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
     [[ "$6:l" == "last" ]] && line+=']}'
     echo $line >> ${JSON_DIALOG_BLOB}
 }
