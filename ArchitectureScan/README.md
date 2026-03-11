@@ -19,3 +19,4 @@ You can customize which folders to scan and also to display .app extension in th
 ||       Add option to not display .APP in the file list
 ||       Check for WebApps
 ||       Include Application scan inside of users Home Directory
+| 1.4 | Reworked scan logic to take advantage of zsh features and executes much faster now

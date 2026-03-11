@@ -16,6 +16,9 @@
 #       Added fallback option to use plistbuddy if the "defaults read" command doesn't return location
 #       check for "shell script" and mark it as successful
 #       Add option to not display .APP in the file list
+#       Check for WebApps
+#       Include Application scan inside of users Home Directory
+# 1.4 - Reworked scan logic to take advantage of zsh features and executes much faster now
 
 ######################################################################################################
 #
@@ -98,8 +101,7 @@ JQ_FILE_INSTALL_POLICY="install_jq"
 ###################################################
 
 # Define directories to scan (defaulting to /Applications and /System/Applications)
-#APPDIR_SCAN=("/Applications" "/System/Applications" "$USER_DIR/Applications")
-APPDIR_SCAN=("$USER_DIR/Applications")
+APPDIR_SCAN=("/Applications" "/System/Applications" "$USER_DIR/Applications")
 
 # show .APP at the end of the display names.  Set to 'yes' or 'no'
 STRIP_EXTENSION="yes"
@@ -414,90 +416,64 @@ function preload_apps ()
     APPLIST_COUNT=$#reply
 }
 
-function scan_apps() 
-{
-	local exe_name exe_path count=1
-	# Find all .app folders in the specified directories
-	find "${APPDIR_SCAN[@]}" -maxdepth 2 -name "*.app" 2>/dev/null | while read -r app; do
-		
+function scan_apps() {
+    local count=1
+    local app_name exe_name exe_path archs kind app_status info bid
+
+    # Use Zsh globbing to find .app folders (replaces find)
+    for app in ${^APPDIR_SCAN}/*.app(N) ${^APPDIR_SCAN}/*/*.app(N); do
+        
+        # Handle naming
         [[ ${STRIP_EXTENSION:l} == "yes" ]] && app_name="${app:t:r}" || app_name="${app:t}"
-		exe_path=""
-		
-		# Try to read CFBundleExecutable via defaults (more reliable)
-		exe_name=$(/usr/bin/defaults read "${app}/Contents/Info" CFBundleExecutable 2>/dev/null)
-		
-		# Fallback to PlistBuddy if defaults fails
-		[[ -z "${exe_name}" ]] && exe_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "${app}/Contents/Info.plist" 2>/dev/null)
-		
-		# Build the executable path OR fallback to first file in Contents/MacOS
-		[[ -n "${exe_name}" ]] && exe_path="${app}/Contents/MacOS/${exe_name}"
-        # If the exact path cannot be found, the grab the first line in the folder and use that as the path
-		if [[ -z "${exe_name}" || ! -f "$exe_path" ]]; then
-			firstFile=$( /bin/ls -1 "${app}/Contents/MacOS" 2>/dev/null | head -n 1 )
-			[[ -n "${firstFile}" && -f "${app}/Contents/MacOS/${firstFile}" ]] && exe_path="${app}/Contents/MacOS/${firstFile}"
-		fi
+        
+        # 1. Extract info using plutil (one call for multiple values)
+        # Returns: ExecutableName|BundleID
+        BundleInfo=$(/usr/bin/plutil -extract CFBundleExecutable raw -o - "${app}/Contents/Info.plist" 2>/dev/null || echo "")
+        BundleID=$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "${app}/Contents/Info.plist" 2>/dev/null || echo "")
+        
+        exe_path="${app}/Contents/MacOS/${BundleInfo}"
 
-        # if we still cannot get the path, then it could be a webapp
-        if [[ -z ${exe_path} ]]; then
-            exe_name=$(/usr/bin/defaults read "${app}/Contents/Info" CFBundleIdentifier 2>/dev/null)
-            exe_path="$app"
-            echo "Path: $exe_path/Contents"
-
+        # 2. Fallback for Executable Path
+        if [[ -z "$BundleInfo" || ! -f "$exe_path" ]]; then
+            # Zsh glob: pick the first file in MacOS directory
+            local files=("${app}/Contents/MacOS/"*(N.))
+            exe_path="${files[1]}"
         fi
 
-		# Determine architecture via 'lipo', fallback to 'file' for non-Mach-O
-		if [[ -f "${exe_path}" ]]; then
-			archs=$(/usr/bin/lipo -archs "${exe_path}" 2>/dev/null)
-			
-			[[ -z "$archs" ]] && archs=$(/usr/bin/file -b "${exe_path}" 2>/dev/null) #Fallback to file command if lipo fails
+        # 3. Detect Architecture (Single Call)
+        if [[ -f "${exe_path}" ]]; then
+            archs=$(/usr/bin/file -b "${exe_path}")
+            
+            case "$archs" in
+                *"Mach-O universal binary"*) kind="Universal" ;;
+                *"arm64"*)                   kind="Apple Silicon" ;;
+                *"x86_64"*)                  kind="Intel" ;;
+                *"shell script"*)            kind="Shell Script" ;;
+                *)                           kind="Unknown" ;;
+            esac
+        elif [[ "$BundleID" == *"Safari.WebApp"* ]]; then
+            kind="WebApp"
+        else
+            kind="Unknown"
+        fi
 
-            if [[ "$archs" == *"shell script"* ]]; then
-                kind="Shell Script"
-                app_status="success"
+        # 4. Status and Logic
+        if [[ "$kind" =~ (Universal|Apple Silicon|Shell Script|WebApp) ]]; then
+            app_status="success"
+        else
+            app_status="fail"
+            FAILED_APPS+=("${app_name}")
+            echo "$app" >> "$TMP_FILE_STORAGE"
+        fi
 
-            elif [[ "$archs" == *"universal binary"* ]]; then
-                kind="Universal"
-                app_status="success"
-
-            elif [[ "$archs" == *"x86_64"* && "$archs" == *"arm64"* ]]; then
-                kind="Universal"
-                app_status="success"
-                
-            elif [[ "$archs" == *"arm64"* || "$archs" == *"arm64e"* ]]; then
-                kind="Apple Silicon"
-                app_status="success"
-                
-            elif [[ "$archs" == *"x86_64"* ]]; then
-                kind="Intel"
-                app_status="fail"
-                FAILED_APPS+=("${app_name}")
-
-            else
-                kind="Unknown"
-                app_status="error"
-                FAILED_APPS+=("${app_name}")
-            fi
-		else
-            if [[ -e "${exe_path}" && $exe_name == *"Safari.WebApp"* ]]; then
-                kind="WebApp"
-                app_status="success"
-            else
-    			kind="Unknown"
-    			app_status="fail"
-            fi
-		fi
-		
-		# Log & Update SwiftDialog UI
-		logMe "$app_name has an architecture of: $kind"
-		update_display_list "Update" "" "${app_name}" "$kind" "$app_status" $((100*count/APPLIST_COUNT))
-		
-		# Store Intel + Unknown apps
-		[[ "$kind" == "Unknown" || "$kind" == "Intel" ]] && echo "$app" >> "$TMP_FILE_STORAGE"
-		
-		((count++))
-		
-	done
+        # 5. UI Update
+        logMe "$app_name has an architecture of: $kind"
+        update_display_list "Update" "" "${app_name}" "$kind" "$app_status" $((100*count/APPLIST_COUNT))
+        
+        ((count++))
+    done
 }
+
 
 function export_failed_items ()
 {
