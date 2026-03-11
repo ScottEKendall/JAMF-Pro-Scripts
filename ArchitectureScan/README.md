@@ -17,3 +17,5 @@ You can customize which folders to scan and also to display .app extension in th
 ||       Added fallback option to use plistbuddy if the "defaults read" command doesn't return location
 ||       check for "shell script" and mark it as successful
 ||       Add option to not display .APP in the file list
+||       Check for WebApps
+||       Include Application scan inside of users Home Directory

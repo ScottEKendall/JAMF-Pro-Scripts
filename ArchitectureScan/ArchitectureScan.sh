@@ -98,7 +98,8 @@ JQ_FILE_INSTALL_POLICY="install_jq"
 ###################################################
 
 # Define directories to scan (defaulting to /Applications and /System/Applications)
-APPDIR_SCAN=("/Applications" "/System/Applications")
+#APPDIR_SCAN=("/Applications" "/System/Applications" "$USER_DIR/Applications")
+APPDIR_SCAN=("$USER_DIR/Applications")
 
 # show .APP at the end of the display names.  Set to 'yes' or 'no'
 STRIP_EXTENSION="yes"
@@ -426,17 +427,24 @@ function scan_apps()
 		exe_name=$(/usr/bin/defaults read "${app}/Contents/Info" CFBundleExecutable 2>/dev/null)
 		
 		# Fallback to PlistBuddy if defaults fails
-		[[ -z "$exe_name" ]] && exe_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "${app}/Contents/Info.plist" 2>/dev/null)
+		[[ -z "${exe_name}" ]] && exe_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "${app}/Contents/Info.plist" 2>/dev/null)
 		
 		# Build the executable path OR fallback to first file in Contents/MacOS
-		[[ -n "$exe_name" ]] && exe_path="${app}/Contents/MacOS/${exe_name}"
-		
+		[[ -n "${exe_name}" ]] && exe_path="${app}/Contents/MacOS/${exe_name}"
         # If the exact path cannot be found, the grab the first line in the folder and use that as the path
-		if [[ -z "$exe_name" || ! -f "$exe_path" ]]; then
+		if [[ -z "${exe_name}" || ! -f "$exe_path" ]]; then
 			firstFile=$( /bin/ls -1 "${app}/Contents/MacOS" 2>/dev/null | head -n 1 )
-			[[ -n "$firstFile" && -f "${app}/Contents/MacOS/${firstFile}" ]] && exe_path="${app}/Contents/MacOS/${firstFile}"
+			[[ -n "${firstFile}" && -f "${app}/Contents/MacOS/${firstFile}" ]] && exe_path="${app}/Contents/MacOS/${firstFile}"
 		fi
-		
+
+        # if we still cannot get the path, then it could be a webapp
+        if [[ -z ${exe_path} ]]; then
+            exe_name=$(/usr/bin/defaults read "${app}/Contents/Info" CFBundleIdentifier 2>/dev/null)
+            exe_path="$app"
+            echo "Path: $exe_path/Contents"
+
+        fi
+
 		# Determine architecture via 'lipo', fallback to 'file' for non-Mach-O
 		if [[ -f "${exe_path}" ]]; then
 			archs=$(/usr/bin/lipo -archs "${exe_path}" 2>/dev/null)
@@ -448,8 +456,8 @@ function scan_apps()
                 app_status="success"
 
             elif [[ "$archs" == *"universal binary"* ]]; then
-					kind="Universal"
-					app_status="success"
+                kind="Universal"
+                app_status="success"
 
             elif [[ "$archs" == *"x86_64"* && "$archs" == *"arm64"* ]]; then
                 kind="Universal"
@@ -468,10 +476,15 @@ function scan_apps()
                 kind="Unknown"
                 app_status="error"
                 FAILED_APPS+=("${app_name}")
-            fi			
+            fi
 		else
-			kind="Unknown"
-			app_status="fail"
+            if [[ -e "${exe_path}" && $exe_name == *"Safari.WebApp"* ]]; then
+                kind="WebApp"
+                app_status="success"
+            else
+    			kind="Unknown"
+    			app_status="fail"
+            fi
 		fi
 		
 		# Log & Update SwiftDialog UI
