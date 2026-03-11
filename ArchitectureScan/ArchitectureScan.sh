@@ -5,13 +5,17 @@
 # by: Scott Kendall
 #
 # Written: 03/05/2026
-# Last updated: 03/10/2026
+# Last updated: 03/11/2026
 #
 # Script Purpose: Scan a user-defined list of applications to determine their architecture type
 #
 # 1.0 - Initial
 # 1.1 - Changed the -trigger keyword to -event for JAMF policy commands
 # 1.2 - Added check for the Lipo command (part of Xcode Developer)
+# 1.3 - Put in fallback option of using the 'file' command if 'lipo' is not found.  Thanks @Abhik Saha
+#       Added fallback option to use plistbuddy if the "defaults read" command doesn't return location
+#       check for "shell script" and mark it as successful
+#       Add option to not display .APP in the file list
 
 ######################################################################################################
 #
@@ -87,8 +91,17 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 JQ_FILE_INSTALL_POLICY="install_jq"
 
+###################################################
+#
+# Modifiable Runtime variables
+#
+###################################################
+
 # Define directories to scan (defaulting to /Applications and /System/Applications)
 APPDIR_SCAN=("/Applications" "/System/Applications")
+
+# show .APP at the end of the display names.  Set to 'yes' or 'no'
+STRIP_EXTENSION="yes"
 
 ####################################################################################################
 #
@@ -158,25 +171,6 @@ function check_for_sudo ()
 	fi
 }
 
-function check_for_lipo ()
-{
-	# Ensures that script is run as ROOT
-    if [[ ! -f /usr/bin/lipo ]]; then
-    	MainDialogBody=(
-        --message "**Lipo command required!**<br><br>In order for this script to function properly, you must have the 'lipo' command installed.  You can install it by running this command 'xcode-select --install' from terminal and accepting the license agreement. "
-        --ontop
-        --icon "${SD_ICON_FILE}"
-        --overlayicon warning
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --width 700
-        --titlefont shadow=1
-        --button1text "OK"
-    )
-    	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-		cleanup_and_exit 1
-	fi
-}
 function check_swift_dialog_install ()
 {
     # Check to make sure that Swift Dialog is installed and functioning correctly
@@ -295,6 +289,7 @@ function create_listitem_list ()
 
     for item in "${app_list[@]}"; do
         name=${item:t}
+        [[ ${STRIP_EXTENSION:l} == "yes" ]] && item=$item.app
         create_listitem_message_body "$name" "$item" "Pending..." "pending" ""
     done
     create_listitem_message_body "" "" "" "" "last"
@@ -397,7 +392,7 @@ function update_display_list ()
 function welcomemsg ()
 {
     local -a app_list
-    message="Apple said that after macOS Tahoe, Rosetta app support will be deprecated. This script will list all of the apps on your system and display"
+    message="Apple said that after macOS 26 (Tahoe), Rosetta app support will be deprecated. This script will list all of the apps on your system and display"
     message+=" the architecture type, so you can determine which applications need updated.<br>"
     preload_apps
     app_list=("${reply[@]}")
@@ -413,51 +408,82 @@ function welcomemsg ()
 function preload_apps ()
 {
     find "${APPDIR_SCAN[@]}" -maxdepth 2 -name "*.app" 2>/dev/null | while read -r app; do
-        reply+=("$app")
+        [[ ${STRIP_EXTENSION:l} == "yes" ]] && reply+=("${app:r}") || reply+=("$app")
     done
     APPLIST_COUNT=$#reply
 }
 
 function scan_apps() 
 {
-    local exe_name exe_path count=1
-    # Find all .app folders in the specified directories
-    find "${APPDIR_SCAN[@]}" -maxdepth 2 -name "*.app" 2>/dev/null | while read -r app; do
-        # Get the name of the app
-        app_name="${app:t}"
-        # Locate the main executable inside the bundle
-        # Use PlistBuddy to find the exact executable name from Info.plist
-        exe_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$app/Contents/Info.plist" 2>/dev/null)
-        exe_path="${app}/Contents/MacOS/$exe_name"
+	local exe_name exe_path count=1
+	# Find all .app folders in the specified directories
+	find "${APPDIR_SCAN[@]}" -maxdepth 2 -name "*.app" 2>/dev/null | while read -r app; do
+		
+        [[ ${STRIP_EXTENSION:l} == "yes" ]] && app_name="${app:t:r}" || app_name="${app:t}"
+		exe_path=""
+		
+		# Try to read CFBundleExecutable via defaults (more reliable)
+		exe_name=$(/usr/bin/defaults read "${app}/Contents/Info" CFBundleExecutable 2>/dev/null)
+		
+		# Fallback to PlistBuddy if defaults fails
+		[[ -z "$exe_name" ]] && exe_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "${app}/Contents/Info.plist" 2>/dev/null)
+		
+		# Build the executable path OR fallback to first file in Contents/MacOS
+		[[ -n "$exe_name" ]] && exe_path="${app}/Contents/MacOS/${exe_name}"
+		
+        # If the exact path cannot be found, the grab the first line in the folder and use that as the path
+		if [[ -z "$exe_name" || ! -f "$exe_path" ]]; then
+			firstFile=$( /bin/ls -1 "${app}/Contents/MacOS" 2>/dev/null | head -n 1 )
+			[[ -n "$firstFile" && -f "${app}/Contents/MacOS/${firstFile}" ]] && exe_path="${app}/Contents/MacOS/${firstFile}"
+		fi
+		
+		# Determine architecture via 'lipo', fallback to 'file' for non-Mach-O
+		if [[ -f "${exe_path}" ]]; then
+			archs=$(/usr/bin/lipo -archs "${exe_path}" 2>/dev/null)
+			
+			[[ -z "$archs" ]] && archs=$(/usr/bin/file -b "${exe_path}" 2>/dev/null) #Fallback to file command if lipo fails
 
-        if [[ -f "${exe_path}" ]]; then
-            # Get architectures using lipo
-            archs=$(lipo -archs "${exe_path}" 2>/dev/null)
-            
-            if [[ "$archs" == *"x86_64"* && "$archs" == *"arm64"* ]]; then
+            if [[ "$archs" == *"shell script"* ]]; then
+                kind="Shell Script"
+                app_status="success"
+
+            elif [[ "$archs" == *"universal binary"* ]]; then
+					kind="Universal"
+					app_status="success"
+
+            elif [[ "$archs" == *"x86_64"* && "$archs" == *"arm64"* ]]; then
                 kind="Universal"
                 app_status="success"
-            elif [[ "$archs" == *"arm64"* ]]; then
+                
+            elif [[ "$archs" == *"arm64"* || "$archs" == *"arm64e"* ]]; then
                 kind="Apple Silicon"
                 app_status="success"
+                
             elif [[ "$archs" == *"x86_64"* ]]; then
                 kind="Intel"
                 app_status="fail"
-                FAILED_APPS+=("$app_name")
+                FAILED_APPS+=("${app_name}")
+
             else
                 kind="Unknown"
                 app_status="error"
-                FAILED_APPS+=("$app_name")
-            fi
-        else
-            kind="Unknown"
-            app_status="fail"
-        fi
-        logMe "$app_name has an architecture of: $kind"
-        update_display_list "Update" "" "${app_name}" "$kind" "$app_status" $((100*count/APPLIST_COUNT))
-        [[ "${kind}" =~ 'Unknown|Intel' ]] && echo $app >> $TMP_FILE_STORAGE
-        ((count++))
-    done
+                FAILED_APPS+=("${app_name}")
+            fi			
+		else
+			kind="Unknown"
+			app_status="fail"
+		fi
+		
+		# Log & Update SwiftDialog UI
+		logMe "$app_name has an architecture of: $kind"
+		update_display_list "Update" "" "${app_name}" "$kind" "$app_status" $((100*count/APPLIST_COUNT))
+		
+		# Store Intel + Unknown apps
+		[[ "$kind" == "Unknown" || "$kind" == "Intel" ]] && echo "$app" >> "$TMP_FILE_STORAGE"
+		
+		((count++))
+		
+	done
 }
 
 function export_failed_items ()
@@ -477,7 +503,6 @@ local -a FAILED_APPS
 autoload 'is-at-least'
 
 check_for_sudo
-check_for_lipo
 create_log_directory
 check_swift_dialog_install
 check_support_files
