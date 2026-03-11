@@ -6,9 +6,7 @@ Apple said that after macOS  26 (Tahoe), Rosetta apps will no longer be supporte
 
 If you choose to export the list, it will be stored in the User's Desktop Folder
 
-IMPORTANT!  This script uses the ```lipo``` command which is part of xCode developer.  You can install it by running ```xcode-select --install```
-
-
+You can customize which folders to scan and also to display .app extension in the list
 
 | **Version**|**Notes**|
 |:--------:|-----|
