@@ -19,6 +19,7 @@
 #       Check for WebApps
 #       Include Application scan inside of users Home Directory
 # 1.4 - Reworked scan logic to take advantage of zsh features and executes much faster now
+# 1.5 - Added option to show the application path in the list
 
 ######################################################################################################
 #
@@ -104,7 +105,7 @@ JQ_FILE_INSTALL_POLICY="install_jq"
 APPDIR_SCAN=("/Applications" "/System/Applications" "$USER_DIR/Applications")
 
 STRIP_EXTENSION="yes"   # show .APP at the end of the display names.  Set to 'yes' or 'no'
-SHOW_PATH="no"         # show the path in the 2nd line of the display
+SHOW_PATH="no"         # show the path in the 2nd line of the display (yes / no)
 
 ####################################################################################################
 #
@@ -471,12 +472,12 @@ function scan_apps()
         else
             app_status="fail"
             FAILED_APPS+=("${app_name}")
-            echo "$app" >> "$TMP_FILE_STORAGE"
+            echo "${app}" >> "$TMP_FILE_STORAGE"
         fi
 
         # 5. UI Update
-        logMe "$app_name has an architecture of: $kind"
-        update_display_list "Update" "" "${app_name}" "$kind" "$app_status" $((100*count/APPLIST_COUNT))
+        logMe "$app_name has an architecture of: ${kind}"
+        update_display_list "Update" "" "${app_name}" "${kind}" "${app_status}" $((100*count/APPLIST_COUNT))
         
         ((count++))
     done
