@@ -103,8 +103,8 @@ JQ_FILE_INSTALL_POLICY="install_jq"
 # Define directories to scan (defaulting to /Applications and /System/Applications)
 APPDIR_SCAN=("/Applications" "/System/Applications" "$USER_DIR/Applications")
 
-# show .APP at the end of the display names.  Set to 'yes' or 'no'
-STRIP_EXTENSION="yes"
+STRIP_EXTENSION="yes"   # show .APP at the end of the display names.  Set to 'yes' or 'no'
+SHOW_PATH="no"         # show the path in the 2nd line of the display
 
 ####################################################################################################
 #
@@ -268,7 +268,7 @@ function construct_dialog_header_settings ()
         "button1text" : "Export",
         "button2text" : "OK",
         "moveable" : "true",
-        "height" : "680",
+        "height" : "780",
         "width" : "900",
         "json" : "true", 
         "ignorednd" : "true",
@@ -288,14 +288,15 @@ function create_listitem_list ()
 
 
     construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
-    create_listitem_message_body "" "" "" "" "first"
+    create_listitem_message_body "" "" "" "" "" "first"
 
     for item in "${app_list[@]}"; do
         name=${item:t}
+        [[ ${SHOW_PATH:l} == "yes" ]] && appPath=${item:h} || appPath=""
         [[ ${STRIP_EXTENSION:l} == "yes" ]] && item=$item.app
-        create_listitem_message_body "$name" "$item" "Pending..." "pending" ""
+        create_listitem_message_body "$name" "$appPath" "$item" "Pending..." "pending" ""
     done
-    create_listitem_message_body "" "" "" "" "last"
+    create_listitem_message_body "" "" "" "" "" "last"
     update_display_list "Create"
 }
 
@@ -314,9 +315,15 @@ function create_listitem_message_body ()
 
     declare line && line=""
 
-    [[ "$5:l" == "first" ]] && line+='"button1disabled" : "true", "listitem" : ['
-    [[ ! -z $1 ]] && line+='{"title" : "'$1'", "icon" : "'$2'", "status" : "'$4'", "statustext" : "'$3'"},'
-    [[ "$5:l" == "last" ]] && line+=']}'
+    [[ "$6:l" == "first" ]] && line+='"button1disabled" : "true", "listitem" : ['
+    if [[ ! -z $1 ]]; then
+        if [[ ! -z $2 ]]; then
+            line+='{"title" : "'$1'", "subtitle" : "'$2'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
+        else
+            line+='{"title" : "'$1'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
+        fi
+    fi
+    [[ "$6:l" == "last" ]] && line+=']}'
     echo $line >> ${JSON_DIALOG_BLOB}
 }
 
@@ -416,7 +423,8 @@ function preload_apps ()
     APPLIST_COUNT=$#reply
 }
 
-function scan_apps() {
+function scan_apps() 
+{
     local count=1
     local app_name exe_name exe_path archs kind app_status info bid
 
@@ -473,7 +481,6 @@ function scan_apps() {
         ((count++))
     done
 }
-
 
 function export_failed_items ()
 {

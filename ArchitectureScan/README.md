@@ -6,7 +6,12 @@ Apple said that after macOS  26 (Tahoe), Rosetta apps will no longer be supporte
 
 If you choose to export the list, it will be stored in the User's Desktop Folder
 
-You can customize which folders to scan and also to display .app extension in the list
+The following customizations can be made:
+* which folders to scan 
+* display the .app extension in the list
+* Show the application path in the list
+
+![](./ArchitectureScan-AppPath.png)
 
 | **Version**|**Notes**|
 |:--------:|-----|
@@ -20,3 +25,4 @@ You can customize which folders to scan and also to display .app extension in th
 ||       Check for WebApps
 ||       Include Application scan inside of users Home Directory
 | 1.4 | Reworked scan logic to take advantage of zsh features and executes much faster now
+| 1.5 | Added option to show the application path in the list
