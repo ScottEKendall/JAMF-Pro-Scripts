@@ -20,23 +20,21 @@ The following characters are strictly forbidden in file and folder names:
 
 ## Restricted Character Placement
 
-Leading/Trailing Spaces: 
+*Leading/Trailing Spaces:* You cannot start or end a file or folder name with a space.
 
-You cannot start or end a file or folder name with a space.
+*Trailing Periods:* File or folder names cannot end with a period (.).
 
-Trailing Periods: File or folder names cannot end with a period (.).
+*Consecutive Periods:* Avoid using two or more periods in a row in the middle of a name.
 
-Consecutive Periods: Avoid using two or more periods in a row in the middle of a name.
-
-Hidden Files: Starting a name with a period will hide the file on macOS and may cause sync issues. 
+*Hidden Files:* Starting a name with a period will hide the file on macOS and may cause sync issues. 
 
 ## Name and Path Length Limits
 
-Individual Name Limit: A single file or folder name cannot exceed 255 characters.
+*Individual Name Limit:* A single file or folder name cannot exceed 255 characters.
 
-Total Path Limit: The entire path (including all folders and the file name) must be fewer than 400 characters.
+*Total Path Limit:* The entire path (including all folders and the file name) must be fewer than 400 characters.
 
-URL Encoding: OneDrive converts spaces to %20 in web links. This turns one character into three, which can push a long path over the 400-character limit unexpectedly. 
+*URL Encoding:* OneDrive converts spaces to %20 in web links. This turns one character into three, which can push a long path over the 400-character limit unexpectedly. 
 
 ## Invalid Names (Windows Legacy)
 
