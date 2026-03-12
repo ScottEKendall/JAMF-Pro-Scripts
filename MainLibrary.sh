@@ -88,7 +88,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -108,7 +108,7 @@ JQ_FILE_INSTALL_POLICY="install_jq"
 
 APP_EXTENSIONS=("com.microsoft.CompanyPortalMac.ssoextension"
                 "com.microsoft.CompanyPortalMac.Mac-Autofill-Extension")
-                
+
 ##################################################
 #
 # Passed in variables
@@ -197,13 +197,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -325,16 +325,33 @@ function check_focus_status ()
 
 function touch_id_status ()
 {
-    # PURPOSE: Check the status of the TouchID
-    # RETURN: one of four possible values  (absent, present, enabled, not enabled)
-    # EXPECTED: USER_UID - internal UUID of the logged in user
-    # PARAMETERS: None
-    local retval="Absent"
-    local tmp
-    # Detect if this system has TouchID
-    if bioutil -r -s 2>/dev/null | grep -q "System Touch ID configuration"; then
-        tmp=($(bioutil -c -s | awk '/User/ {print $2 $3}'))
-        [[ $(echo "${tmp[*]}" | grep -c "${USER_UID}") -gt 0 ]] && retval="Enabled" || retval="Not enabled"
+    local hw="Absent"
+    retval="$hw"
+    local enrolled="false"
+    local bioCount="0"
+    # --- Detect Touch ID–capable hardware (internal or external) ---
+    bioOutput=$(ioreg -l 2>/dev/null)
+
+    # Check for the device entry indicating hardware presence
+    if [[ $bioOutput == *"+-o AppleBiometricSensor"* ]]; then
+        hw="Present"
+    else
+        # Fallback: Parse IOKitDiagnostics for class instance count
+        if [[ $bioOutput =~ '"AppleBiometricSensor"=([0-9]+)' && ${match[1]} -gt 0 ]]; then
+            hw="Present"
+        # Fallback: Magic Keyboard with Touch ID
+        elif system_profiler SPUSBDataType 2>/dev/null | grep -q "Magic Keyboard.*Touch ID"; then
+            hw="Present"
+        fi
+    fi
+
+    if [[ "${hw}" == "Present" ]]; then
+        # Enrollment check
+
+        bioCount=$(runAsUser bioutil -c 2>/dev/null | awk '/biometric template/{print $3}' | grep -Eo '^[0-9]+$' || echo "0")
+        [[ "${bioCount}" -gt 0 ]] && enrolled="true"
+
+        [[ "${enrolled}" == "true" ]] && retval="Enabled" || retval="Not enabled"
     fi
     echo "$retval"
 }
