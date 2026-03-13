@@ -17,6 +17,11 @@ This script comes in handy to show a progress window when you have a lengthy dow
 
 ![](./DialogProgress.png)
 
-##### _v1.0 - Initial Commit_
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Fixed window layout for Tahoe & SD v3.0
+| 1.2 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Fixed variable names in the defaults file section
 
 
