@@ -21,5 +21,6 @@ Have fun making your own creations!
 | 1.2 | Added option to read in variables from defaults file
 || Fixed typos
 | 1.3 | removed echo commands used for debugging.
-1.6 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+1.4 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 ||       Fixed variable names in the defaults file section
+|| Fixed window layout for Tahoe & SD v3.0
