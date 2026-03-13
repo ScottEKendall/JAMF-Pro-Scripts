@@ -8,5 +8,10 @@ The wallpapers can be either .PNG or .JPG (this can be changed in the script) an
 
 ![](./WallpaperPicker.png)
 
-#### 1.0 - Initial 
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
 
