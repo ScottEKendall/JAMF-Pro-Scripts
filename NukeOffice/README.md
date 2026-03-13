@@ -1,4 +1,4 @@
-## Nuke Adobe CC
+## Nuke Microsoft Office
 
 Sometimes applications in the Microsoft Office suite just refuse to work properly and the "official" Office uninstaller just doesn't seem to fix the issue, so here is a script to do a "seek & destroy" of Microsoft Office related files on the user's Mac  (this will not remove OneNote).
 
