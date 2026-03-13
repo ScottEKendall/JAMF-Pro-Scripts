@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 12/10/2025
-# Last updated: 12/10/2025
+# Last updated: 03/13/2026
 #
 # Script Purpose: Allow the user to choose from a selection of wallpapers and set that as their background
 # 
@@ -14,6 +14,10 @@
 # You need to have your wallpapers selection packaged up and ready to deliver
 #
 # 1.0 - Initial
+# 1.1 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
+
 
 ######################################################################################################
 #
@@ -47,17 +51,17 @@ DISPLAY_COUNT=$(system_profiler SPDisplaysDataType -json)
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -158,14 +162,14 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${WALLPAPER_DIR}" ]] && /usr/local/bin/jamf policy -trigger ${WALLPAPER_INSTALL_POLICY}
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ ! -x "${DESKTOPPR_APP}" ]] && /usr/local/bin/jamf policy -trigger ${DESKTOPPR_INSTALL_POLICY}
+    [[ ! -e "${WALLPAPER_DIR}" ]] && /usr/local/bin/jamf policy -event ${WALLPAPER_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -x "${DESKTOPPR_APP}" ]] && /usr/local/bin/jamf policy -event ${DESKTOPPR_INSTALL_POLICY}
 }
 
 function cleanup_and_exit ()
