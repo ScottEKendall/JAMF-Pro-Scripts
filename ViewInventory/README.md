@@ -23,6 +23,8 @@ Results of a compliance failure screen with details
 ![Parameters](./ViewInventory_Parms.png)
 
 
+## History ##
+
 | **Version**|**Notes**|
 |:--------:|-----|
 | 1.0 | Initial code
@@ -36,3 +38,6 @@ Results of a compliance failure screen with details
 ||       Fixed typos
 | 1.5 | updated Global Common section for better optimization.
 ||       Rename function call names for JAMF operations.
+| 1.6 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section

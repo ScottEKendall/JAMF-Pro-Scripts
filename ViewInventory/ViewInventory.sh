@@ -4,7 +4,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 11/15/2025
+# Last updated: 03/13/2026
 
 # Script to view inventory detail of a JAMF record and show pertinent info in SwiftDialog
 # 
@@ -19,6 +19,10 @@
 #       Fixed typos
 # 1.5 - updated Global Common section for better optimization.
 #       Rename function call names for JAMF operations.
+# 1.6 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
+
 #
 ######################################################################################################
 #
@@ -73,7 +77,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -170,12 +174,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
