@@ -14,10 +14,15 @@ Sample policy with customized parameters
 ![](./ViewLogs_Example.png)
 
 
-#### 1.0 - Initial Commit
-#### 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 1.2 - Made the variable EMAIL_APP to choose while mail app you want to use and automatically pasted the log contents into the body
-#### 1.3 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.2 | Made the variable EMAIL_APP to choose while mail app you want to use and automatically pasted the log contents into the body
+| 1.3 | Code cleanup
+||       Added feature to read in defaults file
+||       removed unnecessary variables.
+||       Fixed typos
+| 1.4 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
