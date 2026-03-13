@@ -5,6 +5,10 @@ Small utility designed to read in the local DDM software settings that are assig
 ![](./ReadDDMSoftwareUpdate.png)
 
 
+## History ##
+
 | **Version**|**Notes**|
 |:--------:|-----|
 | 1.0 | Initial
+| 1.1 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+||       Fixed variable names in the defaults file section

@@ -5,12 +5,14 @@
 # by: Scott Kendall
 #
 # Written: 01/27/2026
-# Last updated: 01/27/2026
+# Last updated: 03/13/2026
 #
 # Script Purpose: Read the DDM Software Update settings and show the info in a GUI window
 # Based on Der Flounders article: https://derflounder.wordpress.com/2025/12/17/reading-ddm-managed-apple-software-update-settings-from-the-command-line-on-macos-tahoe-26-2-0/
 #
 # 1.0 - Initial
+# 1.1 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+#       Fixed variable names in the defaults file section
 
 ######################################################################################################
 #
@@ -60,7 +62,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -164,13 +166,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
