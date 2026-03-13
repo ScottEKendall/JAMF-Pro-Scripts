@@ -78,3 +78,6 @@ If you are using the Modern JAMF API credentials, you need to set:
 | 2.0 | Add option to  do a copy of group membership from one computer to another |
 | 2.1 | Optimized header variables section |
 ||       Optimized some JAMF functions for faster processing |
+| 2.2 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
