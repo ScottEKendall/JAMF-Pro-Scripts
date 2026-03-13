@@ -5,12 +5,15 @@
 # by: Scott Kendall
 #
 # Written: 02/02/2026
-# Last updated: 02/26/2026
+# Last updated: 03/13/2026
 #
 # Script Purpose: Move Desktop & Documents to /Users/Shared so other users can access files
 #
 # 1.0 - Initial
 # 1.1 - Fixed window layout for Tahoe & SD v3.0
+# 1.2 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
 ######################################################################################################
 #
 # Global "Common" variables
@@ -166,13 +169,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
