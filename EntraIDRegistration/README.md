@@ -35,3 +35,7 @@ User not registered at all
 |     | Fixed typos
 | 1.6 | Optimized Common section
 |     | Added options to check for logged in user and system awake
+| 1.7 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
+
