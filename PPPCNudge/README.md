@@ -335,3 +335,23 @@ Some more good info here:
 https://gist.github.com/rmcdongit/f66ff91e0dad78d4d6346a75ded4b751
 
 https://github.com/AtlasGondal/macos-pentesting-resources/blob/main/tccd/kTCCService.md#tcc-services-and-descriptions
+
+
+# History ##
+
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Put in logic to check User TCC first and then the System TCC
+| 1.2 | Added check to make sure a user is logged in / Added more logging items / Removed the sudo command from the sql command
+| 1.3 | Added support for multiple TCC checks (separate each key with a space)
+| 1.4 | Made the UserTCC keys a "static" array so that it can be checked against bundles better
+| 1.5 | Code clean up and better determination of mode of TCC Key
+| 1.6 | Check for existence of application before proceeding
+| 1.7 | Added variable USER_UID to make sure that the RunAsUser runs with the correct ID / Reworked top section to be standard across all apps
+| 1.8 | Added option to only run if user is logged in.
+| 1.9 | Fix issue around the defaults file variables not getting set properly / added line to make sure LOG_DIR was created properly
+| 1.10 | Fixed window layout for Tahoe & SD v3.0
+| 1.11 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section

@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/26/2025
-# Last updated: 02/26/2026
+# Last updated: 03/13/2026
 #
 # Script Purpose: check the PPPC Database to see if the requested item is turned off for a particular app, and prompt user if necessary
 #
@@ -23,6 +23,9 @@
 # 1.8 - Added option to only run if user is logged in.
 # 1.9 - Fix issue around the defaults file variables not getting set properly / added line to make sure LOG_DIR was created properly
 # 1.10- Fixed window layout for Tahoe & SD v3.0
+# 1.11 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
 #
 # Here is a list of the System Settings Prefpanes that can be opened from terminal
 #
@@ -193,13 +196,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
 function cleanup_and_exit ()
