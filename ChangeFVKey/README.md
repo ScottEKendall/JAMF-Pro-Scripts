@@ -14,9 +14,14 @@ Successful completion
 
 ![](./ChangeFVKey-Success.png)
 
-#### 1.0 - Initial
-#### 1.1 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Bumped min version of SD to 2.5.0
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Code cleanup
+||       Added feature to read in defaults file
+||       removed unnecessary variables.
+||       Bumped min version of SD to 2.5.0
+||       Fixed typos
+| 1.2 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
