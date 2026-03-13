@@ -5,7 +5,7 @@
 # Scott Kendall
 #
 # Created on: 02/10/25
-# Last Modified: 01/21/2026
+# Last Modified: 03/13/2026
 # 
 # 1.0 - Initial Commit
 # 1.1 - Added more logging details
@@ -24,6 +24,10 @@
 #       Fixed issue of ICON_FILES contents not installed properly
 # 1.8 - Fixed issue of Free Space amount not showing
 #       Swift dialog version wasn't being displayed properly
+# 1.9 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
+
 # 
 ######################################################################################################
 #
@@ -73,7 +77,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -166,13 +170,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ ! -e "${OVERLAY_ICON}" ]] && /usr/local/bin/jamf policy -trigger ${DIALOG_ICON_TRIGGER}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${OVERLAY_ICON}" ]] && /usr/local/bin/jamf policy -event ${DIALOG_ICON_TRIGGER}
 }
 
 function create_infobox_message()

@@ -22,7 +22,10 @@ uptimeOutput=$(uptime)
 [[ "${uptimeOutput/day/}" != "${uptimeOutput}" ]] && uptimeDays=$(awk -F "up | day" '{print $2}' <<< "${uptimeOutput}")
 
 echo "<result>${uptimeDays:-0}</result>"
+
 ```
+## History ##
+
 | **Version**|**Notes**|
 |:--------:|-----|
 | 1.0 | Initial Commit
@@ -39,3 +42,7 @@ echo "<result>${uptimeDays:-0}</result>"
 ||       Added feature to read in defaults file
 ||       removed unnecessary variables.
 ||       Fixed typos
+| 1.7 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
+
