@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 04/29/2025
-# Last updated: 11/17/2025
+# Last updated: 03/13/2026
 #
 # Script Purpose: Selectively remove Adobe apps from a users system
 #
@@ -22,6 +22,8 @@
 #       Added feature to read in defaults file
 #       removed unnecessary variables.
 #       Fixed typos
+# 1.10- Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+#       Optimized "Common" section for better performance
 #
 ######################################################################################################
 #
@@ -34,12 +36,11 @@ LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && 
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 MACOS_VERSION=$( sw_vers -productVersion | xargs)
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
