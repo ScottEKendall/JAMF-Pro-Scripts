@@ -25,17 +25,23 @@ Problems updating the token (with error message)
 
 ![](./GrantSecureToken_Failure.png)
 
-#### 1.0 - Initial
-#### 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 1.2 - Reworked top section for better idea of what can be modified
-####       Swift Dialog version is now 2.5.0
-####       Added title font shadow to display box
-####       Put proper quoting around variables to deal with special characters better
-#### 1.3 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Fixed typos
-#### 1.4 - Changed output of Dialog to use JSON blob to handle parsing of password with special characters
-####       Added logic to make sure jq was installed.
-####       Fixed issue of defaults variables not getting set properly
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.2 | Reworked top section for better idea of what can be modified
+||       Swift Dialog version is now 2.5.0
+||       Added title font shadow to display box
+||       Put proper quoting around variables to deal with special characters better
+| 1.3 | Code cleanup
+||       Added feature to read in defaults file
+||       removed unnecessary variables.
+||       Fixed typos
+| 1.4 | Changed output of Dialog to use JSON blob to handle parsing of password with special characters
+||       Added logic to make sure jq was installed.
+||       Fixed issue of defaults variables not getting set properly
+||       Fixed typos
+| 1.5 | Had to increase window height for Tahoe & SD v3.0
+| 1.6 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+||       Optimized "Common" section for better performance
+||      Fixed variable names in the defaults file section
