@@ -156,12 +156,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -248,7 +248,7 @@ function welcomemsg ()
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     returnCode=$?
 
-    [[ $returnCode == 0 ]] && {logMe "User clicked Cleanup";/usr/local/bin/jamf policy -trigger ${ADOBE_CLEANUP};}
+    [[ $returnCode == 0 ]] && {logMe "User clicked Cleanup";/usr/local/bin/jamf policy -event ${ADOBE_CLEANUP};}
     [[ $returnCode == 2 ]] && logMe "User dismissed the message"
     
 }

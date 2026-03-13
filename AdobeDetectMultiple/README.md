@@ -6,5 +6,10 @@ Managing Adobe apps on the mac can be very frustrating.  You might find multiple
 
 The is designed to work in tandem with a removal script that a user can call via the 'Cleanup' button and start the remove/cleanup process.  My script for that can be found [here](https://github.com/ScottEKendall/JAMF-Pro-Scripts/tree/main/RemoveAdobeApps)
 
-##### _v1.0 - Initial Commit_
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
 
