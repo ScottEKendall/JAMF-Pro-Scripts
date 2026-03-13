@@ -13,8 +13,13 @@ Have fun making your own creations!
 ![](./DialogIconCreator-Example2.png)
 
 
-##### _v1.0 - Initial Commit_
-##### _1.1 - Added option for custom app & icns file locations to be scanned in_
-##### _1.2 - Added option to read in variables from defaults file_
-##### _Fixed typos_
-##### _1.3 - removed echo commands used for debugging.
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+| 1.1 | Added option for custom app & icns file locations to be scanned in
+| 1.2 | Added option to read in variables from defaults file
+|| Fixed typos
+| 1.3 | removed echo commands used for debugging.
+1.6 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Fixed variable names in the defaults file section

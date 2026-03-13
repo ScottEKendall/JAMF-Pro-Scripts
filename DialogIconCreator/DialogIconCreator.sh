@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 12/11/2025
-# Last updated: 12/11/2025
+# Last updated: 03/13/2026
 #
 # Script Lightweight script to create icons with overlays using SwiftDialog
 #
@@ -14,6 +14,8 @@
 # 1.2 - Added option to read in variables from defaults file
 #       Fixed typos
 # 1.3 - Removed the echoing of temp files...I used them for debug puroses and forgot to remove them
+# 1.4 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Fixed window layout for Tahoe & SD v3.0
 
 ######################################################################################################
 #
@@ -47,17 +49,17 @@ DIALOG_COMMAND_FILE_ICON=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-    spacing=$(defaults read $DEFAULTS_DIR "BannerPadding")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
-repeat $spacing BANNER_TEXT_PADDING+=" "
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Display items (banner / icon)
 
@@ -113,12 +115,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -385,7 +387,7 @@ function construct_dialog_header_settings ()
     "ontop" : "true",
     "vieworder" : "dropdown, textfield",
     "width" : 900,
-    "height" : 540,
+    "height" : 560,
     "json" : "true",'
 }
 
