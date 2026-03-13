@@ -47,3 +47,4 @@ Edit the pattern to EXCLUDE what you do not want the script to remove
 | 1.0 | Initial Release |
 | 1.1 | Added support to delete expired certificates in system keychain as well as user keychain
 ||       More logging
+| 1.3 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
