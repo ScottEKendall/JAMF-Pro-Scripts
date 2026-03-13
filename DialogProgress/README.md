@@ -4,7 +4,7 @@ This script comes in handy to show a progress window when you have a lengthy dow
 
 1.  Create a policy that will do the actual install of the application and make sure to assign it a trigger name:
 
-![](./DialogProgress-Trigger.png)
+![](./DialogProgress-event.png)
 
 2.  Create another policy that runs the Dialog Progress indicator and when configuring this policy, you will tell it when policy trigger to run
 

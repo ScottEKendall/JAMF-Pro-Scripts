@@ -7,12 +7,15 @@
 # by: Scott Kendall
 #
 # Written: 11/02/2023
-# Last updated: 11/02/2025
+# Last updated: 03/13/2026
 #
 # Script Purpose: This script will pop up a mini dialog with progress of a jamf pro policy
 # Extracted from Bart Reardon's script: 
 #
 # 1.0 - Initial
+# 1.1 - Fixed window layout for Tahoe & SD v3.0
+# 1.2 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Fixed variable names in the defaults file section
 
 ######################################################################################################
 #
@@ -49,15 +52,20 @@ count=0
 #
 ###################################################
 
-
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
+if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+
 # Log files location
 
 LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
@@ -149,7 +157,7 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function dialogcmd()
