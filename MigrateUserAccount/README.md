@@ -17,10 +17,17 @@ Successful transfer of user accounts (restart is necessary if successful)
 ![](./MigrateUserAccount_Success.png)
 
 #### 1.0 - Initial
-#### 1.1 - Code cleanup to be more consistent with all apps
-#### 1.2 - changed the 'create_welcome_dialog' function to use JSON output and parse info differently
-#### 1.3 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Code cleanup to be more consistent with all apps
+| 1.2 | changed the 'create_welcome_dialog' function to use JSON output and parse info differently
+| 1.3 | Code cleanup
+||       Added feature to read in defaults file
+||       removed unnecessary variables.
+||       Fixed typos
+| 1.4 | Fixed window layout for Tahoe & SD v3.0
+| 1.5 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
 
