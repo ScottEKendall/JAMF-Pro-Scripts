@@ -21,12 +21,20 @@ DU=$(df -h /Users | awk 'END{ print $(NF-4) }' | tr -d '%' )
 echo "<result>$(printf "%02d\n" $DU)</result>" 
 ```
 
-#### 1.0 - Initial 
-#### 1.1 - Code cleanup to be more consistant with all apps
-#### 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 1.3 - Code cleanup
-####       Added feature to read in defaults file
-####       Fixed Show Files option to call correct trigger
-####       removed unnecessary variables.
-####       Fixed typos
+**History**
+
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Code cleanup to be more consistent with all apps
+| 1.2 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.3 | Code cleanup
+||       Added feature to read in defaults file
+||       Fixed Show Files option to call correct trigger
+||       removed unnecessary variables.
+||       Fixed typos
+| 1.4 | Fixed window layout for Tahoe & SD v3.0
+| 1.5 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
 
