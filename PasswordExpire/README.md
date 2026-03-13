@@ -37,3 +37,5 @@ v1.2 adds the option to view your password days until expiration "on demand" so 
 || Fixed typos
 | 1.6 | Fixed window layout for Tahoe & SD v3.0
 | 1.7 | More comments / fixed code formatting
+| 1.8 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+

@@ -6,7 +6,7 @@
 # Purpose: Provide user notifications of a password expiration.
 #
 # Created: 04/18/2024
-# Last updated: 03/09/2026
+# Last updated: 03/13/2026
 #
 # 1.0 - Initial Release
 # 1.1 - Major code cleanup & documentation
@@ -22,6 +22,7 @@
 #       Fixed typos
 # 1.6 - Fixed window layout for Tahoe & SD v3.0
 # 1.7 - More comments / fixed code formatting
+# 1.8 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 #
 # Expected Parameters: 
 # $4 - Password Expiration in Days
@@ -177,12 +178,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-    /usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+    /usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
