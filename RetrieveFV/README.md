@@ -12,9 +12,14 @@ If you are using the Modern JAMF API credentials, you need to set:
 
 ```Read Computer Security``` ```Read Computers``` ```View Disk Encryption Recovery Key```
 
-##### _v1.0 - Initial Commit_
-##### _v1.1 - Major code cleanup & documentation / Structred code to be more inline / consistent across all apps_
-##### _2.0 - You can now use JAMF classic & modern credentials_
-#####   Added feature to read in defaults file
-#####   Add verification of JAMF credentials and error trapping if ID doesn't have rights
-#####   Compatible with JAMF 11.21 and higher using the new APIs
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Major code cleanup & documentation / Structred code to be more inline / consistent across all apps_
+| 2.0 | You can now use JAMF classic & modern credentials
+||   Added feature to read in defaults file
+||   Add verification of JAMF credentials and error trapping if ID doesn't have rights
+||   Compatible with JAMF 11.21 and higher using the new APIs
+| 2.1 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
