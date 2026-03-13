@@ -9,9 +9,14 @@ Welcome Screen
 Results screen
 
 ![](./GetBundleID-Results.png)
-
-#### 1.0 - Initial
-#### 1.1 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Fixed typos
+\| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Code cleanup
+||      Added feature to read in defaults file
+||      removed unnecessary variables.
+||       Fixed typos
+| 1.2 | Fixed window layout for Tahoe & SD v3.0
+| 1.3 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section

@@ -26,12 +26,11 @@ SCRIPT_NAME="GetBundleID"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -154,12 +153,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 
