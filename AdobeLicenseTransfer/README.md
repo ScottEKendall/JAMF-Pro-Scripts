@@ -10,5 +10,12 @@ Results message after form
 
 ![](/AdobeLicenseTransfer/AdobeLicenseTransfer_Done.png)
 
-##### _v1.0 - Initial Commit_
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial commit
+| 1.1 | more concise model name ("2023 Macbook Pro") vs ("MacBook Pro (14-inch, Nov 2023)")
+| 1.2 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.3 | Code cleanup / Added feature to read in defaults file / removed unnecessary variables.
+| 1.4 | Fixed window layout for Tahoe & SD v3.0
+| 1.5 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 

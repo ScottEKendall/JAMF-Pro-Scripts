@@ -3,7 +3,7 @@
 # by: Scott Kendall
 #
 # Written: 04/16/2025
-# Last updated: 02/26/2026
+# Last updated: 03/13/2026
 
 # Script for store users to request an Adobe license transfer 
 #
@@ -12,6 +12,7 @@
 # 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
 # 1.3 - Code cleanup / Added feature to read in defaults file / removed unnecessary variables.
 # 1.4 - Fixed window layout for Tahoe & SD v3.0
+# 1.5 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 #
 ######################################################################################################
 #
@@ -88,9 +89,6 @@ TSD_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9
 
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
-CLIENT_ID="$4"
-CLIENT_SECRET="$5"
-LOCK_CODE="$6"
 
 ####################################################################################################
 #
@@ -157,13 +155,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 
 }
 
