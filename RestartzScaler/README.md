@@ -4,11 +4,16 @@ This script is designed to test the functionality of zScaler.  If it detects tha
 
 ![](./Restart_zScaler.png)
 
-#### 1.0 - Initial
-#### 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 1.2 - Code cleanup
-####       Added feature to read in defaults file
-####       Change the restart command to use AppleScript...much safer than the shutdown command
-####       removed unnecessary variables.
-####       Bumped min version of SD to 2.5.0
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.2 | Code cleanup
+||       Added feature to read in defaults file
+||       Change the restart command to use AppleScript...much safer than the shutdown command
+||       removed unnecessary variables.
+||       Bumped min version of SD to 2.5.0
+||       Fixed typos
+| 1.3 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
