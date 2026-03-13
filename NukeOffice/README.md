@@ -4,12 +4,16 @@ Sometimes applications in the Microsoft Office suite just refuse to work properl
 
 ![](./RemoveOffice.png)
 
-#### 1.0 - Initial
-#### 1.1 - Code optimization
-#### 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 1.3 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Bumped min version of SD to 2.5.0
-####       Fixed typos
-#### 1.4	Add removal for Teams
+| **Version**|**Notes**|
+|:--------:|-----|
+|1.0 | Initial
+| 1.1 | Code optimization
+| 1.2 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.3 | Code cleanup
+||       Added feature to read in defaults file
+||       removed unnecessary variables.
+||       Bumped min version of SD to 2.5.0
+||       Fixed typos
+| 1.4 | Add removal for Teams
+| 1.5 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Changed to new office Icon
