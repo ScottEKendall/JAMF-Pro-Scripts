@@ -56,17 +56,21 @@ NOTE! The terminal binaries "AdobeUninstaller" and the files inside the folder A
 
 I packaged up both of these apps and the script will request the JAMF install if they are missing.
 
-#### 1.0 - Initial
-#### 1.1 - Changed buttons to "Next" and "Remove" on the appropriate screens
-#### 1.2 - Change find command to exclude Adobe Experience Manager and Adobe Acrobat DC
-#### 1.3 - Add option for "silent" remove (no prompt) and which apps than can be removed 3D & CC or CC only
-#### 1.4 - Move some functions calls to the top to make sure they get execute for both types of removal
-#### 1.5 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 1.6 - Modified section headers for better organization
-#### 1.7 - Fix line #468 to force check lowercase parameter
-#### 1.8 - Added option to allow deletion of current year / fixed Bridge 2025 version #
-#### 1.9 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Changed buttons to "Next" and "Remove" on the appropriate screens
+| 1.2 | Change find command to exclude Adobe Experience Manager and Adobe Acrobat DC
+| 1.3 | Add option for "silent" remove (no prompt) and which apps than can be removed 3D & CC or CC only
+| 1.4 | Move some functions calls to the top to make sure they get execute for both types of removal
+| 1.5 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.6 | Modified section headers for better organization
+| 1.7 | Fix line #468 to force check lowercase parameter
+| 1.8 | Added option to allow deletion of current year / fixed Bridge 2025 version #
+| 1.9 | Code cleanup
+||       Added feature to read in defaults file
+||       removed unnecessary variables.
+||       Fixed typos
+| 1.10 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
 
