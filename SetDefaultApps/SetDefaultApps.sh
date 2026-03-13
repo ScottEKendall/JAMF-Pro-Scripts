@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 12/11/2025
-# Last updated: 02/24/2026
+# Last updated: 03/13/2026
 #
 # Script Purpose: set the default UTI applications (mailto, url, http, etc)
 #
@@ -15,6 +15,10 @@
 #       Changed logic on detection of utiluti command so it does not needlessly install the utiluti app
 # 1.2 - Optimized "Common" section for better performance
 # 1.3 - Had to increase window height for Tahoe & SD v3.0
+# 1.4 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
+
 
 ######################################################################################################
 #
@@ -70,7 +74,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -165,13 +169,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ ! -x "${UTI_COMMAND}" ]] &&  /usr/local/bin/jamf policy -trigger ${UTILUTI_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -x "${UTI_COMMAND}" ]] &&  /usr/local/bin/jamf policy -event ${UTILUTI_INSTALL_POLICY}
 }
 
 function create_infobox_message()
