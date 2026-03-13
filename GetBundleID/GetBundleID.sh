@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 07/11/2025
-# Last updated: 02/26/2026
+# Last updated: 03/13/2026
 #
 # Script Purpose: Extract the bundle ID of all of the apps found in a given directory
 #
@@ -15,6 +15,9 @@
 #       removed unnecessary variables.
 #       Fixed typos
 # 1.2 - Fixed window layout for Tahoe & SD v3.0
+# 1.3 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
 
 ######################################################################################################
 #
