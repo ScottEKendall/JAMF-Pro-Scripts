@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/02/2025
-# Last updated: 02/25/2026
+# Last updated: 03/13/2026
 #
 # Script Purpose: Deploys Platform Single Sign-on
 #
@@ -55,6 +55,10 @@
 # 1.8 - Add section to enable the microsoft Autofill extension automatically
 # 1.9 - Reworked logic to detect the presence of TouchID better
 # 2.0 - Fixed display issues with Swift Dialog 3.0
+# 2.1 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
+
 
 ######################################################################################################
 #
@@ -111,7 +115,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
@@ -223,14 +227,14 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ ! -e "${SD_ICON_FILE}" ]] && /usr/local/bin/jamf policy -trigger ${PSSO_ICON_POLICY}
-    [[ ! -e "${SSO_GRAPHIC}" ]] && /usr/local/bin/jamf policy -trigger ${SSO_GRAPHIC_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_ICON_FILE}" ]] && /usr/local/bin/jamf policy -event ${PSSO_ICON_POLICY}
+    [[ ! -e "${SSO_GRAPHIC}" ]] && /usr/local/bin/jamf policy -event ${SSO_GRAPHIC_POLICY}
 }
 
 function cleanup_and_exit ()
@@ -526,7 +530,7 @@ function reinstall_companyportal ()
 
     # Install Microsoft Company Portal
     logMe "Installing Microsoft Company Portal..."
-    /usr/local/jamf/bin/jamf policy -trigger "$PORTAL_APP_POLICY" --forceNoRecon
+    /usr/local/jamf/bin/jamf policy -event "$PORTAL_APP_POLICY" --forceNoRecon
 
     # Check that Company Portal app is installed
     if [[ -d "$company_portal_app" ]]; then

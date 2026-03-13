@@ -73,3 +73,8 @@ Once you configure these variables inside of your policy, you can scope this pol
 ||       More reporting for focus status & touchID status
 | 1.8 | Add section to enable the microsoft Autofill extension automatically
 | 1.9 | Reworked logic to detect the presence of TouchID better
+| 2.0 | Fixed display issues with Swift Dialog 3.0
+| 2.1 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
+
