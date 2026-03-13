@@ -41,11 +41,16 @@ I put in the logic to use the tar command, but can very easily be adapted to use
 NOTE: This app makes heavy use of jq binary and it will detect if it is installed or not.  You should create a JAMF policy that can be triggered from this script to install jq if it is not aleady installed (macOS Sonoma or below).
 
 
-#### 1.0 - Initial code
-#### 2.0 - rewrite using JSON blobs for all data content
-#### 2.1 - Add support to install JQ if it is missing
-#### 2.2 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Fixed typos
-
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 2.0 | rewrite using JSON blobs for all data content
+| 2.1 | Add support to install JQ if it is missing
+|| 2.2 | Code cleanup
+||       Added feature to read in defaults file
+||       removed unnecessary variables.
+||       Fixed typos
+| 2.3 | Fixed window layout for Tahoe & SD v3.0
+||  		Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
