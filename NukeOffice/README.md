@@ -15,5 +15,5 @@ Sometimes applications in the Microsoft Office suite just refuse to work properl
 ||       Bumped min version of SD to 2.5.0
 ||       Fixed typos
 | 1.4 | Add removal for Teams
-| 1.5 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+| 1.5 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 ||       Changed to new office Icon
