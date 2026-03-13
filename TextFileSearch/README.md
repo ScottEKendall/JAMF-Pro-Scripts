@@ -13,6 +13,11 @@ You can also customize how many criteria you want to search for and load in some
 
 In this example, you can save your results as a .TXT or .CSV file, but you can easily add your own.
 
-![](TextFileSearch-Results.png
-)
-#### 1.0 - Initial Commit
+![](TextFileSearch-Results.png)
+
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
