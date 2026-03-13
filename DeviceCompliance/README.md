@@ -21,3 +21,4 @@ To scope this in JAMF, we used the following SmartGroup, it runs on a daily basi
 |     | Fixed typos
 | 1.5 | Optimized Common section
 |     | Added check for logged in user and system not asleep
+| 1.6 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'

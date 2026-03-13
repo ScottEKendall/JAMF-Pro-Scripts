@@ -156,12 +156,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -279,7 +279,7 @@ welcomemsg
 case ${returnCode} in 
     
     0) logMe "${JAMF_LOGGED_IN_USER} clicked OK. Launch Self service Poicy to Enroll"
-        /usr/local/bin/jamf policy -trigger ${ENROLL_POLICY}
+        /usr/local/bin/jamf policy -event ${ENROLL_POLICY}
         ;;
     2) logMe "${JAMF_LOGGED_IN_USER} clicked Create Ticket. Creating Ticket "
         open ${HELPDESK_URL}
