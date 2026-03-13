@@ -4,6 +4,9 @@ Nice little script to display a GUI when user performs a JAMF recon command thru
 
 ![](/DialogInventory/DialogInventory.png)
 
-##### _v1.0 - Initial Commit_
-##### _V1.1 - Bumped min version of SD to v3.5.0_
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Bumped min version of SD to v3.5.0_
+| 1.2 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 

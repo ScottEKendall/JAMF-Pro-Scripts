@@ -5,16 +5,17 @@
 # by: Scott Kendall
 #
 # Written: 06/03/2025
-# Last updated: 11/15/2025
+# Last updated: 03/13/2026
 #
 # Script Purpose: Perform the JAMF Recon command with Swift Dialog feedback
 #
 # 1.0 - Initial
 # 1.1 - Bumped SD to v2.5.0
+# 1.2 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
 
@@ -71,7 +72,7 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function update_display_list ()
