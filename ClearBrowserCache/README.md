@@ -4,11 +4,16 @@ This one grew out of necessity at my old job.  The higher level VPs didn't want 
 
 ![Browser cleanup](./ClearBrowserCache.png)
 
-##### _1.0 - Initial Commit_
-##### _1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore._
-##### _1.2 - Code cleanup / Added feature to read in defaults file / removed unnecessary variables._
-##### _1.2 - Code cleanup_
-#####       _Added feature to read in defaults file_
-#####       _removed unnecessary variables._
-#####       _Fixed typos_
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore.
+| 1.2 | Code cleanup / Added feature to read in defaults file / removed unnecessary variables.
+||      Added feature to read in defaults file
+||      removed unnecessary variables.
+||       Fixed typos
+| 1.3 | Fixed window layout for Tahoe & SD v3.0
+| 1.4 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
 
