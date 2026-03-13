@@ -30,7 +30,13 @@ Problems updating the token (with error message)
 [JAMF Documentation on BootStrap Tokens](https://learn.jamf.com/en-US/bundle/technical-articles/page/Manually_Leveraging_Apples_Bootstrap_Token_Functionality.html)
 
 
-##### _v1.0 - Initial Commit_
-##### _v1.1 - Major code cleanup & documentation / Structured code to be more inline / consistent across all apps_
-##### _v1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore..._
-##### _v1.3 - Code cleanup / Add verbiage in the window if Grand Perspective is installed. / Added feature to read in defaults file / removed unnecessary variables. / Fixed typos_
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Major code cleanup & documentation / Structured code to be more inline / consistent across all apps
+| 1.2 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.3 | Code cleanup / Add verbiage in the window if Grand Perspective is installed. / Added feature to read in defaults file / removed unnecessary variables. / Fixed typos
+| 1.4 | Had to increase window height for Tahoe & SD v3.0
+| 1.5 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
