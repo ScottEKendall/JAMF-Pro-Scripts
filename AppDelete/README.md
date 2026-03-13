@@ -39,3 +39,6 @@ and give them an option to do it again (and again)
 ||        Fixed typos |
 | 2.3 |  Add logic in the delete_files section to not continue processing if name is blank |
 || Fixed issue with reading in the defaults file and setting the variables. |
+| 2.4 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
