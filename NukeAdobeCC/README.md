@@ -4,11 +4,16 @@ Sometimes applications in the Adobe CC suite just refuse to work properly and th
 
 ![](./NukeAdobeCC.png)
 
-#### 1.0 - Initial
-#### 1.1 - Major code cleanup & documentation / Structured code to be more inline / consistent across all apps
-#### 1.2 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-#### 1.3 - Code cleanup
-####       Added feature to read in defaults file
-####       removed unnecessary variables.
-####       Bumped min version of SD to 2.5.0
-####       Fixed typos
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Major code cleanup & documentation / Structured code to be more inline / consistent across all apps
+| 1.2 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.3 | Code cleanup
+||       Added feature to read in defaults file
+||       removed unnecessary variables.
+||       Bumped min version of SD to 2.5.0
+||       Fixed typos
+| 1.4 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
