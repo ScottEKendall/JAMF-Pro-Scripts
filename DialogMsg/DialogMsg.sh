@@ -5,7 +5,7 @@
 # Written by: Scott Kendall
 #
 # Created Date: 01/227/2025
-# Last modified: 01/27/2026
+# Last modified: 03/13/2026
 #
 # Script Purpose: Display a generic SWifDialog notification to JAMF users.  Pass in variables to customize display
 #
@@ -26,6 +26,7 @@
 # 2.0 - Add functions to check for a logged in user and that the system is awake (message will only display if system is awake and a user is logged in)
 #       Added more logged in sleep status, message button status
 # 2.1 - Fixed window layout for Tahoe & SD v3.0
+# 2.2 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #
 # Expected Parameters: 
 # #4 - Title
@@ -189,13 +190,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -trigger ${SD_IMAGE_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -event ${SD_IMAGE_POLICY}
 }
 
 function check_logged_in_user ()
