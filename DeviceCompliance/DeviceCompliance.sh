@@ -3,7 +3,7 @@
 # DeviceCompliance
 
 # Written: 11/20/2024
-# Last updated: 01/27/2026
+# Last updated: 03/13/2026
 # by: Scott Kendall
 #
 # If the user doesn't have the Workplace Join Key (WPJ) in their Keychain, it will prompt them to run the device compliance from SS
@@ -18,6 +18,7 @@
 #       Fixed typos
 # 1.5 - Optimized Common section
 #       Added check for logged in user and system not asleep
+# 1.6 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 
 ######################################################################################################
 #
@@ -65,7 +66,7 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SPACING=5 #5 spaces to accommodate for icon offset
 fi
 BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
