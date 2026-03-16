@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 07/11/2025
-# Last updated: 03/13/2026
+# Last updated: 03/15x/2026
 #
 # Script Purpose: Extract the bundle ID of all of the apps found in a given directory
 #
@@ -18,6 +18,8 @@
 # 1.3 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 2.0 - Now includes TeamID in the listing as well
+#       Changed the order of the items in the welcome screen
 
 ######################################################################################################
 #
@@ -93,7 +95,7 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 
 ####################################################################################################
 #
-# Functions
+# Common Library Functions
 #
 ####################################################################################################
 
@@ -164,7 +166,6 @@ function check_support_files ()
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
-
 function cleanup_and_exit ()
 {
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
@@ -188,9 +189,17 @@ function create_infobox_message()
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
 	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
+
+####################################################################################################
+#
+# Script Specific Functions
+#
+####################################################################################################
+
+
 function welcomemsg ()
 {
-    message="This script is designed to display the BundleIDs of the applications found in a selected directory, with an option to export a list of found applications and their associated BundleIDs.<br><br>Please enter a location to get started."
+    message="This script is designed to display the BundleIDs and TeamIDs of the applications found in a selected directory, with an option to export a list of found applications and their associated BundleIDs & TeamIDs.<br><br>Please enter a location to get started."
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
@@ -201,8 +210,9 @@ function welcomemsg ()
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
+        --vieworder "textfield, checkbox"
         --textfield "Select a file location to scan",fileselect,filetype=folder,required,name=fileLocation
-        --checkbox "Export list",checked,name=ExportList
+        --checkbox "Export list",name=ExportList
         --height 480
         --ignorednd
         --json
@@ -337,6 +347,12 @@ function update_display_list ()
                 /bin/echo "progress: $6" >> "${DIALOG_COMMAND_FILE}"
             fi
             ;;
+
+        "subtitle" )
+
+            # Change the listitem subtitle
+            /bin/echo "listitem: title: ${2}, subtitle: ${3}" >> "${DIALOG_COMMAND_FILE}"
+            ;;
   
     esac
 }
@@ -350,11 +366,11 @@ function construct_display_list ()
 
 		# Construct the fils(s) list
         construct_dialog_header_settings "Below are the discovered apps and their BundleIDs" > "${JSON_DIALOG_BLOB}"
-        create_listitem_message_body "" "" "" "" "first"
+        create_listitem_message_body "" "" "" "" "" "first"
 		for i in "${FILES_LIST[@]}"; do
-            create_listitem_message_body "${i}" "${fileLocation}/${i}.app" "Working" "working"
+            create_listitem_message_body "${i}" "File Info" "${fileLocation}/${i}.app" "Working" "working"
 		done
-        create_listitem_message_body "" "" "" "" "last"
+        create_listitem_message_body "" "" "" "" "" "last"
         /bin/chmod 644 "${JSON_DIALOG_BLOB}"
 	fi
 
@@ -375,9 +391,10 @@ function create_listitem_message_body ()
 
     declare line && line=""
 
-    [[ "$5:l" == "first" ]] && line+='"button1disabled" : "true", "listitem" : ['
-    [[ ! -z $1 ]] && line+='{"title" : "'$1'", "icon" : "'$2'", "status" : "'$4'", "statustext" : "'$3'"},'
-    [[ "$5:l" == "last" ]] && line+=']}'
+    [[ "$6:l" == "first" ]] && line+='"button1disabled" : "true", "listitem" : ['
+    [[ ! -z $1 ]] && [[ ! -z $2 ]] && line+='{"title" : "'$1'", "subtitle" : "'$2'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
+    [[ ! -z $1 ]] && [[ -z $2 ]] && line+='{"title" : "'$1'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
+    [[ "$6:l" == "last" ]] && line+=']}'
     echo $line >> ${JSON_DIALOG_BLOB}
 }
 
@@ -391,7 +408,10 @@ function get_bundleID ()
     logMe "Extracting bundleIDs from $fileLocation"
     for i in "${FILES_LIST[@]}"; do
         bundleID=$(defaults read "${fileLocation}/${i}.app/Contents/Info.plist" CFBundleIdentifier)
-        update_display_list "change" "${i}" "" "$bundleID"
+        teamsID=$(codesign -dv "${fileLocation}/${i}.app" 2>&1 | grep "TeamIdentifier" | awk -F "=" '{print $2}')
+        update_display_list "subtitle" "${i}" "Team ID -  $teamsID | Bundle ID - $bundleID"
+        update_display_list "change" "${i}" "success" "Done"
+
     done
 }
 
