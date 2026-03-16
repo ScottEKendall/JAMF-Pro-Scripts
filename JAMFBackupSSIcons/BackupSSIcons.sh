@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 05/21/2025
-# Last updated: 10/17/2025
+# Last updated: 03/16/2026
 #
 # Script Purpose: Backup JAMF Self service icons to a local folder
 #
@@ -19,6 +19,10 @@
 #       Bumped Swift Dialog to v2.5.0
 # 1.4   Add function to check JAMF credentials were passed
 #       Fixed logic to determine which SS/SS+ is being used
+# 2.0 - Fixed display issues with Swift Dialog 3.0
+#       Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Added section to use the defaults file if found to set the banner image and spacing
 
 ######################################################################################################
 #
@@ -30,12 +34,11 @@ export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -60,6 +63,20 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 #
 ###################################################
 
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -f "$DEFAULTS_DIR" ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SPACING=5 #5 spaces to accommodate for icon offset
+fi
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+
 # Support / Log files location
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
@@ -67,9 +84,7 @@ LOG_FILE="${SUPPORT_DIR}/BackupSSIcons.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Backup Self Service Icons"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 OVERLAY_ICON=""
 
@@ -157,12 +172,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -186,39 +201,7 @@ function cleanup_and_exit ()
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
-}
-
-function welcomemsg ()
-{
-    message="This script will extract all of the Self Service icons from JAMF and store them in folder.  Please select a destination folder location below:"
-
-	MainDialogBody=(
-        --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-        --titlefont shadow=1
-        --ontop
-        --icon "${SD_ICON_FILE}"
-        --overlayicon "${OVERLAY_ICON}"
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --infobox "${SD_INFO_BOX_MSG}"
-        --helpmessage ""
-        --width 800
-        --height 460
-        --ignorednd
-        --quitkey 0
-        --button1text "OK"
-        --button2text "Cancel"
-        --textfield "Select a storage location",fileselect,filetype=folder,required
-    )
-	
-			
-	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
-    returnCode=$?
-    [[ "$returnCode" == "2" ]] && cleanup_and_exit
-
-	ssStoragePath=$( echo $temp | /usr/bin/grep "location" | awk -F ": " '{print $NF}' | tr -d '\' | tr -d '"')
-
+	exit $1
 }
 
 function construct_dialog_header_settings ()
@@ -353,25 +336,6 @@ function create_display_list ()
     done
     create_listitem_message_body "" "" "" "" "last"
     update_display_list "Create"
-}
-
-function extract_xml_data ()
-{
-    # PURPOSE: extract an XML strng from the passed string
-    # RETURN: parsed XML string
-    # PARAMETERS: $1 - XML "blob"
-    #             $2 - String to extract
-    # EXPECTED: None
-    echo $(echo "$1" | tr -d "[:cntrl:]" | xmllint --xpath 'string(//'${2}')' - 2>/dev/null)
-}
-
-function make_apfs_safe ()
-{
-    # PURPOSE: Remove any "illegal" APFS macOS characters from filename
-    # RETURN: ADFS safe filename
-    # PARAMETERS: $1 - string to format
-    # EXPECTED: None
-    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/\//-/g' -e 's/|/-/g')
 }
 
 ###########################
@@ -538,6 +502,38 @@ function JAMF_get_policy_list ()
 #
 ###############################################
 
+function welcomemsg ()
+{
+    message="This script will extract all of the Self Service icons from JAMF and store them in folder.  Please select a destination folder location below:"
+
+	MainDialogBody=(
+        --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
+        --titlefont shadow=1
+        --ontop
+        --icon "${SD_ICON_FILE}"
+        --overlayicon "${OVERLAY_ICON}"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --helpmessage ""
+        --width 800
+        --height 480
+        --ignorednd
+        --quitkey 0
+        --button1text "OK"
+        --button2text "Cancel"
+        --textfield "Select a storage location",fileselect,filetype=folder,required
+    )
+	
+			
+	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
+    returnCode=$?
+    [[ "$returnCode" == "2" ]] && cleanup_and_exit 0
+
+	ssStoragePath=$( echo $temp | /usr/bin/grep "location" | awk -F ": " '{print $NF}' | tr -d '\' | tr -d '"')
+
+}
+
 function extract_policy_icons ()
 {
 
@@ -572,6 +568,25 @@ function extract_policy_icons ()
     else
         update_display_list "Update" "" "${formatted_ss_policy_name}" "" "error" "No Icon"
     fi
+}
+
+function extract_xml_data ()
+{
+    # PURPOSE: extract an XML strng from the passed string
+    # RETURN: parsed XML string
+    # PARAMETERS: $1 - XML "blob"
+    #             $2 - String to extract
+    # EXPECTED: None
+    echo $(echo "$1" | tr -d "[:cntrl:]" | xmllint --xpath 'string(//'${2}')' - 2>/dev/null)
+}
+
+function make_apfs_safe ()
+{
+    # PURPOSE: Remove any "illegal" APFS macOS characters from filename
+    # RETURN: ADFS safe filename
+    # PARAMETERS: $1 - string to format
+    # EXPECTED: None
+    echo $(echo "$1" | sed -e 's/:/_/g' -e 's/\//-/g' -e 's/|/-/g')
 }
 
 ########################################################################################
@@ -634,4 +649,4 @@ JAMF_invalidate_token
 update_display_list "progress" "" "" "" "All Done!" 100
 update_display_list "buttonenable"
 wait
-cleanup_and_exit
+cleanup_and_exit 0

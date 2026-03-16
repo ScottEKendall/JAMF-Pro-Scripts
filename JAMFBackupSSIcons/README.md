@@ -25,15 +25,21 @@ If you are using the Modern JAMF API credentials, you need to set:
 
 ## History ##
 
-- 1.0 - Initial Commit
-- 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-- 1.2 - Created a few new functions to reduce complexity
-    - document function details
-    - renamed all JAMF functions to start with JAMF.
-- 1.3 - Verified working agains JAMF API 11.20
-    - Added option to detect which SS/SS+ we are using and grab the appropriate icon
-    - Now works with JAMF Client/Secret or Username/password authentication
-    - Change variable declare section around for better readability
-    - Bumped Swift Dialog to v2.5.0
-- 1.4 Add function to check JAMF credentials were passed
-    - Fixed logic to determine which SS/SS+ is being used
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.2 | Created a few new functions to reduce complexity
+|| document function details
+|| renamed all JAMF functions to start with JAMF.
+| 1.3 | Verified working agains JAMF API 11.20
+|| Added option to detect which SS/SS+ we are using and grab the appropriate icon
+|| Now works with JAMF Client/Secret or Username/password authentication
+|| Change variable declare section around for better readability
+|| Bumped Swift Dialog to v2.5.0
+| 1.4 | Add function to check JAMF credentials were passed
+|| Fixed logic to determine which SS/SS+ is being used
+| 1.5 | Fixed display issues with Swift Dialog 3.0
+||       Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Added section to use the defaults file if found to set the banner image and spacing
