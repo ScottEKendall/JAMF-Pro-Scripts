@@ -24,15 +24,20 @@ At some point, I might combine both this script and my [BackupSSscripts](https:/
 
 If you are using the Modern JAMF API credentials, you need to set:
 
-* Read Scripts
+```Read Scripts```
 
 ## History ##
 
- - 1.0 - Initial Commit
- - 1.1 - Created a few new functions to reduce complexity
-    - document function details
-    - renamed all JAMF functions to start with JAMF.
-- 1.2 - Add function to check for valid JAMF credentials
-    - Fixed function to check which SS/SS+ is being used
-    - Reworked top section for better idea of what can be modified
-    - Bumped SwiftDialog min version to 2.5.0
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Created a few new functions to reduce complexity / document function details / renamed all JAMF functions to start with JAMF......
+| 1.2 | Add function to check for valid JAMF credentials
+||       Fixed function to check which SS/SS+ is being used
+||       Reworked top section for better idea of what can be modified
+||       Bumped SwiftDialog min version to 2.5.0
+| 1.3 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
+||       Fixed function to check which SS/SS+ is being used (again)
+||       Had to increase window height for Tahoe & SD v3.0
