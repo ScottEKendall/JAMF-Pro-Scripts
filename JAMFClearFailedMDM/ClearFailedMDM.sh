@@ -3,7 +3,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 02/24/2026
+# Last updated: 03/16/2026
 #
 # Script Purpose: This script retrieves the Mac Hardware UUID, fetches the corresponding Computer ID from Jamf Pro, 
 # checks for any failed MDM commands, and clears them if found.
@@ -24,6 +24,7 @@
 #       Change variable declare section around for better readability
 #       Bumped Swift Dialog to v2.5.0
 # 1.5 - Had to increase window height for Tahoe & SD v3.0
+# 1.6 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 
 ######################################################################################################
 #
@@ -177,13 +178,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
