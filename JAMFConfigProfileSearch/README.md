@@ -14,9 +14,16 @@ Results Screen
 
 If you are using the Modern JAMF API credentials, you need to set:
 
-* Read macOS Configuration Policies
+```Read macOS Configuration Policies```
 
 ## History ##
 
-#### 1.0 - Inital Commit ####
-#### 1.1 - Add function to verify passed credentials ####
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Add function to make sure Client / Secret are passed into the script
+| 1.2 | Made grep search case insenstive
+||       Added option to read in config variables from a .plist file if exists
+| 1.3 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
