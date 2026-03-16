@@ -31,13 +31,20 @@ If you are using the Modern JAMF API credentials, you need to set:
 
 ## History ##
 
-- 1.0 - Initial
-- 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-- 1.2 - Now works with JAMF Client/Secret or Username/password authentication
-    - Change variable declare section around for better readability
-- 1.3 - Made API changes for JAMF Pro 11.20 and higher
-- 1.4 - Added function to check JAMF credentials are passed
-    - Fixed function to determine which SS/SS+ is being used
-- 1.5 - Added option for manual deploy of the binary with instructions on how to perform
-    - Moved more items into functions from the main script to clean up things
-    - Moved all "exit" commands into the clean_and_exit funtion to make sure temp files are erased
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
+| 1.2 | Now works with JAMF Client/Secret or Username/password authentication
+||      Change variable declare section around for better readability
+|| 1.3 | Made API changes for JAMF Pro 11.20 and higher
+|| 1.4 | Added function to check JAMF credentials are passed
+|| Fixed function to determine which SS/SS+ is being used
+| 1.5 | Added option for manual deploy of the binary with instructions on how to perform
+|| Moved more items into functions from the main script to clean up things
+|| Moved all "exit" commands into the clean_and_exit funtion to make sure temp files are erased
+| 1.6 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Fixed variable names in the defaults file section
+|| Put more error trapping around invalid privleges
+|| Fixed display issues with Swift Dialog 3.0

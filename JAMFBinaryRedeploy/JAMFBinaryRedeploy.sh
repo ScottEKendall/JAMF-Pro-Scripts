@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 03/06/2025
-# Last updated: 10/20/2025
+# Last updated: 03/16/2026
 #
 # Script Purpose: Redeploy the JAMF binary on a device
 #   This script is a combination of documentation taken from here:
@@ -24,8 +24,11 @@
 # 1.5 - Added option for manual enroll with instructions on how to perform
 #       Moved more items into functions from the main script to clean up things
 #       Moved all "exit" commands into the clean_and_exit funtion to make sure temp files are erased
-# 1.6 - Added option to move some of the "defaults" to a plist file / Also used the variable SCRIPT_for temp files creation & log file cname
-
+# 1.6 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Fixed variable names in the defaults file section
+#       Put more error trapping around invalid privleges
+#       Fixed display issues with Swift Dialog 3.0
 ######################################################################################################
 #
 # Gobal "Common" variables
@@ -36,12 +39,11 @@ SCRIPT_NAME="JAMFBinaryRedeploy"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -66,28 +68,29 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 #
 ###################################################
 
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -f "$DEFAULTS_DIR" ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SPACING=5 #5 spaces to accommodate for icon offset
+fi
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+
 # Log files location
 
 LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
-# See if there is a "defaults" file...if so, read in the contents
-DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -e $DEFAULTS_DIR ]]; then
-    echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read $DEFAULTS_DIR "SupportFiles")
-    SD_BANNER_IMAGE=$SUPPORT_DIR$(defaults read $DEFAULTS_DIR "BannerImage")
-else
-    SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-fi
-
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF Binary Self Heal"
 SD_ICON="/Applications/Self Service.app"
 OVERLAY_ICON="warning"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
 # Trigger installs for Images & icons
 
@@ -174,12 +177,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function cleanup_and_exit ()
@@ -202,7 +205,7 @@ function JAMF_which_self_service ()
     # RETURN: None
     # EXPECTED: None
     local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
@@ -355,8 +358,12 @@ function JAMF_renew_binary ()
 {
     # PURPOSE: Redeploy the JAMF binary on the device in question.
     # RETURN: redeploy_response
-    redeploy_response=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "accept: application/json" "${jamfpro_url}"/api/v1/jamf-management-framework/redeploy/"${1}" -X POST )
-    echo $redeploy_response
+    retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "accept: application/json" "${jamfpro_url}"/api/v1/jamf-management-framework/redeploy/"${1}" -X POST )
+    case "${retval}" in
+        *"INVALID"* | *"PRIVILEGE"* ) printf '%s\n' "ERR" ;;
+        *"Client $1 not found"* ) printf '%s\n' "NOT FOUND" ;;  # DDM not active
+        *) printf '%s\n' "${retval}";;
+    esac
 }
 
 function display_welcome_message ()
@@ -380,7 +387,7 @@ function display_welcome_message ()
         --selectvalues "Serial Number, Hostname"
         --selectdefault "Hostname"
         --ontop
-        --height 450
+        --height 480
         --json
         --moveable
      )
@@ -414,7 +421,7 @@ function display_manual_deploy ()
         --infobuttontext "Copy to clipboard"
         --quitoninfo
         --ontop
-        --height 400
+        --height 420
         --json
         --moveable
      )
@@ -437,7 +444,6 @@ function inventory_not_found ()
         --overlayicon ${OVERLAY_ICON}
         --alignment center
         --message "**Device inventory not found!** <br><br>Please make sure the device name or serial is correct."
-        --messagefont "name=Arial,size=17"
         --ontop
         --moveable
      )
@@ -458,7 +464,6 @@ function confirm_user_choice ()
         --overlayicon ${OVERLAY_ICON}
         --titlefont shadow=1
         --message "Sending the command to repair the JAMF binary might enforce the enrollment process to run on system $computer_id.  Are you sure you want to continue?"
-        --messagefont "name=Arial,size=17"
         --ontop
         --moveable
         --button1text "Continue"
@@ -484,13 +489,32 @@ function show_results ()
         --titlefont shadow=1
         --overlayicon "SF=checkmark.circle.fill,color=auto,weight=light,bgcolor=none"
         --message "The command to repair the JAMF binary for $computer_id has been sent.  This process might also enforce the enrollment process to run."
-        --messagefont "name=Arial,size=17"
         --ontop
         --moveable
     )
 
     $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
     cleanup_and_exit 0
+
+}
+
+function display_failure_message ()
+{
+     MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
+        --message "**Problems retrieving JAMF Info**<br><br>Error Message: $1"
+        --icon "${SD_ICON}"
+        --overlayicon warning
+        --iconsize 128
+        --button1text "OK"
+        --ontop
+        --moveable
+    )
+
+    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    buttonpress=$?
 
 }
 ########################
@@ -532,6 +556,11 @@ logMe "Device ID #$ID"
 [[ -z "${ID}" ]] && inventory_not_found
 # Confirm they want to contine and do the redeploy command
 confirm_user_choice
-JAMF_renew_binary $ID
-show_results
-cleanup_and_exit 0
+results=$(JAMF_renew_binary $ID)
+if [[ $results == *"ERR"* ]]; then
+    display_failure_message "Invalid Privilege to redeploy binary.  Please check the API credentials and permissions for the account you are using to run this script."
+    cleanup_and_exit 1
+else
+    show_results
+    cleanup_and_exit 0
+fi
