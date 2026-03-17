@@ -18,15 +18,21 @@ If you are using the Modern JAMF API credentials, you need to set:
 
 ## History ##
 
-- 1.0 - Initial
-- 1.1 - Created a few new functions to reduce complexity
-    - document function details
-    - renamed all JAMF functions to start with JAMF.
-- 1.2 - Verified working agains JAMF API 11.20
-    - Added option to detect which SS/SS+ we are using and grab the appropriate icon
-    - Now works with JAMF Client/Secret or Username/password authentication
-    - Change variable declare section around for better readability
-    - Changed to using JSON blobs vs XML Blobs
-    - Bumped Swift Dialog to v2.5.0
-- 1.3   Add function to check for passed JAMF credentials
-
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Created a few new functions to reduce complexity / document function details / renamed all JAMF functions to start with JAMF......
+| 1.2 | Verified working agains JAMF API 11.20
+||       Added option to detect which SS/SS+ we are using a grab the appropriate icon
+||       Now works with JAMF Client/Secret or Username/password authentication
+||       Change variable declare section around for better readability
+||       Changed to using JSON blobs vs XML Blobs
+||       Bumped Swift Dialog to v2.5.0
+| 1.3 | Add function to check for passed JAMF credentials
+| 2.0 | Added better error handling and display of error messages to the user.
+||       Had to increase window height for Tahoe & SD v3.0
+||       Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+||       Optimized "Common" section for better performance
+||       Added option to read in the defaults file
+||       Fixed function to check which SS/SS+ is being used (again)
+||       Fully multitasking enabled for faster processing of large user counts

@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 05/28/2025
-# Last updated: 10/17/2025
+# Last updated: 03/17/2026
 #
 # Script Purpose: This script will extract all of the email addresses from your JAMF server and store them in local folder in a VCF format.
 # 1.0 - Initial
@@ -17,22 +17,29 @@
 #       Changed to using JSON blobs vs XML Blobs
 #       Bumped Swift Dialog to v2.5.0
 # 1.3   Add function to check for passed JAMF credentials
+# 2.0 - Added better error handling and display of error messages to the user.
+#       Had to increase window height for Tahoe & SD v3.0
+#       Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+#       Optimized "Common" section for better performance
+#       Added option to read in the defaults file
+#       Fixed function to check which SS/SS+ is being used (again)
+#       Fully multitasking enabled for faster processing of large user counts
 
 ######################################################################################################
 #
 # Gobal "Common" variables
 #
 ######################################################################################################
+#set -x
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -57,6 +64,20 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 #
 ###################################################
 
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -f "$DEFAULTS_DIR" ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SPACING=5 #5 spaces to accommodate for icon offset
+fi
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+
 # Support / Log files location
 
 SUPPORT_DIR="/Library/Application Support/GiantEagle"
@@ -64,9 +85,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/JAMFRetrieveEmail.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF Retrieve Email"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 OVERLAY_ICON=""
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
@@ -77,7 +96,8 @@ DIALOG_INSTALL_POLICY="install_SwiftDialog"
 JQ_FILE_INSTALL_POLICY="install_jq"
 CURRENT_EPOCH=$(date +%s)
 
-# Make some temp files for this app
+BACKGROUND_TASKS=20                 # Number of background tasks to run in parallel
+EMAIL_APP='com.microsoft.outlook'   # Use the bundle identifier of your email app. you can find it by this command "osascript -e 'id of app "<appname>"' "
 
 ##################################################
 #
@@ -158,12 +178,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -187,7 +207,7 @@ function cleanup_and_exit ()
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
+	exit $1
 }
 
 function welcomemsg ()
@@ -203,9 +223,10 @@ function welcomemsg ()
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
+        --vieworder "textfield,checkbox"
         --helpmessage ""
         --width 800
-        --height 460
+        --height 480
         --ignorednd
         --json
         --quitkey 0
@@ -359,7 +380,7 @@ function extract_json_data ()
     # PARAMETERS: $1 - XML "blob"
     #             $2 - String to extract
     # EXPECTED: None
-    echo $1 | jq -r ".user.${2}"
+    echo -E $1 | jq -r ".user.${2}"
 }
 
 function make_apfs_safe ()
@@ -383,7 +404,7 @@ function JAMF_which_self_service ()
     # RETURN: None
     # EXPECTED: None
     local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
@@ -615,15 +636,44 @@ function extract_assigned_systems ()
     # PARAMETERS: $1 - XML string to parse
     # EXPECTED: None
     declare managed=false
-    computer_ids=($(echo "$1" | jq -r ".user.links.computers[].id"))
+    computer_ids=($(echo -E "$1" | jq -r ".user.links.computers[].id"))
  
     # Loop through and evaluate each computer ID
     for id in "${computer_ids[@]}"; do
         inventory_data=$(JAMF_get_inventory_record $id "GENERAL")
         # Check if the managed field is true
-        [[ $(echo $inventory_data | jq -r '.general.remoteManagement.managed') == "true" ]] && managed=true
+        [[ $(echo -E $inventory_data | jq -r '.general.remoteManagement.managed') == "true" ]] && managed=true
     done
     echo $managed
+}
+
+function execute_in_parallel ()
+{
+    # PURPOSE: Execute a list of tasks in parallel, with a limit on the number of concurrent jobs
+    # RETURN: None
+    # PARAMETERS: $1 - Maximum number of concurrent jobs
+    #             $2 - Array list of tasks to execute
+    # EXPECTED: None
+
+    declare max_jobs=$1
+    shift
+    declare tasks=("$@")
+    declare current_jobs=0
+    declare pids=()
+
+    for task in "${tasks[@]}"; do
+        eval "${task}" &
+        pids+=($!)
+        ((current_jobs++))
+        if [[ $current_jobs -ge $max_jobs ]]; then
+            for pid in "${pids[@]}"; do wait $pid; done
+            current_jobs=0
+            pids=()
+        fi
+    done
+
+    # Wait for any remaining jobs
+    for pid in "${pids[@]}"; do wait $pid; done
 }
 
 ####################################################################################################
@@ -662,10 +712,15 @@ create_display_list
 count=1
 logMe "Exporting ${userCount} users from JAMF"
 
-for item in ${UserIDs[@]}; do
-    extract_user_details $item $count
-    ((count++))
-done
+#for item in ${UserIDs[@]}; do
+#    extract_user_details $item $count
+#    ((count++))
+#done
+  for item in ${UserIDs[@]}; do
+        tasks+=("extract_user_details $item $count")
+        ((count++))
+    done
+    execute_in_parallel $BACKGROUND_TASKS "${tasks[@]}"
 
 JAMF_invalidate_token
 update_display_list "progress" "" "" "" "All Done!" 100
