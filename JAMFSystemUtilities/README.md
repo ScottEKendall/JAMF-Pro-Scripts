@@ -52,7 +52,7 @@ This script is fully multitasking, so it will execute each task pretty quickly. 
 
 The subfolder locations can be customized by editing the ```function check_directories```
 
-** JAMF Pro OAuth API Support**
+**JAMF Pro OAuth API Support**
 
 When creating the roles, you can now use the OAuth API to create the roles.  This is useful if you are using JAMF Pro 10.32 or later, and have enabled OAuth API access.  You need to have at least these permissions:
 
