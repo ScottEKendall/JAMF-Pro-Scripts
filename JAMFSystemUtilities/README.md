@@ -116,9 +116,6 @@ JAMF Roles
 | **Version**|**Notes**|
 |:--------:|-----|
 | 1.0 | Initial
-| 1.1 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
-||       Optimized "Common" section for better performance
-||       Fixed variable names in the defaults file section
 | 2.0 | Added options to export Smart /Static groups, 
 ||       export VCF cards for specific groups
 ||       send email to specific groups
