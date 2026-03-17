@@ -219,13 +219,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -1581,6 +1581,7 @@ function display_results ()
     if [[ $action_type == "View" ]]; then
         open_blueprint_links
     elif [[ $action_type == "Sync" ]]; then
+        logMe "Forcing DDM Sync on system: $computer_id"
         retval=$(JAMF_force_ddm_sync $computer_id)
         if [[ $? -eq 0 ]]; then
             ${SW_DIALOG} --message "Sync Command successful for system $computer_id" \
