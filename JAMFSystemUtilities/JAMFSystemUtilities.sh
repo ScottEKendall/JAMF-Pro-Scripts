@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/03/2025
-# Last updated: 08/13/2025
+# Last updated: 03/17/2026
 #
 # Script Purpose: This script will extract all of the email addresses from your JAMF server and store them in local folder in a VCF format.
 #
@@ -32,23 +32,27 @@
 #       Change variable declare section around for better readability
 #       Bumped Swift Dialog to v2.5.0
 #       Increased API search pages results from 100 to 1000
+# 2.10- Added better error handling and display of error messages to the user.
+#       Had to increase window height for Tahoe & SD v3.0
+#       Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+#       Optimized "Common" section for better performance
+#       Added option to read in the defaults file
+#       Fixed function to check which SS/SS+ is being used (again)
+
 ######################################################################################################
 #
 # Gobal "Common" variables (do not change these!)
 #
 ######################################################################################################
-
+#set -x
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-[[ "$(/usr/bin/uname -p)" == 'i386' ]] && HWtype="SPHardwareDataType.0.cpu_type" || HWtype="SPHardwareDataType.0.chip_type"
-
-SYSTEM_PROFILER_BLOB=$( /usr/sbin/system_profiler -json 'SPHardwareDataType')
-MAC_CPU=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract "${HWtype}" 'raw' -)
-MAC_RAM=$( echo $SYSTEM_PROFILER_BLOB | /usr/bin/plutil -extract 'SPHardwareDataType.0.physical_memory' 'raw' -)
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-
-LOG_STAMP=$(echo $(/bin/date +%Y%m%d))
+MACOS_NAME=$(sw_vers -productName)
+MACOS_VERSION=$(sw_vers -productVersion)
+MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
+MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -71,8 +75,19 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 #
 ###################################################
 
-BACKGROUND_TASKS=20                 # Number of background tasks to run in parallel
-EMAIL_APP='com.microsoft.outlook'   # Use the bundle identifier of your email app. you can find it by this command "osascript -e 'id of app "<appname>"' "
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -f "$DEFAULTS_DIR" ]]; then
+    echo "Found Defaults Files.  Reading in Info"
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
+    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+else
+    SUPPORT_DIR="/Library/Application Support/GiantEagle"
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SPACING=5 #5 spaces to accommodate for icon offset
+fi
+BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Support / Log files location
 
@@ -81,11 +96,9 @@ LOG_FILE="${SUPPORT_DIR}/logs/AppDelete.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
 SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF System Admin Tools"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
 OVERLAY_ICON=""
-SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
+SD_ICON_FILE="https://i0.wp.com/macmule.com/wp-content/uploads/2020/08/2062092.png?resize=256%2C256&ssl=1"
 
 # Trigger installs for Images & icons
 # Create a policy in JAMF that will install the necessary files and make sure to given it a custom name that matches this trigger name
@@ -93,6 +106,9 @@ SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_aut
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 JQ_INSTALL_POLICY="install_jq"
+
+BACKGROUND_TASKS=20                 # Number of background tasks to run in parallel
+EMAIL_APP='com.microsoft.outlook'   # Use the bundle identifier of your email app. you can find it by this command "osascript -e 'id of app "<appname>"' "
 
 ##################################################
 #
@@ -172,13 +188,13 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -trigger ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -trigger ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -trigger ${JQ_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -202,7 +218,7 @@ function cleanup_and_exit ()
 	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
+	exit $1
 }
 
 function update_display_list ()
@@ -347,6 +363,25 @@ function convert_to_hex ()
     done
 
     echo "$result"
+}
+
+function display_failure_message ()
+{
+     MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
+        --message "**Problems retrieving JAMF Info**<br><br>Error Message: $1"
+        --icon "${SD_ICON_FILE}"
+        --overlayicon warning
+        --iconsize 128
+        --button1text "OK"
+        --ontop
+        --moveable
+    )
+
+    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    buttonpress=$?
 }
 
 #######################################################################################################
@@ -762,8 +797,12 @@ function JAMF_clear_failed_mdm_commands()
     # RETURN: None
     # Expected jamfpro_url, api_token, ID
     
-    response=$(curl -s -X DELETE "${jamfpro_url}JSSResource/commandflush/computers/id/$1/status/Failed" -H "Authorization: Bearer $api_token")
-    logMe "Clear MDM Commands Response: $response"
+    results=$(curl -s -X DELETE "${jamfpro_url}JSSResource/commandflush/computers/id/$1/status/Failed" -H "Authorization: Bearer $api_token")
+    if [[ $results == *"does not have privileges"* ]]; then
+        display_failure_message "Invalid Privilege to redeploy binary.  Please check the API credentials and permissions for the account you are using to run this script."
+        cleanup_and_exit 1
+    fi
+    logMe "Clear MDM Commands Response: $results"
 }
 
 ###############################################
@@ -874,7 +913,7 @@ function export_failed_mdm_commands_menu ()
         --infobox "${SD_INFO_BOX_MSG}"
         --checkbox "Clear failed items while exporting",name=ClearFailedMDMCommands
         --width 800
-        --height 460
+        --height 480
         --ignorednd
         --quitkey 0
         --json
@@ -899,7 +938,7 @@ function export_failed_mdm_devices ()
     DeviceList=$(JAMF_retrieve_data_blob "api/v1/computers-inventory?section=GENERAL&page=0&page-size=1000&sort=general.name%3Aasc" "json")
     create_listitem_list "The following failed MDM devices are being exported from JAMF" "json" ".results[].general.name" "$DeviceList" "SF=desktopcomputer.and.macbook"
     
-    DeviceIDs=($(echo $DeviceList | jq -r '.results[].general.name'))
+    DeviceIDs=($(echo -E $DeviceList | jq -r '.results[].general.name'))
 
     for item in ${DeviceIDs[@]}; do
         tasks+=("export_failed_mdm_details $item")
@@ -1985,7 +2024,6 @@ function display_welcome_msg ()
         --height 840
         --ignorednd
         --json
-        --moveable
         --quitkey 0
         --button1text "OK"
         --button2text "Cancel"
@@ -2001,15 +2039,15 @@ function display_welcome_msg ()
         --checkbox "Backup Smart Groups & Static Groups (*.txt)",checked,name=BackupSmartGroups
         --checkbox "Export failed MDM commands (*.txt) +",checked,name=BackupFailedMDMCommands
         --checkbox "Compare two Configuration Profiles (*.txt) +",checked,name=CompareConfigProfiles
-        --checkbox "------- User Based Actions -------",disabled
+        --checkbox " ------- User Based Actions -------",disabled
         --checkbox "Create VCF cards or send emails from Groups (*.vcf) +",checked,name=createVCFcards
         --checkbox "Export Application Usage from Users / Groups (*.csv) +",checked,name=exportApplicationUsage
         --checkbox "Export Users with multiple systems (*.csv)",checked,name=exportUsersMultipleSystems
-        --checkbox "------- System Based Actions -------",disabled
+        --checkbox " ------- System Based Actions -------",disabled
         --checkbox "Backup Self Service Icons (*.png)",checked,name=BackupSSIcons
         --checkbox "Backup System Scripts (*.sh)",checked,name=BackupJAMFScripts
         )
-	
+
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     returnCode=$?
     [[ "$returnCode" == "2" ]] && cleanup_and_exit
