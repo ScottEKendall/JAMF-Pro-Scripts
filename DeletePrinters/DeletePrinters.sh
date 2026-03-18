@@ -4,8 +4,8 @@
 #
 # by: Scott Kendall
 #
-# Written: 01/03/2023
-# Last updated: 12/23/2025
+# Written: 03/18/2026
+# Last updated: 03/18/2026  
 #
 # Script Purpose: Remove currently installed printers
 #
@@ -81,7 +81,6 @@ OVERLAY_ICON="SF=trash.fill,color=blakc"
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
-JQ_FILE_INSTALL_POLICY="install_jq"
 
 ##################################################
 #
@@ -173,7 +172,6 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -437,6 +435,7 @@ function confirm_printer_removal ()
     # RETURN: None
     # EXPECTED: None
     # PARMS: $1 - Printer name
+    
     icon_path=$(get_printer_icon "${1}") #Get the printer icon from the PPD file
 	MainDialogBody=(
         --message "Please confirm that you want to remove the printer '$1'."
@@ -473,13 +472,9 @@ selectedPrinter=$(choose_printers)
 if confirm_printer_removal "$selectedPrinter"; then
     logMe "User confirmed printer removal...removing printer '$selectedPrinter'"
     lpadmin -x "$selectedPrinter"
-    if [[ $? -eq 0 ]]; then
-        logMe "Successfully removed printer '$selectedPrinter'"
-    else
-        logMe "Failed to remove printer '$selectedPrinter'"
-    fi
+    [[ $? -eq 0 ]] && results="Successfully removed" || results="Failed to remove"
+    logMe "${results} printer '$selectedPrinter'"
 else
     logMe "User canceled printer removal...exiting"
 fi
 cleanup_and_exit 0
-
