@@ -106,4 +106,13 @@ LastPasswordChange=$(defaults read "$plistFile" "PasswordLastChanged")
 
 >IMPORTANT!  Do not use the $HOME variable to determine the user's home drive as this extension runs with elevated privleges, so it will return the wrong home drive if you use the $HOME variable.
 
-I also like the fact that I can set an "alert" symbol" when the user's password is within the 14 day limit, so not only do they see the symbol in their menubar, but they also get a dialo prompt showing what to do to change it as well
+I also like the fact that I can set an "alert" symbol" when the user's password is within the 14 day limit, so not only do they see the symbol in their menubar, but they also get a dialog prompt showing what to do to change it as well
+
+ps.  I also have other MS Entra scripts in my repo that can retrieve the following:
+
+* Last Password Change
+* Employee ID
+* Groups
+* Admin Privleges
+
+These scripts can all be [here](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/tree/main)
