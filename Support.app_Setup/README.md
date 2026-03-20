@@ -51,17 +51,17 @@ The key fields that we are going to use are `<PasswordAge>` and `<PasswordLastCh
 3.  If you want to retreieve the PasswordAge field (or any field) use the `defaults read` to retrieve the data:
 
 ```
-plistFile="<file location>
+plistFile="<file location>"
 PasswordAge=$(defaults read "$plistFile" "PasswordAge")
 LastPasswordChange=$(defaults read "$plistFile" "PasswordLastChanged")
 ```
-4.  With this newfound information, I do a couple of things with it:
+4.  With this new found information, I do a couple of things with it:
 
     1.  I have a daily script that will determine if the user's password is about to expire (within two weeks) and show them a dialog message on the screen.  Script for that can be [found here](https://github.com/ScottEKendall/JAMF-Pro-Scripts/tree/main/PasswordExpire).  A sample of what that looks llie:
 
     ![](https://github.com/ScottEKendall/JAMF-Pro-Scripts/blob/main/PasswordExpire/PasswordExpire.png?raw=true)
 
-    2.   Since I want to show this information to the end users, I use the excellent Support.app utility [Found Here](https://github.com/root3nl/SupportApp) and setup custom extensions for this app.  Here is what that screen looks like
+    2.   Since I also want to show this information to the end users, I use the excellent Support.app utility [found here](https://github.com/root3nl/SupportApp), and setup custom extensions for this app.  Here is what that screen looks like
 
     ![](Support.app_Screenshot.png)
 
@@ -81,7 +81,7 @@ LastPasswordChange=$(defaults read "$plistFile" "PasswordLastChanged")
 
     extensionID="GetPasswordAge"
     passwordLimit=365
-    plistFile=<yourplistlocation> #eg.  $USER_DIR/Library/Application Support/Entrapasswords.plist
+    plistFile="<yourplistlocation>" #ex. $USER_DIR/Library/Application Support/EntraInfo.plist
 
     # Retrieve password age from the user's .plist file and write it to the Support App preference plist
     defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_loading" -bool true
@@ -104,7 +104,8 @@ LastPasswordChange=$(defaults read "$plistFile" "PasswordLastChanged")
         defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_alert" -bool false
     fi
 ```
+I also like the fact that I can set an "alert" symbol" when the user's password is within the 14 day limit, so not only do they see the symbol in their menubar, but they also get a dialo prompt showing what to do to change it as well
 
->IMPORTANT!  I do not use the $HOME variable to determine the users home drive as this >extension runs with elevated privleges, so it will return the wrong home drive if you use >the $HOME variable!
 
-I like the fact that I can set an "alert" symbol" when the user's password is within the 14 day limit, so not only do they see the symbol in their menubar, but they also get a dialo prompt showing what to do to change it as well
+>IMPORTANT!  Do not use the $HOME variable to determine the user's home drive as this extension runs with elevated privleges, so it will return the wrong home drive if you use the $HOME variable.
+
