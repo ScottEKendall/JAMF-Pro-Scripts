@@ -108,7 +108,8 @@ LastPasswordChange=$(defaults read "$plistFile" "PasswordLastChanged")
 
 I also like the fact that I can set an "alert" symbol" when the user's password is within the 14 day limit, so not only do they see the symbol in their menubar, but they also get a dialog prompt showing what to do to change it as well
 
-ps.  I also have other MS Entra scripts in my repo that can retrieve the following:
+## Other Entra Scripts
+I also have other MS Entra scripts in my repo that can retrieve the following:
 
 * Last Password Change
 * Employee ID
