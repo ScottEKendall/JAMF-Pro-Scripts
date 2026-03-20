@@ -1,4 +1,4 @@
-## Support.app Setup
+## Methods
 
 In our environment we use Entra / JAMF and no Kerberos.  What I was trying to accomplish for the end users is to give them some kind of idea of when their paswswords are about ready to expire.  There are couple of ways that you can do this:
 
