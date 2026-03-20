@@ -5,7 +5,7 @@ I make heavy use of the excellent Support.app [found here](https://github.com/ro
 - [Password Age](#password-age)
 - [Show Battery Info](#battery-info)
 - [Show Active IP address](#show-active-ip-address)
-- [JAMF checkin]
+- [JAMF checkin](#jamf-checkin)
 
 ## Password Age
 In our environment we use Entra / JAMF and no Kerberos.  What I was trying to accomplish for the end users is to give them some kind of idea of when their paswswords are about ready to expire.  There are couple of ways that you can do this:
