@@ -115,4 +115,4 @@ ps.  I also have other MS Entra scripts in my repo that can retrieve the followi
 * Groups
 * Admin Privleges
 
-These scripts can all be [here](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/tree/main)
+These scripts can all be found [here](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/tree/main)
