@@ -222,7 +222,7 @@ function get_nic_info() {
 extensionID="NetworkInfo"
 
 # Start spinning indicator
-defaults write "${preference_file_location}" "${extensionID}_loading" -bool true
+defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_loading" -bool true
 
 # Keep loading effect active for 0.5 seconds
 sleep 0.5
@@ -230,11 +230,10 @@ sleep 0.5
 # Get the active network adapter and its IP address
 retval=$(get_nic_info)
 # Write output to Support App preference plist
-echo $retval
 defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}" -string "${retval}"
 
 # Stop spinning indicator
-defaults write "${preference_file_location}" "${extensionID}_loading" -bool false
+defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_loading" -bool false
 if [[ $retval =~ "No active" ]]; then
     defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_alert" -bool true
 else
