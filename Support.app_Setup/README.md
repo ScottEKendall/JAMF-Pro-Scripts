@@ -46,7 +46,7 @@ Here is the structure of that file
 
 The key fields that we are going to use are `<PasswordAge>` and `<PasswordLastChanged>`.
 
->NOTE: I create the local file so I don't have to constantly log into the server to get >password info.  Saves time and I believe it offers more flexibility for local scripting on >the machine
+>NOTE: I create the local file so I don't have to constantly log into the server to get password info.  Saves time and I believe it offers more flexibility for local scripting on the machine
 
 3.  If you want to retreieve the PasswordAge field (or any field) use the `defaults read` to retrieve the data:
 
