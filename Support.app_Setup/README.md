@@ -10,7 +10,7 @@ In our environment we use Entra / JAMF and no Kerberos.  What I was trying to ac
 
 ## Password retrieval
 
->Disclaimer: This may not be the best method to retrieve / store network passwords, but this >has been working flawlessly for me for the past year.  I welcome any recommendations on a >better idea.
+>Disclaimer: This may not be the best method to retrieve / store network passwords, but this has been working flawlessly for me for the past year.  I welcome any recommendations on a better idea.
 
 1.  Use this script from my repo [found here](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20InTune%20-%20Passwords.sh) and have it run Once a Day.  You will need to provide your Entra credentials for the script.
 
