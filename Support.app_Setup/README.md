@@ -102,10 +102,8 @@ LastPasswordChange=$(defaults read "$plistFile" "PasswordLastChanged")
         defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_alert" -bool true
     else
         defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_alert" -bool false
-    fi
-```
-I also like the fact that I can set an "alert" symbol" when the user's password is within the 14 day limit, so not only do they see the symbol in their menubar, but they also get a dialo prompt showing what to do to change it as well
-
+    fi```
 
 >IMPORTANT!  Do not use the $HOME variable to determine the user's home drive as this extension runs with elevated privleges, so it will return the wrong home drive if you use the $HOME variable.
 
+I also like the fact that I can set an "alert" symbol" when the user's password is within the 14 day limit, so not only do they see the symbol in their menubar, but they also get a dialo prompt showing what to do to change it as well
