@@ -5,7 +5,6 @@ In our environment we use Entra / JAMF and no Kerberos.  What I was trying to ac
 1.  You can use the local login password reset date, but that might not have the same time sync as the Entra server
     ````
     passwordAge=$(expr $(expr $(date +%s) - $(dscl . read /Users/${LOGGED_IN_USER} | grep -A1 passwordLastSetTime | grep real | awk -F'real>|</real' '{print $2}' | awk -F'.' '{print $1}')) / 86400)
-    ```
 2.  Or you can get the information from the Entra server using the MS Graph API.  I have the script for that [here](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20InTune%20-%20Passwords.sh)
 
 ## Password retrieval
