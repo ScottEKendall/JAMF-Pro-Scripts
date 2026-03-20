@@ -170,7 +170,7 @@ I have developed a small extension script to reflect the IP address of the activ
 # Support App Extension - Show Password Age
 #
 #
-# Support App Extension to show the age of the current user's password and how many days are left until it expires.
+# Support App Extension to show the IP address of the active netork adapter (VPN -> Ethernet -> Wi-Fi)
 #
 #set -x
 function get_nic_info() {
