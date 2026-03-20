@@ -5,11 +5,12 @@ In our environment we use Entra / JAMF and no Kerberos.  What I was trying to ac
 1.  You can use the local login password reset date, but that might not have the same time sync as the Entra server
     ````
     passwordAge=$(expr $(expr $(date +%s) - $(dscl . read /Users/${LOGGED_IN_USER} | grep -A1 passwordLastSetTime | grep real | awk -F'real>|</real' '{print $2}' | awk -F'.' '{print $1}')) / 86400)
+
 2.  Or you can get the information from the Entra server using the MS Graph API.  I have the script for that [here](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20InTune%20-%20Passwords.sh)
 
 ## Password retrieval
 
-    Disclaimer: This may not be the best method to retrieve / store network passwords, but this has been working flawlessly for me for the past year.  I welcome any recommendations on a better idea.
+>Disclaimer: This may not be the best method to retrieve / store network passwords, but this >has been working flawlessly for me for the past year.  I welcome any recommendations on a >better idea.
 
 1.  Use this script from my repo [found here](https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20InTune%20-%20Passwords.sh) and have it run Once a Day.  You will need to provide your Entra credentials for the script.
 
@@ -45,7 +46,7 @@ Here is the structure of that file
 
 The key fields that we are going to use are `<PasswordAge>` and `<PasswordLastChanged>`.
 
-    NOTE: I create the local file so I don't have to constantly log into the server to get password info.  Saves time and I believe it offers more flexibility for local scripting on the machine
+>NOTE: I create the local file so I don't have to constantly log into the server to get >password info.  Saves time and I believe it offers more flexibility for local scripting on >the machine
 
 3.  If you want to retreieve the PasswordAge field (or any field) use the `defaults read` to retrieve the data:
 
@@ -104,6 +105,6 @@ LastPasswordChange=$(defaults read "$plistFile" "PasswordLastChanged")
     fi
 ```
 
-NOTE!  I do not use the $HOME variable to determine the users home drive as this extension runs with elevated privleges, so it will return the wrong home drive if you use the $HOME variable!
+>IMPORTANT!  I do not use the $HOME variable to determine the users home drive as this >extension runs with elevated privleges, so it will return the wrong home drive if you use >the $HOME variable!
 
 I like the fact that I can set an "alert" symbol" when the user's password is within the 14 day limit, so not only do they see the symbol in their menubar, but they also get a dialo prompt showing what to do to change it as well
