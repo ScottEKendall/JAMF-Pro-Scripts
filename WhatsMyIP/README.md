@@ -16,6 +16,9 @@ Nice GUI to display all of the IPv4 address on a user's system (will find Cisco 
 ||      Added feature to read in defaults file
 ||       removed unnecessary variables.
 ||       Fixed typos
-| 1.1 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+| 1.6 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 ||       Optimized "Common" section for better performance
 ||       Fixed variable names in the defaults file section
+| 1.7 | Reworked logic to get all active physical adapters.  This allows for better support of older macs with multiple Ethernet ports and Thunderbolt adapters.
+||       Rename any adapter with "Ethernet" or "LAN" in the name to just "Ethernet"
+||       Check for both Cisco Secure Client and AnyConnect for VPN IP collection

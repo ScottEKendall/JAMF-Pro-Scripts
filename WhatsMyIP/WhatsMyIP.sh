@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 9/20/2023
-# Last updated: 03/13/2026
+# Last updated: 03/20/2026
 #
 # Script Purpose: Display the IP address on all adapters as well as Cisco VPN if they are connected
 #
@@ -22,6 +22,9 @@
 # 1.6 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 1.7 - Reworked logic to get all active physical adapters instead of just the first one.  This allows for better support of older macs with multiple Ethernet ports and Thunderbolt adapters.
+#       Added logic to rename any adapter with "Ethernet" or "LAN" in the name to just "Ethernet" for better readability for users.
+#       Added logic to check for both Cisco Secure Client and AnyConnect for VPN IP collection and to only check for the one that is installed
 
 
 ######################################################################################################
@@ -182,10 +185,7 @@ function cleanup_and_exit ()
 
 function get_nic_info
 {
-
-    declare sname
-    declare sdev
-    declare sip
+    local port dev ip wifiName wirelessInterface
 
     # Get ISP Info
     isp=$(curl -s https://ipecho.net/plain)
@@ -195,13 +195,12 @@ function get_nic_info
 
     # Get all active intefaces
 
-    while read -r line; do
-        sname=$(echo "$line" | awk -F  "(, )|(: )|[)]" '{print $2}' | awk '{print $1}')
-        sdev=$(echo "$line" | awk -F  "(, )|(: )|[)]" '{print $4}')
-        currentip=$(ipconfig getifaddr $sdev)
-
-        [[ -z $currentip ]] && continue
-        adapter+="$sname"
+    networksetup -listallhardwareports | awk -F': ' '/Hardware Port/ {port=$2} /Device/ {print port ":" $2}' | while IFS=: read -r port dev; do
+        ip=$(ipconfig getifaddr "$dev")
+        [[ -z "$ip" ]] && continue
+        # Rename anything containing "Ethernet" or "LAN" to just "Ethernet"
+        [[ "$port" =~ "Ethernet" || "$port" =~ "LAN" ]] && port="Ethernet"
+        adapter+="$port"
         if [[ $sname == *"Wi-Fi"* ]]; then
             wirelessInterface=$( networksetup -listnetworkserviceorder | sed -En 's/^\(Hardware Port: (Wi-Fi|AirPort), Device: (en.)\)$/\2/p' )
             ipconfig setverbose 1
@@ -209,14 +208,28 @@ function get_nic_info
             ipconfig setverbose 0
             [[ -z "${wifiName}" ]] && wifiName="Not connected"
         fi
-        ip_address+="**$currentip** $wifiName"
-    done <<< "$(networksetup -listnetworkserviceorder | grep 'Hardware Port')"
+        ip_address+="**$ip** $wifiName"
+        #echo "$port: $ip"
+    done
 
-    # Section for VPN IP Collection
+    # Section for Cisco VPN IP Collection
+    SECURE_CLIENT="/opt/cisco/secureclient/bin/vpn"
+    ANYCONNECT="/opt/cisco/anyconnect/bin/vpn"
 
-    if [[ "$( echo 'state' | /opt/cisco/anyconnect/bin/vpn -s | grep -m 1 ">> state:" )" == *'Connected' ]]; then
-        ip_address+=**$(/opt/cisco/anyconnect/bin/vpn -s stats | grep 'Client Address (IPv4)' | awk -F ': ' '{ print $2 }' | xargs)**
+    # Check which version is installed
+    if [[ -f "$SECURE_CLIENT" ]]; then
+        VPN_BIN="$SECURE_CLIENT"
+    elif [[ -f "$ANYCONNECT" ]]; then
+        VPN_BIN="$ANYCONNECT"
+    fi
+
+    # Extract the IPv4 address from the vpn stats output
+
+    VPN_IP=$($VPN_BIN stats | grep "Client Address (IPv4)" | awk -F': ' '{print $2}' | xargs)
+
+    if [[ -n "$VPN_IP" ]]; then
         adapter+="VPN "
+        ip_address+="**$VPN_IP** (Cisco VPN)"
     fi
 }
 
