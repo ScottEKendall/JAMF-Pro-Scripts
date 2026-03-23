@@ -162,7 +162,7 @@ fi
 
 ## Show Active IP Address
 
-I have developed a small extension script to reflect the IP address of the active adapter.  I follow this hierarchy (VPN > Ethernet > Wi-Fi).  Which ever adapter is highest in the hierachy then I display that information.  Very handy for remote support calls.  Also displays an alert badge if there are no active addresses.
+I have developed a small extension script to reflect the IP address of the active adapter.  I follow this hierarchy (VPN > Ethernet > Wi-Fi).  Which ever active adapter is highest in the hierachy then I display that information.  Very handy for remote support calls.  Also displays an alert badge if there are no active addresses.
 
 ```
 #!/bin/zsh
