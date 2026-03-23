@@ -7,7 +7,7 @@
 # Written: 10/2/2022
 # Last updated: 03/13/2026
 #
-# Script Purpose: 
+# Script Purpose: Show disk usage info for the logged in user and optionally open Grand Perspective if installed.
 #
 # 1.0 - Initial
 # 1.1 - Major code cleanup & documentation / Structured code to be more inline / consistent across all apps
