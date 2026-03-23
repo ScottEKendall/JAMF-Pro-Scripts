@@ -121,9 +121,8 @@ SD_WELCOME_MSG_ALT="${6:-""}"
 SD_BUTTON1_PROMPT="${7:-"OK"}"
 SD_IMAGE_TO_DISPLAY="${8:-""}"
 SD_IMAGE_POLICY="${9:-""}"
-SD_ICON_PRIMARY="${10:-"AlertNoteIcon.icns"}"
+SD_ICON_PRIMARY="${10:-"${ICON_FILES}AlertNoteIcon.icns"}"
 SD_TIMER="${11-120}"
-SD_ICON_PRIMARY="${ICON_FILES}${SD_ICON_PRIMARY}"
 
 
 ####################################################################################################
