@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 12/11/2025
-# Last updated: 03/13/2026
+# Last updated: 03/23/2026
 #
 # Script Purpose: set the default UTI applications (mailto, url, http, etc)
 #
@@ -18,6 +18,7 @@
 # 1.4 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 1.5 - added support for file type (ics)
 
 
 ######################################################################################################
@@ -306,7 +307,7 @@ function construct_dialog_header_settings ()
         "infobutton" : "More Info",
         "infobuttonaction" : "https://github.com/scriptingosx/utiluti",        
         "width" : 920,
-        "height" : 540,
+        "height" : 580,
         "button1text" : "OK",
         "button2text" : "Cancel",
         "moveable" : "true",
@@ -435,6 +436,7 @@ utiDoc=$(get_uti_results "docx")
 utiTxt=$(get_uti_results "txt")
 utiPDF=$(get_uti_results "pdf")
 utiMD=$(get_uti_results "md")
+utiICS=$(get_uti_results "ics")
 
 # if you need to add new app types in here, make sure to use this template:
 # create_dropdown_message_body "Documents (doc):" "$utiDoc" "$(get_default_uti_app "docx")"
@@ -459,6 +461,8 @@ create_dropdown_message_body "Text Files (txt):" "$utiTxt" "$(get_default_uti_ap
 echo "}," >> $JSON_DIALOG_BLOB
 create_dropdown_message_body "Markdown (md):" "$utiTxt" "$(get_default_uti_app "md")"
 echo "}," >> $JSON_DIALOG_BLOB
+create_dropdown_message_body "Calendar (ics):" "$utiICS" "$(get_default_uti_app "ics")"
+echo "}," >> $JSON_DIALOG_BLOB
 create_dropdown_message_body "Portable Doc Format (pdf):" "$utiPDF" "$(get_default_uti_app "pdf")"
 echo "}]}" >> $JSON_DIALOG_BLOB
 
@@ -478,6 +482,7 @@ resultsDoc=$(echo $results | jq '.["Documents (doc):"].selectedValue')
 resultsTxt=$(echo $results | jq '.["Text Files (txt):" ].selectedValue')
 resultsPDF=$(echo $results | jq '.["Portable Doc Format (pdf):" ].selectedValue')
 resultsMD=$(echo $results | jq '.["Markdown (md):"  ].selectedValue')
+resultsICS=$(echo $results | jq '.["Calendar (ics):"  ].selectedValue')
 
 
 # and then set the new defaults
@@ -490,6 +495,7 @@ set_uti_results $resultsDoc "docx"
 set_uti_results $resultsTxt "txt"
 set_uti_results $resultsPDF "pdf"
 set_uti_results $resultsMD "md"
+set_uti_results $resultsICS "ics"
 
 cleanup_and_exit 0
 

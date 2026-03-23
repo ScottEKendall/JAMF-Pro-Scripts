@@ -49,4 +49,6 @@ macvfx has modified this script to be MDM agnostic, if you want to use that vers
 | 1.3 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 ||       Optimized "Common" section for better performance
 ||       Fixed variable names in the defaults file section
+| 1.5 | added support for file type (ics) and added some additional logging for troubleshooting
+
 
