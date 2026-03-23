@@ -7,7 +7,7 @@
 # Written: 02/03/2025
 # Last updated: 03/13/2026
 #
-# Script Purpose: Backup the keychain file and delete the current keychain file(s)
+# Script Purpose: Check if the user is registered for EntraID and display status.  If not registered, provide option to register via JAMF policy.
 #
 # 1.0 - Initial
 # 1.1 - Code cleanup to be more consistent with all apps
