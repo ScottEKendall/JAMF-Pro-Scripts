@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 03/05/2026
-# Last updated: 03/11/2026
+# Last updated: 03/23/2026
 #
 # Script Purpose: Scan a user-defined list of applications to determine their architecture type
 #
@@ -20,6 +20,7 @@
 #       Include Application scan inside of users Home Directory
 # 1.4 - Reworked scan logic to take advantage of zsh features and executes much faster now
 # 1.5 - Added option to show the application path in the list
+# 1.5 - Changed the Rosetta deprecation date to macOS 27 (Ventura) based on new Apple announcement
 
 ######################################################################################################
 #
@@ -398,7 +399,7 @@ function update_display_list ()
 function welcomemsg ()
 {
     local -a app_list
-    message="Apple said that after macOS 26 (Tahoe), Rosetta app support will be deprecated. This script will list all of the apps on your system and display"
+    message="Apple said that after macOS 27, Rosetta app support will be deprecated. This script will list all of the apps on your system and display"
     message+=" the architecture type, so you can determine which applications need updated.<br>"
     preload_apps
     app_list=("${reply[@]}")
