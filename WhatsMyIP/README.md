@@ -22,3 +22,4 @@ Nice GUI to display all of the IPv4 address on a user's system (will find Cisco 
 | 1.7 | Reworked logic to get all active physical adapters.  This allows for better support of older macs with multiple Ethernet ports and Thunderbolt adapters.
 ||       Rename any adapter with "Ethernet" or "LAN" in the name to just "Ethernet"
 ||       Check for both Cisco Secure Client and AnyConnect for VPN IP collection
+| 1.8 | Fixed logic to check for VPN IP to look for "Not Available" instead of just checking if the variable is empty.

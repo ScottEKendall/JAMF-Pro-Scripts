@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 9/20/2023
-# Last updated: 03/20/2026
+# Last updated: 03/24/2026
 #
 # Script Purpose: Display the IP address on all adapters as well as Cisco VPN if they are connected
 #
@@ -25,7 +25,7 @@
 # 1.7 - Reworked logic to get all active physical adapters instead of just the first one.  This allows for better support of older macs with multiple Ethernet ports and Thunderbolt adapters.
 #       Added logic to rename any adapter with "Ethernet" or "LAN" in the name to just "Ethernet" for better readability for users.
 #       Added logic to check for both Cisco Secure Client and AnyConnect for VPN IP collection and to only check for the one that is installed
-
+# 1.8 - Fixed logic to check for VPN IP to look for "Not Available" instead of just checking if the variable is empty.
 
 ######################################################################################################
 #
@@ -227,7 +227,7 @@ function get_nic_info
 
     VPN_IP=$($VPN_BIN stats | grep "Client Address (IPv4)" | awk -F': ' '{print $2}' | xargs)
 
-    if [[ -n "$VPN_IP" ]]; then
+    if [[ "$VPN_IP" != "Not Available" ]]; then
         adapter+="VPN "
         ip_address+="**$VPN_IP** (Cisco VPN)"
     fi
