@@ -120,7 +120,7 @@ I also like the fact that I can set an "alert" symbol" when the user's password 
 I also have other MS Entra scripts in my repo that can retrieve the following:
 
 * Last Password Change
-* Employee ID
+* Employee ID Photo
 * Groups
 * Admin Privleges
 
@@ -134,11 +134,28 @@ For laptops, I have the support.app extensin to show the battery level.  I also 
 
 # Support App Extension - Show Battery Health
 
+# Use color indicators for compliance status
+color_indicators="true"  # Set to "true" to use the color circle emojis, "false" or anything else for no emojis
+if [[ "$color_indicators" == "true" ]]; then
+    green_circle="🟢 "
+    yellow_circle="🟡 "
+    red_circle="🔴 "
+else
+    green_circle=""
+    yellow_circle=""
+    red_circle=""
+fi
+extensionID="BatteryHealth"
+preference_file_location="/Library/Preferences/nl.root3.support.plist"
+defaults write "${preference_file_location}" "${extensionID}_loading" -bool true
+sleep 0.25
+
 arch=$(/usr/bin/arch)
+capacity=100
 model=$(system_profiler SPHardwareDataType | grep "Model Name:" | cut -d ' ' -f 9)
 
 if [[ ! "$model" =~ "Book" ]]; then
-    retval "Not A Laptop"
+    retval="Not A Laptop"
 else
     if [[ "$arch" == "arm64" ]]; then
         capacity="$(system_profiler SPPowerDataType | grep "Maximum Capacity:" | sed 's/.*Maximum Capacity: //')"
@@ -147,17 +164,20 @@ else
         retval="$(system_profiler SPPowerDataType | grep "Condition:" | sed 's/.*Condition: //')"
     fi
 fi
-
-extensionID="BatteryHealth"
+capacity_val=${capacity%\%}
 # Show the battery health condition and capacity (if Apple Silicon) in the Support App
-defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}" -string "${retval}"
+
 
 # Trigger an orange warning notification for the user if their battery health is not good or if the capacity is below 80%
-if [[ $capacity -lt 80 ]]; then
-    defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_alert" -bool true
+if [[ $capacity_val -lt 80 ]]; then
+    defaults write $preference_file_location "${extensionID}_alert" -bool true
+    retval=$red_circle$retval
 else
-    defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_alert" -bool false
+    defaults write $preference_file_location "${extensionID}_alert" -bool false
+    retval=$green_circle$retval
 fi
+defaults write $preference_file_location "${extensionID}" -string "${retval}"
+defaults write "${preference_file_location}" "${extensionID}_loading" -bool false
 ```
 
 ## Show Active IP Address
@@ -167,12 +187,27 @@ I have developed a small extension script to reflect the IP address of the activ
 ```
 #!/bin/zsh
 
-# Support App Extension - Show Password Age
+# Support App Extension - Show Active Network Adapter and IP Address
 #
 #
-# Support App Extension to show the IP address of the active netork adapter (VPN -> Ethernet -> Wi-Fi)
+# Support App Extension to show the active network adapter and its IP address.
 #
 #set -x
+color_indicators="true"  # Set to "true" to use the color circle emojis, "false" or anything else for no emojis
+preference_file_location="/Library/Preferences/nl.root3.support.plist"
+nic_status=""
+extensionID="NetworkInfo"
+
+if [[ "$color_indicators" == "true" ]]; then
+    green_circle="🟢 "
+    yellow_circle="🟡 "
+    red_circle="🔴 "
+else
+    green_circle=""
+    yellow_circle=""
+    red_circle=""
+fi
+
 function get_nic_info() {
     local vpn_ip eth_ip wifi_ip wifi_name dev port
     local secure_client="/opt/cisco/secureclient/bin/vpn"
@@ -190,7 +225,7 @@ function get_nic_info() {
     if [[ -n "$vpn_bin" ]]; then
         vpn_ip=$($vpn_bin stats 2>/dev/null | awk -F': ' '/Client Address \(IPv4\)/ {print $2}' | xargs)
         if [[ ! "$vpn_ip" == "Not Available" ]]; then
-            echo "VPN: $vpn_ip"
+            echo "$vpn_ip\n(VPN)"
             return
         fi
     fi
@@ -211,34 +246,37 @@ function get_nic_info() {
 
     # Output based on priority
     if [[ -n "$eth_ip" ]]; then
-        echo "ENet: $eth_ip"
+        echo "$eth_ip\n(Ethernet)"
     elif [[ -n "$wifi_ip" ]]; then
-        echo "Wi-Fi: $wifi_ip"
+        echo "$wifi_ip\n(Wi-Fi)"
     else
         echo "No active adapter found"
     fi
 }
 
-extensionID="NetworkInfo"
 
 # Start spinning indicator
-defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_loading" -bool true
+defaults write "${preference_file_location}" "${extensionID}_loading" -bool true
 
-# Keep loading effect active for 0.5 seconds
-sleep 0.5
+# Keep loading effect active for 0.25 seconds
+sleep 0.25
 
 # Get the active network adapter and its IP address
 retval=$(get_nic_info)
 # Write output to Support App preference plist
-defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}" -string "${retval}"
 
-# Stop spinning indicator
-defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_loading" -bool false
 if [[ $retval =~ "No active" ]]; then
-    defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_alert" -bool true
+    defaults write "${preference_file_location}" "${extensionID}_alert" -bool true
+    nic_status=$red_circle$retval   
 else
-    defaults write /Library/Preferences/nl.root3.support.plist "${extensionID}_alert" -bool false
+    defaults write "${preference_file_location}" "${extensionID}_alert" -bool false
+    nic_status=$green_circle$retval
 fi
+defaults write "${preference_file_location}" "${extensionID}" -string "${nic_status}"
+# Stop spinning indicator
+defaults write "${preference_file_location}" "${extensionID}_loading" -bool false
+
+
 ```
 
 Some sample output:
@@ -248,7 +286,7 @@ Some sample output:
 
 ## JAMF Checkin
 
-This one came with the sample scripts from the support.app site, but I found it useful, so I am putting it into my setup
+This one came with the sample scripts from the support.app site, but I modified it slightly to show status icons:
 
 ```
 #!/bin/zsh --no-rcs
@@ -277,6 +315,16 @@ twenty_four_hour_format="false"
 
 # Extension ID
 extension_id="last_check_in"
+color_indicators="true"  # Set to "true" to use the color circle emojis, "false" or anything else for no emojis
+if [[ "$color_indicators" == "true" ]]; then
+    green_circle="🟢 "
+    yellow_circle="🟡 "
+    red_circle="🔴 "
+else
+    green_circle=""
+    yellow_circle=""
+    red_circle=""
+fi
 
 # ---------------------    do not edit below this line    ----------------------
 
@@ -287,11 +335,54 @@ preference_file_location="/Library/Preferences/nl.root3.support.plist"
 defaults write "${preference_file_location}" "${extension_id}_loading" -bool true
 
 # Replace value with placeholder while loading
-defaults write "${preference_file_location}" "${extension_id}" -string "Checking in..."
+defaults write "${preference_file_location}" "${extension_id}" -string "KeyPlaceholder"
 
-# Perform a Jamf Pro check-in
-/usr/local/bin/jamf policy
+# Keep loading effect active for 0.5 seconds
+sleep 0.5
 
-# Run script to populate new values in Extension
-/private/var/db/ManagedConfigurationFiles/BackgroundTaskServices/Services/nl.root3.support/jamf_last_check-in_time.zsh
+# Get last Jamf Pro check-in time from jamf.log
+last_check_in_time=$(grep "Checking for policies triggered by \"recurring check-in\"" "/private/var/log/jamf.log" | tail -n 1 | awk '{ print $2,$3,$4 }')
+
+# Convert last Jamf Pro check-in time to epoch
+last_check_in_time_epoch=$(date -j -f "%b %d %T" "${last_check_in_time}" +"%s")
+
+# Convert last Jamf Pro epoch to something easier to read
+if [[ "${twenty_four_hour_format}" == "true" ]]; then
+  # Outputs 24 hour clock format
+  last_check_in_time_human_reable=$(date -r "${last_check_in_time_epoch}" "+%A %H:%M")
+else
+  # Outputs 12 hour clock format
+  last_check_in_time_human_reable=$(date -r "${last_check_in_time_epoch}" "+%A %I:%M %p")
+fi
+
+# Write output to Support App preference plist
+defaults write "${preference_file_location}" "${extension_id}" -string "${last_check_in_time_human_reable}"
+# Calculate the difference in seconds
+now_epoch=$(date +%s)
+diff_seconds=$(( now_epoch - last_check_in_time_epoch ))
+
+# Define time thresholds in seconds
+four_hours=14400
+eight_hours=28800
+
+# Determine the status symbol based on age
+if [[ $diff_seconds -ge $eight_hours ]]; then
+  # Red circle for over 8 hours
+  status_symbol=$red_circle
+elif [[ $diff_seconds -ge $four_hours ]]; then
+  # Yellow circle for over 4 hours
+  status_symbol=$yellow_circle
+else
+  # Green circle for recent check-in
+  status_symbol=$green_circle
+fi
+
+# Update the human readable string to include the status symbol
+final_output="${status_symbol} ${last_check_in_time_human_reable}"
+
+# Write the final output with the circle to the plist
+defaults write "${preference_file_location}" "${extension_id}" -string "${final_output}"
+
+# Stop spinning indicator
+defaults write "${preference_file_location}" "${extension_id}_loading" -bool false
 ```
