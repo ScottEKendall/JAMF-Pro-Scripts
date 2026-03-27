@@ -2,7 +2,7 @@
 
 I wrote a little utility to help with the users in connecting to their network drives.  This script will test to make sure that the user is On-Prem or connected via VPN and use the Finder to mount their network drives.  This script is designed to work in tandem with my inTunes-Groups script that will determine which drives the user has access to as defined by their Entra groups and then will create a custom Plist file that contains all of their drive mappings.
 
-If the user is not OnPrem or on VPN, they will get this:
+If the user is not OnPrem or not on VPN, they will get this:
 
 ![](./MountNetworkDrive.png)
 If the Plist (configuration) file is missing or the keys are not intact, then they will receive this error:
