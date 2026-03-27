@@ -7,7 +7,13 @@ If the user is not OnPrem or on VPN, they will get this:
 ![](./MountNetworkDrive.png)
 If the Plist (configuration) file is missing or the keys are not intact, then they will receive this error:
 
-![](./MountNetworkDrive-Missing.png)
+![](./MountNetworkDrive-MissingFile.png)
+
+or 
+
+![](./MountNetworkDrive-MissingKeys.png)
+
+You can customize it for your VPN application if necessary and change the wording appropriately
 
 There is an option in the script (Check My Drives) to have the user run a JAMF policy that will reconstruct and/or repair the missing configuration file.  That policy can be found here: https://github.com/ScottEKendall/JAMF-Pro-System-Scripts/blob/main/Maintenance%20-%20InTune%20-%20Groups.sh. 
 
@@ -43,5 +49,10 @@ The script that creates this Plist file can be found here: https://github.com/Sc
 
 I know that you can use the built-in JAMF DS attribute mapping for Entra Groups, I wrote the inTune Group script before that feature existed, so you can use either method.
 
-#### 1.0 - Initial
-#### 1.1 - Add more checking against the plist file...make sure it is intact and correct keys are present
+## History ##
+
+| **Version**|**Notes**|
+|:--------:|-----|
+| 1.0 | Initial
+| 1.1 | Add more checking against the plist file...make sure it is intact and correct keys are present
+| 1.2 | Cleaned up code to be more constant with my other apps
