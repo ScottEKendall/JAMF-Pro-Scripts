@@ -3,7 +3,7 @@
 # by: Scott Kendall
 #
 # Written: 04/16/2025
-# Last updated: 03/13/2026
+# Last updated: 04/01/2026
 
 # Script for store users to request an Adobe license transfer 
 #
@@ -13,6 +13,8 @@
 # 1.3 - Code cleanup / Added feature to read in defaults file / removed unnecessary variables.
 # 1.4 - Fixed window layout for Tahoe & SD v3.0
 # 1.5 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 #
 ######################################################################################################
 #
@@ -36,7 +38,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
@@ -56,20 +58,24 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
 LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Title Header
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Adobe License Transfer"
+SD_WINDOW_TITLE="Adobe License Transfer"
 SD_INFO_BOX_MSG=""
 OVERLAY_ICON="/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"
 SD_ICON=$ICON_FILES"ToolbarCustomizeIcon.icns"
@@ -196,7 +202,8 @@ function display_welcome_message ()
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --icon "${SD_ICON}"
-        --titlefont shadow=1
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
         --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, Please fill out this form to have your Adobe license transferred from one store to another."
         --messagefont name=Arial,size=17
         --vieworder "dropdown,textfield"
@@ -229,7 +236,8 @@ function TSD_Ticket_message ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --icon "${SD_ICON}"
         --overlayicon "${OVERLAY_ICON}"
-        --titlefont shadow=1
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
         --message "The following message has been created and put onto the clipboard:<br><br>**$1**<br><br>Click on the 'Create Ticket' button to put in the ticket to the TSD and make sure to paste (Option-V or Edit > Paste) this message into the _Description_ field"
         --button1text "Create Ticket"
         --button1action $TSD_URL
