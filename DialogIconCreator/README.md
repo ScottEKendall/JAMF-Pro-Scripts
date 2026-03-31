@@ -24,3 +24,5 @@ Have fun making your own creations!
 1.4 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 ||       Fixed variable names in the defaults file section
 || Fixed window layout for Tahoe & SD v3.0
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file

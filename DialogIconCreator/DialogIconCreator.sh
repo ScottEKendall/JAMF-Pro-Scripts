@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 12/11/2025
-# Last updated: 03/13/2026
+# Last updated: 04/01/2026
 #
 # Script Lightweight script to create icons with overlays using SwiftDialog
 #
@@ -16,6 +16,8 @@
 # 1.3 - Removed the echoing of temp files...I used them for debug puroses and forgot to remove them
 # 1.4 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Fixed window layout for Tahoe & SD v3.0
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -29,7 +31,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 # Make some temp files for this app
@@ -53,17 +55,21 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Dialog Icon Creator"
+SD_WINDOW_TITLE="Dialog Icon Creator"
 OVERLAY_ICON="/System/Applications/App Store.app"
 SD_ICON_FILE=$ICON_FILES"/ToolbarCustomizeIcon.icns"
 
@@ -373,9 +379,10 @@ function construct_dialog_header_settings ()
     "bannerimage" : "'${SD_BANNER_IMAGE}'",
     "bannertitle" : "'${SD_WINDOW_TITLE}'",
     "infobox" : "'${SD_INFO_BOX_MSG}'",
+    "subtitle" : "'${BANNER_SUBTITLE}'",
+    "titlefont" : "shadow=1, offset='${BANNER_TEXT_PADDING}', color='${BANNER_TEXT_COLOR:l}'",
     "iconsize" : "256",
     "iconalpha" : "'${ICON_ALPHA_CHANNEL}'",
-    "titlefont" : "shadow=1",
     "button1text" : "OK",
     "button2text" : "Quit",
     "position" : "bottomright", 
