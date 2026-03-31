@@ -23,7 +23,7 @@
 # 1.7 - Had to increase window height for Tahoe & SD v3.0
 # 1.8 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 # 2.0 - Updated SD Version requirements to 3.1.0
-#       Addeed ability to set subtitle, color, and padding from defaults file
+#       Added ability to set subtitle, color, and offset from defaults file
 
 ######################################################################################################
 #
