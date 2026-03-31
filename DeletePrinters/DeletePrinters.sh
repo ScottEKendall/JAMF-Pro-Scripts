@@ -5,11 +5,13 @@
 # by: Scott Kendall
 #
 # Written: 03/18/2026
-# Last updated: 03/18/2026  
+# Last updated: 04/01/2026  
 #
 # Script Purpose: Remove currently installed printers
 #
 # 1.0 - Initial
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -34,7 +36,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 HOUR=$(date +%H)
 case $HOUR in
     0[0-9]|1[0-1]) GREET="morning" ;;
@@ -61,13 +63,17 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -75,9 +81,9 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Remove Printers"
+SD_WINDOW_TITLE="Remove Printers"
 SD_ICON_FILE="/System/Library/CoreServices/AddPrinter.app"
-OVERLAY_ICON="SF=trash.fill,color=blakc"
+OVERLAY_ICON="SF=trash.fill,color=black"
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
@@ -210,8 +216,9 @@ function check_for_sudo ()
 		--overlayicon "$STOP_ICON"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
-		--button1text "OK"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
+    	--button1text "OK"
     )
     	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
 		cleanup_and_exit 1
@@ -234,7 +241,8 @@ function construct_dialog_header_settings ()
         "overlayicon" : "'${SD_OVERLAY_ICON}'",
         "ontop" : "true",
         "bannertitle" : "'${SD_WINDOW_TITLE}'",
-        "titlefont" : "shadow=1",
+        "subtitle" : "'${BANNER_SUBTITLE}'",
+        "titlefont" : "shadow=1, offset='${BANNER_TEXT_PADDING}', color='${BANNER_TEXT_COLOR:l}'",
         "helpmessage" : "Please choose the printers you wish to remove from the dropdown menu.<br>For assistance, please contact the TSD.",
         "button1text" : "OK",
         "button2text" : "Cancel",
