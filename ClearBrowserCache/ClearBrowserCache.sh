@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 09/01/2023
-# Last updated: 03/13/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: Clear all cache/cookies from all browsers currently installed
 #
@@ -18,6 +18,8 @@
 # 1.3 - Fixed window layout for Tahoe & SD v3.0
 # 1.4   Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -40,7 +42,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
@@ -66,13 +68,17 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -80,8 +86,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Clear Browser Cache(s)"
+SD_WINDOW_TITLE="Clear Browser Cache(s)"
 SD_INFO_BOX_MSG=""
 SD_ICON_FILE=$ICON_FILES"GenericNetworkIcon.icns"
 
@@ -229,8 +234,9 @@ function display_welcome_message()
         --overlayicon computer
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
         --infobox "${SD_INFO_BOX_MSG}"
-        --titlefont shadow=1
         --height 550
         --width 920
         --button1text "Ok"
