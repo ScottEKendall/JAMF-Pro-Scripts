@@ -4,7 +4,7 @@
 # Purpose: Allow end users to delete apps / folders using Swift Dialog
 #
 # Written: 8/3/2022
-# Last updated: 01/07/2026
+# Last updated: 04/01/2026
 #
 # 1.0 - Initial Release
 # 1.1 - Major code cleanup & documentation
@@ -24,6 +24,8 @@
 # 2.4	Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 2.5 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 ######################################################################################################
 #
 # Global "Common" variables
@@ -45,7 +47,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
@@ -69,13 +71,17 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -83,8 +89,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Delete Applications"
-SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+SD_WINDOW_TITLE="Delete Applications"
 OVERLAY_ICON="/System/Applications/App Store.app"
 SD_ICON_FILE="SF=trash.fill, color=black, weight=light"
 
@@ -267,9 +272,9 @@ function construct_display_list ()
 		echo ' "checkbox" : [' >> ${JSON_OPTIONS}
 		for i in "${FILES_LIST[@]}"; do
 			if [[ -f "/Applications/${i}.app/Contents/Info.plist" ]]; then
-				echo '{"label" : "'"${i}"'", "checked" : false, "disabled" : false, "icon" : "/Applications/'${i}'.app" },' >> "${JSON_OPTIONS}"
+				echo '{"label" : "'"${(C)i}"'", "checked" : false, "disabled" : false, "icon" : "/Applications/'${i}'.app" },' >> "${JSON_OPTIONS}"
 			elif [[ -d "/Applications/${i}" ]]; then
-				echo '{"label" : "'"${i}"'", "checked" : false, "disabled" : false, "icon" : "'${ICON_FILES}/ApplicationsFolderIcon.icns'" },' >> "${JSON_OPTIONS}"
+				echo '{"label" : "'"${(C)i}"'", "checked" : false, "disabled" : false, "icon" : "'${ICON_FILES}/ApplicationsFolderIcon.icns'" },' >> "${JSON_OPTIONS}"
 			fi
 		done
 		echo ']}' >> "${JSON_OPTIONS}"
@@ -283,15 +288,16 @@ function choose_files_to_delete ()
 	MainDialogBody=(
 		--message "$SD_DIALOG_GREETING $SD_FIRST_NAME. Please choose the application(s) and/or folder(s) that you want to remove from your system.  Applications can be installed again from Self Service."
 		--messageposition top
+		--bannertitle "${SD_WINDOW_TITLE}"
+		--subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
 		--icon "${SD_ICON_FILE}"
 		--overlayicon "${OVERLAY_ICON}"
-		--moveable
 		--bannerimage "${SD_BANNER_IMAGE}"
-		--titlefont shadow=1
-		--bannertitle "${SD_WINDOW_TITLE}"
 		--helpmessage "Choose which applications you want to remove. <br>They can be installed again from Self Service."
 		--width 920
 		--height 750
+		--moveable
 		--ontop
 		--buttonstyle center
 		--infobox "${SD_INFO_BOX_MSG}"
@@ -379,10 +385,11 @@ function show_completed_prompt ()
 		--message "The following application(s) have been deleted.<br><br>${messagebody}\n\nIf you need to delete more files, you can choose \"Run Again\" below."
 		--ontop 
 		--icon "${SD_ICON_FILE}"
-		--titlefont shadow=1
-		--overlayicon "SF=checkmark.circle.fill,color=auto,weight=light,bgcolor=none"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
+		--subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
+		--overlayicon "SF=checkmark.circle.fill,color=auto,weight=light,bgcolor=none"
 		--width 920
 		--quitkey 0
 		--buttonstyle center
