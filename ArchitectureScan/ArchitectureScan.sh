@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 03/05/2026
-# Last updated: 03/23/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: Scan a user-defined list of applications to determine their architecture type
 #
@@ -21,6 +21,8 @@
 # 1.4 - Reworked scan logic to take advantage of zsh features and executes much faster now
 # 1.5 - Added option to show the application path in the list
 # 1.5 - Changed the Rosetta deprecation date to macOS 27 (Ventura) based on new Apple announcement
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -45,7 +47,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 HOUR=$(date +%H)
 case $HOUR in
     0[0-9]|1[0-1]) GREET="morning" ;;
@@ -74,13 +76,16 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
+    BANNER_TEXT_PADDING=5 #5 spaces to accommodate for icon offset
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -88,7 +93,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Architecture Scan"
+SD_WINDOW_TITLE="Architecture Scan"
 SD_ICON_FILE="/System/Applications/App Store.app"
 SD_OVERLAY_ICON="SF=magnifyingglass.circle.fill,color=black,bgcolor=none"
 
@@ -164,11 +169,12 @@ function check_for_sudo ()
         --message "**Admin access required!**<br><br>In order for this script to function properly, it must be run as an admin user!"
         --ontop
         --icon "${SD_ICON_FILE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
         --overlayicon warning
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --width 700
-        --titlefont shadow=1
         --button1text "OK"
     )
     	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
@@ -262,6 +268,8 @@ function construct_dialog_header_settings ()
         "icon" : "'${SD_ICON_FILE}'",
         "message" : "'$1'",
         "bannerimage" : "'${SD_BANNER_IMAGE}'",
+        "subtitle" : "'${BANNER_SUBTITLE}'",
+        "titlefont" : "shadow=1, offset='${BANNER_TEXT_PADDING}', color='${BANNER_TEXT_COLOR:l}'",
         "infobox" : "'${SD_INFO_BOX_MSG}'",
         "overlayicon" : "'${SD_OVERLAY_ICON}'",
         "ontop" : "true",

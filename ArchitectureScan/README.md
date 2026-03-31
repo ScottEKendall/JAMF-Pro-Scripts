@@ -26,3 +26,5 @@ The following customizations can be made:
 ||       Include Application scan inside of users Home Directory
 | 1.4 | Reworked scan logic to take advantage of zsh features and executes much faster now
 | 1.5 | Added option to show the application path in the list
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file
