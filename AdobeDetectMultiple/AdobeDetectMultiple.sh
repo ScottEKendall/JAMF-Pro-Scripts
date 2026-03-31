@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 11/25/2025
-# Last updated: 03/13/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: Detect if there a multiple versions of Adobe apps on a users system and display a friendly reminder to clean up the old version
 #
@@ -13,6 +13,8 @@
 # 1.1 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Addeed ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -35,7 +37,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
@@ -59,13 +61,17 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -73,7 +79,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Adobe Multiple Version Detector"
+SD_WINDOW_TITLE="Adobe Multiple Version Detector"
 SD_ICON="/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"
 OVERLAY_ICON=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
@@ -229,12 +235,13 @@ function welcomemsg ()
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-        --titlefont shadow=1
         --ontop
         --icon "${SD_ICON}"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
         --infobox "${SD_INFO_BOX_MSG}"
         --helpmessage "If you need assistance, please contact the TSD using the 'Get Help' button."
         --width 920

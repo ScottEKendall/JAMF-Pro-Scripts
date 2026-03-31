@@ -12,4 +12,6 @@ The is designed to work in tandem with a removal script that a user can call via
 | 1.1 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 ||       Optimized "Common" section for better performance
 ||       Fixed variable names in the defaults file section
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Addeed ability to set subtitle, color, and padding from defaults file
 
