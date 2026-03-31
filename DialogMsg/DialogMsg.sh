@@ -5,7 +5,7 @@
 # Written by: Scott Kendall
 #
 # Created Date: 01/227/2025
-# Last modified: 03/13/2026
+# Last modified: 04/01/2026
 #
 # Script Purpose: Display a generic SWifDialog notification to JAMF users.  Pass in variables to customize display
 #
@@ -27,6 +27,8 @@
 #       Added more logged in sleep status, message button status
 # 2.1 - Fixed window layout for Tahoe & SD v3.0
 # 2.2 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+# 2.3 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 #
 # Expected Parameters: 
 # #4 - Title
@@ -60,7 +62,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 HOUR=$(date +%H)
 case $HOUR in
     0[0-9]|1[0-1]) GREET="morning" ;;
@@ -81,13 +83,17 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=3 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -115,7 +121,7 @@ DISPLAY_MESSAGE=""
 JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
 SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}$4"
+SD_WINDOW_TITLE="$4"
 SD_WELCOME_MSG="${5:-"Information Message"}"
 SD_WELCOME_MSG_ALT="${6:-""}"
 SD_BUTTON1_PROMPT="${7:-"OK"}"
@@ -229,10 +235,11 @@ function display_msg ()
         --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  ${DISPLAY_MESSAGE}"
         --ontop
         --icon "${SD_ICON_PRIMARY}"
-        --titlefont shadow=1
+        --titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=$BANNER_TEXT_PADDING"
         --overlayicon "${SD_OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --ignorednd
         --moveable

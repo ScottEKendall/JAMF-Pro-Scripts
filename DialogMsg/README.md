@@ -46,4 +46,6 @@ The script will determine the country code of the local Mac and display the appr
 ||       Added more logged in sleep status, message button status
 | 2.1 | Fixed window layout for Tahoe & SD v3.0
 | 2.2 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+| 2.3 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file
 
