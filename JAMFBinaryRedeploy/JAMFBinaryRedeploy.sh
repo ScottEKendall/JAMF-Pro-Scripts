@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 03/06/2025
-# Last updated: 03/16/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: Redeploy the JAMF binary on a device
 #   This script is a combination of documentation taken from here:
@@ -29,6 +29,8 @@
 #       Fixed variable names in the defaults file section
 #       Put more error trapping around invalid privleges
 #       Fixed display issues with Swift Dialog 3.0
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 ######################################################################################################
 #
 # Gobal "Common" variables
@@ -50,7 +52,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 # Make some temp files for this app
@@ -74,13 +76,17 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -88,7 +94,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF Binary Self Heal"
+SD_WINDOW_TITLE="JAMF Binary Self Heal"
 SD_ICON="/Applications/Self Service.app"
 OVERLAY_ICON="warning"
 
@@ -371,8 +377,9 @@ function display_welcome_message ()
      MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --icon "${SD_ICON}"
-        --titlefont shadow=1
+        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
         --iconsize 100
         --message "${SD_DIALOG_GREETING}, ${SD_FIRST_NAME}.  Please enter the serial or hostname of the device you that you want to redploy the JAMF binary on.<br><br>You can also choose to deploy the JAMF binary manually.  Click on 'Manual Method' for steps."
         --messagefont name=Arial,size=17
@@ -411,8 +418,9 @@ function display_manual_deploy ()
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --icon "${SD_ICON}"
-        --titlefont shadow=1
+        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
         --iconsize 100
         --message "These are the steps that you need to perform on the workstation to manually download the JAMF binary from ther server:<br><br>$displayManualSteps"
         --messagefont name=Arial,size=17
@@ -439,7 +447,8 @@ function inventory_not_found ()
     dialogarray=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
         --icon "${SD_ICON}" 
         --overlayicon ${OVERLAY_ICON}
         --alignment center
@@ -460,9 +469,10 @@ function confirm_user_choice ()
     dialogarray=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --icon "${SD_ICON}"
         --overlayicon ${OVERLAY_ICON}
-        --titlefont shadow=1
+        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
         --message "Sending the command to repair the JAMF binary might enforce the enrollment process to run on system $computer_id.  Are you sure you want to continue?"
         --ontop
         --moveable
@@ -485,8 +495,9 @@ function show_results ()
     dialogarray=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --icon "${SD_ICON}"
-        --titlefont shadow=1
+        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
         --overlayicon "SF=checkmark.circle.fill,color=auto,weight=light,bgcolor=none"
         --message "The command to repair the JAMF binary for $computer_id has been sent.  This process might also enforce the enrollment process to run."
         --ontop
@@ -503,7 +514,8 @@ function display_failure_message ()
      MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
         --message "**Problems retrieving JAMF Info**<br><br>Error Message: $1"
         --icon "${SD_ICON}"
         --overlayicon warning
