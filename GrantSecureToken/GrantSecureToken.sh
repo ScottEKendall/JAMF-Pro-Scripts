@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 02/11/25
-# Last updated: 03/13/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: GUI Prompt to set the Secure Token to any user
 #
@@ -30,13 +30,15 @@
 # 1.6 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
-
+#set -x
 SCRIPT_NAME="GrantSecureToken"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -52,7 +54,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
@@ -74,13 +76,17 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -88,7 +94,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Grant Secure Token"
+SD_WINDOW_TITLE="Grant Secure Token"
 OVERLAY_ICON="/System/Applications/App Store.app"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
@@ -219,13 +225,14 @@ function display_msg ()
 
 	MainDialogBody=(
         --message "${message}"
-        --titlefont shadow=1
-        --ontop
-        --icon "$SD_ICON_FILE"
         --overlayicon "$4"
         --bannerimage "${SD_BANNER_IMAGE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}"
         --infobox "${SD_INFO_BOX_MSG}"
+        --ontop
+        --icon "$SD_ICON_FILE"
         --height 470
         --width 760
         --quitkey 0
