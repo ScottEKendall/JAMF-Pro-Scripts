@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written:  09/06/2024
-# Last updated: 03/13/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: Completely remove Adobe Creative Cloud Suite from a users mac
 #
@@ -20,6 +20,8 @@
 # 1.4 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -44,7 +46,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 HOUR=$(date +%H)
 case $HOUR in
     0[0-9]|1[0-1]) GREET="morning" ;;
@@ -67,13 +69,17 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -81,7 +87,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Remove Adobe Suite"
+SD_WINDOW_TITLE="Remove Adobe Suite"
 SD_ICON_FILE="/Applications/Utilities/Adobe Creative Cloud/ACC/Creative Cloud.app"
 SD_OVERLAY_ICON="SF=trash.fill,color=black,weight=light,bgcolor=none"
 
@@ -232,11 +238,12 @@ function welcomemsg ()
 		--ontop
         --infobox "${SD_INFO_BOX_MSG}"
 		--bannerimage "${SD_BANNER_IMAGE}"
+        --subtitle "${BANNER_SUBTITLE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
+        --moveable
 		--button1text "Delete"
 		--button2text "Cancel"
-		--buttonstyle center
     )
 
 	# Show the dialog screen and allow the user to choose
