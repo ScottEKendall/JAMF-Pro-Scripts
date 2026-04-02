@@ -1,7 +1,7 @@
 #!/bin/zsh
 
 # Written: 05/03/2022
-# Last updated: 03/13/2026
+# Last updated: 04/01/2026
 # by: Scott Kendall
 #
 # Script Purpose: Migrate user data to/from MacOS computers
@@ -19,12 +19,14 @@
 #  		Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 2.4 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
-
+#set -x
 SCRIPT_NAME="MigrationWizard"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -40,7 +42,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
@@ -51,6 +53,7 @@ DIALOG_COMMAND_FILE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
 /bin/chmod 666 "${JSON_DIALOG_BLOB}"
 /bin/chmod 666 "${DIALOG_COMMAND_FILE}"
+/bin/chmod 666 /var/tmp/dialog.txt
 
 
 ###################################################
@@ -65,20 +68,24 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
 LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Migration Wizard"
+SD_WINDOW_TITLE="Migration Wizard"
 SD_ICON_FILE="SF=externaldrive.fill.badge.timemachine,colour=blue,colour2=purple"
 OVERLAY_ICON="/Applications/Self Service.app"
 
@@ -160,7 +167,7 @@ function check_support_files ()
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
+	[[ -f ${JSON_DIALOG_BLOB} ]] && /bin/rm -rf ${JSON_DIALOG_BLOB}
 	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
     [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
 	exit 0
@@ -199,7 +206,8 @@ function construct_dialog_header_settings()
 		"message" : "'$1'",
 		"bannerimage" : "'${SD_BANNER_IMAGE}'",
 		"bannertitle" : "'${SD_WINDOW_TITLE}'",
-		"titlefont" : "shadow=1",
+		"subtitle" : "'${BANNER_SUBTITLE}'",
+		"titlefont" : "shadow=1,color='${BANNER_TEXT_COLOR}',offset='${BANNER_TEXT_PADDING}'",
 		"button1text" : "OK",
 		"moveable" : "true",
 		"quitkey" : "0",
@@ -229,7 +237,7 @@ function display_welcome_message()
 	construct_dialog_header_settings "${WelcomeMsg}" > "${JSON_DIALOG_BLOB}"
 	echo '}' >> "${JSON_DIALOG_BLOB}"
 
-	${SW_DIALOG} --width 920 --height 675 --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null
+	${SW_DIALOG} --width 920 --height 775 --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null
 
 }
 
@@ -287,12 +295,13 @@ function check_network_drive()
 
 	MainDialogBody=(
 		--message "${title}"
-        --titlefont shadow=1
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
         --ontop
 		--icon "${ICON_FILES}AlertStopIcon.icns"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+		--subtitle "${BANNER_SUBTITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --helpmessage ""
         --width 800
@@ -323,7 +332,7 @@ function check_for_fulldisk_access()
 	construct_dialog_header_settings "${WelcomeMsg}" > "${JSON_DIALOG_BLOB}"
 	echo '}' >> "${JSON_DIALOG_BLOB}"
 
-	${SW_DIALOG} --width 300 --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null
+	${SW_DIALOG} --width 700 --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null
     logMe "ERROR: Full disk access reuired."
 	exit 1
 }
@@ -360,7 +369,7 @@ function select_migration_apps()
 
 	# Display the message and offer them options
 	
-	retval=$(${SW_DIALOG} --width 920 --height 800 --json --jsonfile "${JSON_DIALOG_BLOB}")
+	retval=$(${SW_DIALOG} --width 920 --height 800 --json --jsonfile "${JSON_DIALOG_BLOB}") 
 	button=$?
 
 	# User choose to exit, so cleanup & quit
@@ -1106,7 +1115,7 @@ jsonAppBlob='[{
 "icon" : "'${ICON_FILES}FinderIcon.icns'",
 "size" : "0",
 "files" : "0",
-"ignore" : ".Trash",
+"ignore" : ".Trash '${USER_DIR}'/Library/Caches",
 "choice" : ""
 }]'
 
