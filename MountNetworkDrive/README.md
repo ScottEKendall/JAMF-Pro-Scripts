@@ -56,3 +56,5 @@ I know that you can use the built-in JAMF DS attribute mapping for Entra Groups,
 | 1.0 | Initial
 | 1.1 | Add more checking against the plist file...make sure it is intact and correct keys are present
 | 1.2 | Cleaned up code to be more constant with my other apps
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file
