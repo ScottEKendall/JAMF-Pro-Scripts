@@ -144,3 +144,5 @@ JAMF Roles
 ||       Optimized "Common" section for better performance
 ||       Added option to read in the defaults file
 ||       Fixed function to check which SS/SS+ is being used (again)
+| 2.11 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file
