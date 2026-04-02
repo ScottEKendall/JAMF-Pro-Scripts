@@ -132,52 +132,74 @@ For laptops, I have the support.app extensin to show the battery level.  I also 
 ```
 #!/bin/zsh
 
-# Support App Extension - Show Battery Health
+# Support App Extension - Show Battery Health & Charge-based Icon
+#set -x
 
-# Use color indicators for compliance status
-color_indicators="true"  # Set to "true" to use the color circle emojis, "false" or anything else for no emojis
-if [[ "$color_indicators" == "true" ]]; then
-    green_circle="🟢 "
-    yellow_circle="🟡 "
-    red_circle="🔴 "
-else
-    green_circle=""
-    yellow_circle=""
-    red_circle=""
-fi
-extensionID="BatteryHealth"
-preference_file_location="/Library/Preferences/nl.root3.support.plist"
-defaults write "${preference_file_location}" "${extensionID}_loading" -bool true
+# --- Configuration ---
+readonly PREF_FILE="/Library/Preferences/nl.root3.support.plist"
+readonly EXT_ID="BatteryHealth"
+readonly COLOR_INDICATORS="true"
+
+# Variables to be written to defaults
+typeset -g symbol="battery.100"
+typeset -g retval=""
+typeset -g is_alert=false
+
+function get_battery_info() {
+    # 1. Check if it's a laptop
+    if [[ ! "$(system_profiler SPHardwareDataType | grep "Model Name:" | cut -d ' ' -f 9)" =~ "Book" ]]; then
+        retval="Not A Laptop"
+        symbol="desktopcomputer"
+        return
+    fi
+
+    # 2. Get Current Charge Percentage (for the Icon)
+    local current_charge=$(pmset -g batt | awk -F'[\t%]' '/InternalBattery/ {print $2}')
+    [[ -z "$current_charge" ]] && current_charge=100
+
+    # Map charge to SF Symbols
+    if (( current_charge > 87 )); then symbol="battery.100"
+    elif (( current_charge > 62 )); then symbol="battery.75"
+    elif (( current_charge > 37 )); then symbol="battery.50"
+    elif (( current_charge > 12 )); then symbol="battery.25"
+    else symbol="battery.0"; fi
+
+    # 3. Get Health/Condition logic
+    local arch=$(arch)
+    local health_cond=$(system_profiler SPPowerDataType | awk -F': ' '/Condition/ {print $2}' | xargs)
+    local max_cap="100"
+
+    if [[ "$arch" == "arm64" ]]; then
+        max_cap=$(system_profiler SPPowerDataType | awk -F': ' '/Maximum Capacity/ {print $2}' | tr -d '% ' )
+        retval="$health_cond ($max_cap%)"
+    else
+        retval="$health_cond"
+    fi
+
+    # 4. Set Alert if Health is bad or Capacity < 80%
+    if [[ "$health_cond" != "Normal" || "$max_cap" -lt 80 ]]; then
+        is_alert=true
+    fi
+}
+
+# --- Execution ---
+defaults write "$PREF_FILE" "${EXT_ID}_loading" -bool true
 sleep 0.25
 
-arch=$(/usr/bin/arch)
-capacity=100
-model=$(system_profiler SPHardwareDataType | grep "Model Name:" | cut -d ' ' -f 9)
+get_battery_info
 
-if [[ ! "$model" =~ "Book" ]]; then
-    retval="Not A Laptop"
-else
-    if [[ "$arch" == "arm64" ]]; then
-        capacity="$(system_profiler SPPowerDataType | grep "Maximum Capacity:" | sed 's/.*Maximum Capacity: //')"
-        retval="$(system_profiler SPPowerDataType | grep "Condition:" | sed 's/.*Condition: //') ($capacity)"
-    else
-        retval="$(system_profiler SPPowerDataType | grep "Condition:" | sed 's/.*Condition: //')"
-    fi
+# Apply color circles
+local indicator=""
+if [[ "$COLOR_INDICATORS" == "true" ]]; then
+    [[ "$is_alert" == "true" ]] && indicator="🔴 " || indicator="🟢 "
 fi
-capacity_val=${capacity%\%}
-# Show the battery health condition and capacity (if Apple Silicon) in the Support App
 
+# Final Writes
+defaults write "$PREF_FILE" "${EXT_ID}_alert" -bool "$is_alert"
+defaults write "$PREF_FILE" "${EXT_ID}" -string "${indicator}${retval}"
+defaults write "$PREF_FILE" "${EXT_ID}_symbol" -string "${symbol}"
+defaults write "$PREF_FILE" "${EXT_ID}_loading" -bool false
 
-# Trigger an orange warning notification for the user if their battery health is not good or if the capacity is below 80%
-if [[ $capacity_val -lt 80 ]]; then
-    defaults write $preference_file_location "${extensionID}_alert" -bool true
-    retval=$red_circle$retval
-else
-    defaults write $preference_file_location "${extensionID}_alert" -bool false
-    retval=$green_circle$retval
-fi
-defaults write $preference_file_location "${extensionID}" -string "${retval}"
-defaults write "${preference_file_location}" "${extensionID}_loading" -bool false
 ```
 
 ## Show Active IP Address
