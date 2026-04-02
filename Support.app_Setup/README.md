@@ -187,95 +187,88 @@ I have developed a small extension script to reflect the IP address of the activ
 ```
 #!/bin/zsh
 
-# Support App Extension - Show Active Network Adapter and IP Address
-#
-#
-# Support App Extension to show the active network adapter and its IP address.
-#
+# Support App Extension - Optimized Network Info
 #set -x
-color_indicators="true"  # Set to "true" to use the color circle emojis, "false" or anything else for no emojis
-preference_file_location="/Library/Preferences/nl.root3.support.plist"
-nic_status=""
-extensionID="NetworkInfo"
 
-if [[ "$color_indicators" == "true" ]]; then
-    green_circle="🟢 "
-    yellow_circle="🟡 "
-    red_circle="🔴 "
-else
-    green_circle=""
-    yellow_circle=""
-    red_circle=""
-fi
+# --- Configuration ---
+readonly PREF_FILE="/Library/Preferences/nl.root3.support.plist"
+readonly EXT_ID="NetworkInfo"
+readonly COLOR_INDICATORS="true"
+
+# Global variables updated by the function
+typeset -g symbol="network"
+typeset -g retval=""
 
 function get_nic_info() {
-    local vpn_ip eth_ip wifi_ip wifi_name dev port
-    local secure_client="/opt/cisco/secureclient/bin/vpn"
-    local anyconnect="/opt/cisco/anyconnect/bin/vpn"
-
-    # 1. Check VPN (Highest Priority)
-    local vpn_bin=""
-        # Check which version is installed
-    if [[ -f "$secure_client" ]]; then
-        vpn_bin="$secure_client"
-    elif [[ -f "$anyconnect" ]]; then
-        vpn_bin="$anyconnect"
-    fi
+    local ip vpn_bin
     
+    # 1. Check VPN (Highest Priority)
+    # Use -e (exists) and find the first match quickly
+    for bin in "/opt/cisco/secureclient/bin/vpn" "/opt/cisco/anyconnect/bin/vpn"; do
+        [[ -f "$bin" ]] && vpn_bin="$bin" && break
+    done
+
     if [[ -n "$vpn_bin" ]]; then
-        vpn_ip=$($vpn_bin stats 2>/dev/null | awk -F': ' '/Client Address \(IPv4\)/ {print $2}' | xargs)
-        if [[ ! "$vpn_ip" == "Not Available" ]]; then
-            echo "$vpn_ip\n(VPN)"
+        ip=$($vpn_bin stats 2>/dev/null | awk -F': ' '/Client Address \(IPv4\)/ {print $2}' | xargs)
+        if [[ -n "$ip" && "$ip" != "Not Available" ]]; then
+            retval="${ip}\n(VPN)"
+            symbol="lock.icloud"
             return
         fi
     fi
-    # 2. Check Hardware Interfaces (Ethernet then Wi-Fi)
-    # Get all active interfaces with IPs
-    while IFS=: read -r port dev; do
-        local ip=$(ipconfig getifaddr "$dev" 2>/dev/null)
-        [[ -z "$ip" ]] && continue
 
-        if [[ "$port" =~ "Ethernet" || "$port" =~ "LAN" ]]; then
-            eth_ip="$ip"
-            # If we find Ethernet, we can stop looking at hardware (Ethernet > Wi-Fi)
-            break 
-        elif [[ "$port" == "Wi-Fi" ]]; then
-            wifi_ip="$ip"
+    # 2. Check Ethernet (Prioritize wired)
+    # Find active services and filter for Ethernet-like names
+    local eth_dev=$(networksetup -listnetworkserviceorder | awk -F'Device: ' '/Ethernet|LAN/ {print $2}' | tr -d ')')
+    for dev in ${(f)eth_dev}; do
+        ip=$(ipconfig getifaddr "$dev" 2>/dev/null)
+        if [[ -n "$ip" ]]; then
+            retval="${ip}\n(Ethernet)"
+            symbol="network"
+            return
         fi
-    done < <(networksetup -listallhardwareports | awk -F': ' '/Hardware Port/ {p=$2} /Device/ {print p ":" $2}')
+    done
 
-    # Output based on priority
-    if [[ -n "$eth_ip" ]]; then
-        echo "$eth_ip\n(Ethernet)"
-    elif [[ -n "$wifi_ip" ]]; then
-        echo "$wifi_ip\n(Wi-Fi)"
-    else
-        echo "No active adapter found"
+    # 3. Check Wi-Fi
+    local wifi_dev=$(networksetup -listallhardwareports | awk '/Wi-Fi/{getline; print $2}')
+    ip=$(ipconfig getifaddr "$wifi_dev" 2>/dev/null)
+    if [[ -n "$ip" ]]; then
+        retval="${ip}\n(Wi-Fi)"
+        symbol="wifi"
+        return
     fi
+
+    retval="No active adapter found"
+    symbol="network"
 }
 
+# --- Execution ---
 
-# Start spinning indicator
-defaults write "${preference_file_location}" "${extensionID}_loading" -bool true
+# Setup UI indicators
+local circle=""
+[[ "$COLOR_INDICATORS" == "true" ]] && { green="🟢 "; red="🔴 "; }
 
-# Keep loading effect active for 0.25 seconds
+# Start loading state
+defaults write "$PREF_FILE" "${EXT_ID}_loading" -bool true
 sleep 0.25
 
-# Get the active network adapter and its IP address
-retval=$(get_nic_info)
-# Write output to Support App preference plist
+# Fetch info (modifies globals)
+get_nic_info
 
-if [[ $retval =~ "No active" ]]; then
-    defaults write "${preference_file_location}" "${extensionID}_alert" -bool true
-    nic_status=$red_circle$retval   
+# Determine status and alert level
+local is_alert=false
+if [[ "$retval" == "No active"* ]]; then
+    is_alert=true
+    nic_status="${red}${retval}"
 else
-    defaults write "${preference_file_location}" "${extensionID}_alert" -bool false
-    nic_status=$green_circle$retval
+    nic_status="${green}${retval}"
 fi
-defaults write "${preference_file_location}" "${extensionID}" -string "${nic_status}"
-# Stop spinning indicator
-defaults write "${preference_file_location}" "${extensionID}_loading" -bool false
 
+# Batch write to defaults
+defaults write "$PREF_FILE" "${EXT_ID}_alert" -bool "$is_alert"
+defaults write "$PREF_FILE" "${EXT_ID}" -string "${nic_status}"
+defaults write "$PREF_FILE" "${EXT_ID}_symbol" -string "${symbol}"
+defaults write "$PREF_FILE" "${EXT_ID}_loading" -bool false
 
 ```
 
