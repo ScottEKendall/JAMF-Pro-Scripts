@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/27/2026
-# Last updated: 03/13/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: Read the DDM Software Update settings and show the info in a GUI window
 # Based on Der Flounders article: https://derflounder.wordpress.com/2025/12/17/reading-ddm-managed-apple-software-update-settings-from-the-command-line-on-macos-tahoe-26-2-0/
@@ -13,6 +13,8 @@
 # 1.0 - Initial
 # 1.1 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 #       Fixed variable names in the defaults file section
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -37,7 +39,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 HOUR=$(date +%H)
 case $HOUR in
     0[0-9]|1[0-1]) GREET="morning" ;;
@@ -58,13 +60,17 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -72,7 +78,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}DDM Software Update Settings"
+SD_WINDOW_TITLE="DDM Software Update Settings"
 SD_ICON_FILE="https://i0.wp.com/macmule.com/wp-content/uploads/2015/11/SoftwareUpdate.png?resize=256%2C256&ssl=1"
 #OVERLAY_ICON="/System/Applications/App Store.app"
 OVERLAY_ICON="computer"
@@ -202,7 +208,8 @@ function check_for_sudo ()
 		--overlayicon warning
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
 		--button1text "OK"
     )
     	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
@@ -217,12 +224,13 @@ function welcomemsg ()
 	MainDialogBody=(
         --message "$message"
         --messagefont size=16
-        --titlefont shadow=1
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
         --ontop
         --icon "${SD_ICON_FILE}"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --helpmessage "These are the Software Update Settings/Enforcement enforced on this mac at this time."
         --width 800
