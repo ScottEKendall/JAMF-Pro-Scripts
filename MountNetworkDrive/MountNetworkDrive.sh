@@ -22,7 +22,7 @@
 # Global "Common" variables
 #
 ######################################################################################################
-set -x 
+#set -x 
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 PLIST_SUPPORT_DIR="/Users/$LOGGED_IN_USER/Library/Application Support"
 SW_DIALOG="/usr/local/bin/dialog"
