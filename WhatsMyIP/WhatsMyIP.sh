@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 9/20/2023
-# Last updated: 03/24/2026
+# Last updated: 04/07/2026
 #
 # Script Purpose: Display the IP address on all adapters as well as Cisco VPN if they are connected
 #
@@ -26,6 +26,8 @@
 #       Added logic to rename any adapter with "Ethernet" or "LAN" in the name to just "Ethernet" for better readability for users.
 #       Added logic to check for both Cisco Secure Client and AnyConnect for VPN IP collection and to only check for the one that is installed
 # 1.8 - Fixed logic to check for VPN IP to look for "Not Available" instead of just checking if the variable is empty.
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -48,7 +50,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
@@ -69,14 +71,18 @@ DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
@@ -84,7 +90,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE=$BANNER_TEXT_PADDING"What's my IP?"
+SD_WINDOW_TITLE="What's my IP?"
 SD_WINDOW_ICON="${ICON_FILES}/GenericNetworkIcon.icns"
 OVERLAY_ICON="/System/Applications/App Store.app"
 
@@ -255,7 +261,8 @@ function construct_dialog_header_settings()
 		"message" : "'$1'",
 		"bannerimage" : "'${SD_BANNER_IMAGE}'",
 		"bannertitle" : "'${SD_WINDOW_TITLE}'",
-		"titlefont" : "shadow=1",
+        "subtitle" : "'${BANNER_SUBTITLE}'",
+		"titlefont" : "shadow=1,color='${BANNER_TEXT_COLOR}',offset='${BANNER_TEXT_PADDING}'",
 		"button1text" : "OK",
         "ontop" : "true",
 		"height" : "375",
