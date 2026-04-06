@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 12/11/2025
-# Last updated: 03/23/2026
+# Last updated: 04/06/2026
 #
 # Script Purpose: set the default UTI applications (mailto, url, http, etc)
 #
@@ -19,6 +19,8 @@
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
 # 1.5 - added support for file type (ics)
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 
 ######################################################################################################
@@ -71,13 +73,16 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
@@ -85,7 +90,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Default Apps Selection"
+SD_WINDOW_TITLE="Default Apps Selection"
 SD_ICON="/System/Applications/App Store.app"
 OVERLAY_ICON=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
@@ -298,11 +303,12 @@ function construct_dialog_header_settings ()
         "icon" : "'${SD_ICON}'",
         "message" : "'$1'",
         "bannerimage" : "'${SD_BANNER_IMAGE}'",
+        "subtitle" : "'${BANNER_SUBTITLE}'",
         "infobox" : "'${SD_INFO_BOX_MSG}'",
         "overlayicon" : "'${OVERLAY_ICON}'",
         "ontop" : "true",
         "bannertitle" : "'${SD_WINDOW_TITLE}'",
-        "titlefont" : "shadow=1",
+        "titlefont" : "shadow=1,color='${BANNER_TEXT_COLOR}',offset='${BANNER_TEXT_PADDING}'",
         "helpmessage" : "Choose what application(s) you want to open a particular type of file with.<br>Click on the 'More Info' button for assistance on setting UTI types.",
         "infobutton" : "More Info",
         "infobuttonaction" : "https://github.com/scriptingosx/utiluti",        
