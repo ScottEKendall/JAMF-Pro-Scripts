@@ -73,4 +73,6 @@ I packaged up both of these apps and the script will request the JAMF install if
 ||       Fixed typos
 | 1.10 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 ||       Optimized "Common" section for better performance
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file
 
