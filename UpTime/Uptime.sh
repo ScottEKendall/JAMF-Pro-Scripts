@@ -5,7 +5,7 @@
 # Scott Kendall
 #
 # Created on: 02/10/25
-# Last Modified: 03/13/2026
+# Last Modified: 04/07/2026
 # 
 # 1.0 - Initial Commit
 # 1.1 - Added more logging details
@@ -27,8 +27,9 @@
 # 1.9 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
-# 
 ######################################################################################################
 #
 # Global "Common" variables
@@ -52,7 +53,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.6"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 HOUR=$(date +%H)
 case $HOUR in
     0[0-9]|1[0-1]) GREET="morning" ;;
@@ -72,14 +73,18 @@ DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
@@ -87,7 +92,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}System Uptime Reminder"
+SD_WINDOW_TITLE="System Uptime Reminder"
 OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/Uptime.png"
 
 # Trigger installs for Images & icons
@@ -207,8 +212,8 @@ function welcomemsg ()
 {
     
     messagebody="${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  This is an automated message from JAMF to let "
-    messagebody+="you know that it has been over ${uptimeDays:-0} days since your system was<br>"
-    messagebody+="last restarted.  It is highly recommended that you restart your<br>"
+    messagebody+="you know that it has been over ${uptimeDays:-0} days since your system was last restarted.  It is highly "
+    messagebody+="recommended that you restart your<br>"
     messagebody+="Mac at least once every ${UPTIME_DAYS} days to keep your system running as smoothly as possible.<br><br>"
     messagebody+="You can choose Restart Now, and it will start a $RESTART_TIMER minute count down "
     messagebody+="timer before the system restarts.<br><br>If you do not restart very soon, "
@@ -221,9 +226,10 @@ function welcomemsg ()
         --height 480
         --ontop
         --bannerimage "${SD_BANNER_IMAGE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
-        --titlefont shadow=1
+        --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
         --moveable
         --button2text "OK"
         --button1text "Restart Now"
@@ -252,8 +258,9 @@ function display_restart_timer ()
     --height 300
     --ontop
     --bannerimage "${SD_BANNER_IMAGE}"
+    --subtitle "${BANNER_SUBTITLE}"
     --bannertitle "${SD_WINDOW_TITLE}"
-    --titlefont shadow=1
+    --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
     --moveable
     --timer $((RESTART_TIMER*60))
     --button1text "Restart Now"
