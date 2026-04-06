@@ -5,11 +5,13 @@
 # by: Scott Kendall
 #
 # Written: 03/05/2026
-# Last updated: 03/11/2026
+# Last updated: 04/07/2026
 #
 # Script Purpose: Scan a finder directory (and sub-folders) to make sure all files are windows "safe"
 #
 # 1.0 - Initial
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -34,7 +36,8 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
+[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 HOUR=$(date +%H)
 case $HOUR in
     0[0-9]|1[0-1]) GREET="morning" ;;
@@ -63,13 +66,18 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
+
 
 # Log files location
 
@@ -77,7 +85,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Windows FileName Fix"
+SD_WINDOW_TITLE="Windows FileName Fix"
 SD_ICON_FILE="https://files.softicons.com/download/business-icons/ecommerce-and-business-icons-by-designcontest.com/ico/bar-code.ico"
 SD_OVERLAY_ICON="https://files.softicons.com/download/system-icons/colobrush-icons-by-eponas-deeway/ico/icone_windows.ico"
 
@@ -155,8 +163,9 @@ function check_for_sudo ()
         --overlayicon warning
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "$BANNER_SUBTITLE"
         --width 700
-        --titlefont shadow=1
+        --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
         --button1text "OK"
     )
     	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
@@ -254,7 +263,8 @@ function construct_dialog_header_settings ()
         "overlayicon" : "'${SD_OVERLAY_ICON}'",
         "ontop" : "true",
         "bannertitle" : "'${SD_WINDOW_TITLE}'",
-        "titlefont" : "shadow=1",
+        "subtitle" : "'${BANNER_SUBTITLE}'",
+        "titlefont" : "shadow=1,color='${BANNER_TEXT_COLOR}',offset='${BANNER_TEXT_PADDING}'",
         "button1text" : "Wait",
         "button2text" : "OK",
         "moveable" : "true",
