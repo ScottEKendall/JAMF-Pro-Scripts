@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 03/12/2025
-# Last updated: 03/13/2026
+# Last updated: 04/08/2026
 #
 # Script Purpose: Attempt to restart the zScaler service and prompt user if failure
 #
@@ -19,6 +19,8 @@
 # 1.3 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 
 ######################################################################################################
@@ -42,7 +44,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
@@ -68,20 +70,24 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
+    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
 LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}zScaler Repair"
+SD_WINDOW_TITLE="zScaler Repair"
 SD_ICON_FILE="/Applications/Zscaler/ZScaler.app"
 OVERLAY_ICON=$ICON_FILES"ToolbarCustomizeIcon.icns"
 
@@ -198,9 +204,10 @@ function welcomemsg ()
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
 		--ontop
 		--icon "${SD_ICON_FILE}"
-        --titlefont shadow=1
+        --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
 		--overlayicon "${OVERLAY_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
+        --subtitle "${BANNER_SUBTITLE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
         --ignorednd
 		--quitkey 0
