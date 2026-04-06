@@ -168,7 +168,7 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${WALLPAPER_DIR}" ]] && /usr/local/bin/jamf policy -event ${WALLPAPER_INSTALL_POLICY}
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
     [[ ! -x "${DESKTOPPR_APP}" ]] && /usr/local/bin/jamf policy -event ${DESKTOPPR_INSTALL_POLICY}
 }
 

@@ -175,7 +175,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
     [[ ! -e "${OVERLAY_ICON}" ]] && /usr/local/bin/jamf policy -event ${DIALOG_ICON_TRIGGER}
 }
 
