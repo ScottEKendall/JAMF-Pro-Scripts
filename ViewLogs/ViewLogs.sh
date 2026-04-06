@@ -6,7 +6,7 @@
 # Created by: Scott Kendall
 #
 # Created on: 01/29/25
-# Last updated: 03/13/2026
+# Last updated: 04/07/2026
 # 
 # 1.0 - Initial Commit
 # 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
@@ -19,6 +19,8 @@
 # 1.5 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 #
 # Expected Parameters
@@ -47,7 +49,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
@@ -68,14 +70,18 @@ DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
@@ -99,7 +105,7 @@ LOG_TO_VIEW=${4:-"/var/log/system.log"}
 LOG_WINDOW_TITLE=${5:-"System Log"}
 LOG_LENGTH=${6:-100}
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}View ${LOG_WINDOW_TITLE}"
+SD_WINDOW_TITLE="View ${LOG_WINDOW_TITLE}"
 
 # Use the bundle identifier of your email app. you can find it by this command "osascript -e 'id of app "<appname>"' "
 EMAIL_APP='com.microsoft.outlook'
@@ -219,9 +225,10 @@ function mail_logs ()
 		--ontop
 		--icon "${MAIL_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
+        --subtitle "${BANNER_SUBTITLE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
 		--quitkey 0
-        --titlefont shadow=1
+        --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
         --json
         --textfield "Email Address:",value="<username>@company.com"
 		--button1text "Send"
@@ -249,8 +256,9 @@ function welcomemsg ()
 		--icon "${SD_ICON}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
-        --titlefont shadow=1
+        --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
 		--width 1000
         --height 600
 		--quitkey 0
