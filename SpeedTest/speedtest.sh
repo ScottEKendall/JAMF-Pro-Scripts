@@ -29,7 +29,7 @@
 # Global "Common" variables
 #
 ######################################################################################################
-
+#set -x
 SCRIPT_NAME="SpeedTest"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -71,16 +71,17 @@ DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
     BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
     BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
     BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
     BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
     BANNER_SUBTITLE=""
 fi
+[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
 [[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
@@ -364,7 +365,7 @@ function construct_dialog_header_settings()
         "overlayicon" : "'${OVERLAY_ICON}'",
 		"message" : "'$1'",
 		"bannerimage" : "'${SD_BANNER_IMAGE}'",
-        "bannersubtitle" : "'${BANNER_SUBTITLE}'",
+        "subtitle" : "'${BANNER_SUBTITLE}'",
 		"bannertitle" : "'${SD_WINDOW_TITLE}'",
 		"titlefont" : "shadow=1,color='${BANNER_TEXT_COLOR}',offset='${BANNER_TEXT_PADDING}'",
         "commandfile" : "'${DIALOG_COMMAND_FILE}'",

@@ -61,18 +61,18 @@ DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
+    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
     BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
     BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
     BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
-    echo "Defaults Files Not Found.  Creating with default values"
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
+    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
     BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
     BANNER_SUBTITLE=""
-    BANNER_TEXT_COLOR="white"
 fi
+[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
