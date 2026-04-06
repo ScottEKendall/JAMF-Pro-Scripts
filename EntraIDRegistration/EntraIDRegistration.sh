@@ -338,7 +338,7 @@ function welcomemsg ()
     --imagecaption "${messageimagecpation}"
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
-    --bannersubtitle "${BANNER_SUBTITLE}"
+    --subtitle "${BANNER_SUBTITLE}"
     --infobox "${SD_INFO_BOX_MSG}"
     --titlefont shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}
     --alignment center
