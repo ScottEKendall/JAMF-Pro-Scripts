@@ -42,7 +42,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="3.1.0"
+MIN_SD_REQUIRED_VERSION="2.5.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
@@ -201,6 +201,37 @@ function cleanup_and_exit ()
 	exit $1
 }
 
+function admin_user ()
+{
+    [[ $UID -eq 0 ]] && return 0 || return 1
+}
+
+function check_for_sudo ()
+{
+	# Ensures that script is run as ROOT
+    if ! admin_user; then
+    	MainDialogBody=(
+            --message "In order for this script to function properly, it must be run as an admin user!"
+            --ontop
+            --icon computer
+            --overlayicon warning
+            --bannerimage "${SD_BANNER_IMAGE}"
+            --bannertitle "${SD_WINDOW_TITLE}"
+            --subtitle "$BANNER_SUBTITLE"
+            --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
+            --button1text "OK"
+        )
+    	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+		cleanup_and_exit 1
+	fi
+}
+
+####################################################################################################
+#
+# Script Specific Functions
+#
+####################################################################################################
+
 function display_welcome_message()
 {
 
@@ -219,6 +250,7 @@ function display_welcome_message()
         "checkbox" : [
             { "label" : "Safari", "checked" : true, "disabled" : false, "icon" : "'${app_safari}'"},' > ${JSON_OPTIONS}
 
+    # Look for the browsers and if they exist, add them to the JSON blob for display in the dialog.  If they don't exist, then skip them.
     [[ -e ${app_firefox} ]] && echo '{ "label" : "Firefox", "checked" : true, "disabled" : false, "icon" : "'${app_firefox}'"},' >> ${JSON_OPTIONS}
     [[ -e ${app_chrome} ]] && echo '{ "label" : "Google Chrome", "checked" : true, "disabled" : false, "icon" : "'${app_chrome}'"},' >> ${JSON_OPTIONS}
     [[ -e ${app_edge} ]] && echo '{ "label" : "Microsoft Edge", "checked" : true, "disabled" : false, "icon" : "'${app_edge}'"},' >> ${JSON_OPTIONS}
@@ -427,6 +459,7 @@ function clear_edge()
 declare browser_choice
 autoload 'is-at-least'
 
+check_for_sudo
 check_swift_dialog_install
 check_support_files
 create_infobox_message
@@ -439,4 +472,5 @@ display_welcome_message
 [[ $(echo $browser_choice | grep "Firefox" | awk -F " : " '{print $NF}' | tr -d ',') == "true" ]] && clear_firefox
 [[ $(echo $browser_choice | grep "Edge" | awk -F " : " '{print $NF}' | tr -d ',') == "true" ]] && clear_edge
 
-cleanup_and_exit
+cleanup_and_exit 0
+exit 0
