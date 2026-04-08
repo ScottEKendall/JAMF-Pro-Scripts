@@ -15,6 +15,7 @@
 #       Fixed variable names in the defaults file section
 # 2.0 - Updated SD Version requirements to 3.1.0
 #       Added ability to set subtitle, color, and padding from defaults file
+# 2.1 - Add option to show update notice if the DDM_Update_Notice.zsh script is present in the support directory
 
 ######################################################################################################
 #
@@ -35,6 +36,7 @@ MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
 MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+DDM_UPDATE_SCRIPT="/Library/Application Support/GiantEagle/Scripts/DDM_Update_Notice.zsh"
 
 # Swift Dialog version requirements
 
@@ -80,7 +82,6 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 SD_WINDOW_TITLE="DDM Software Update Settings"
 SD_ICON_FILE="https://i0.wp.com/macmule.com/wp-content/uploads/2015/11/SoftwareUpdate.png?resize=256%2C256&ssl=1"
-#OVERLAY_ICON="/System/Applications/App Store.app"
 OVERLAY_ICON="computer"
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
@@ -241,11 +242,15 @@ function welcomemsg ()
         --button1text "OK"
     )
 
+    [[ -e "${DDM_UPDATE_SCRIPT}" ]] && MainDialogBody+=(--button2text "View Update Notice")
     # Example of appending items to the display array
     #    [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 520 --image "${SD_IMAGE_TO_DISPLAY}")
 
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     returnCode=$?
+    if [[ $returnCode -eq 2 ]]; then
+        zsh "${DDM_UPDATE_SCRIPT}"
+    fi
 
 }
 

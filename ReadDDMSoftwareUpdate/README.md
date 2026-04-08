@@ -14,3 +14,4 @@ Small utility designed to read in the local DDM software settings that are assig
 ||       Fixed variable names in the defaults file section
 | 2.0 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.1 | Add option to show update notice if the DDM_Update_Notice.zsh script is present in the support directory
