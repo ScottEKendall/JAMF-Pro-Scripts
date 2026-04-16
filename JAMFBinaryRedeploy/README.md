@@ -21,13 +21,26 @@ Manual Step method
 
 ![](./JAMBinaryRedeploy%20-%20Manual.png)
 
+
 ## JAMF API Information ##
 
-If you are using the Modern JAMF API credentials, you need to set:
+There are two ways you can call this script.  It can be done from either a terminal command or thru Self Service (Plus).  If you are using the Modern JAMF API credentials, you need to set:
 
 ```Send Computer Remote Command to Install Package```
 
 ```Read Computer Check-In```
+
+### Terminal Command ###
+
+Subsitute \<JAMFClientID> and \<JAMFClientSecret> with your login info.  See the API information on the roles to setup.  The first three parmaters are reserved for JAMF use, so you have to put your credentials in parameters #4 & #5
+
+![](./JAMBinaryRedeploy%20-%20Terminal.png)
+
+### Self Service ###
+
+If you want to call this from Self service, you need to set your params so it passes your API Roles inot the script
+
+![](./JAMBinaryRedeploy%20-%20Params.png)
 
 ## History ##
 
