@@ -10,8 +10,8 @@ You can view items such as
 * Automated Device Enrollment (ADE)
 * JAMF Access Token (PKI)
 * Apple Push Notification Service (APNS)
-* Computer Config Profiles 
-* Device Config Profiles
+* Computer Config Profiles with cert dates
+* Device Config Profiles with cert dates
 
 You can set custom thresholds for your warnings (Warning & Critical) and also set a warning if your ADE Sync is not working.
 
