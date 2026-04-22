@@ -2,12 +2,12 @@
 
 JAMF has alot of service tokens that need to be tracked & renewed.  To find all of these tokens you have to navigate around to various system settings or computer & device configuration profiles.  
 
-I created this utility to show you all of your tokens in a single, concise interface with a visual indicator of what tokens are about to expire.  
+I created this utility to show you all of your tokens with expiration dates in a single, concise interface with a visual indicator of what tokens are about to expire.  
 
 You can view items such as
 
 * Volume Purchase Plan (VPP)
-* Autoamted Device Enrollment (ADE)
+* Automated Device Enrollment (ADE)
 * JAMF Access Token (PKI)
 * Apple Push Notification Service (APNS)
 * Computer Config Profiles 
