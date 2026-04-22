@@ -915,7 +915,7 @@ function welcomemsg ()
     create_listitem_message_body "VPP Token" "" "" "pending" "pending"
     create_listitem_message_body "ADE Token" "" "" "pending" "pending"
     create_listitem_message_body "ADE Last Sync" "" "" "pending" "pending"
-    create_listitem_message_body "APNS Token" "" "" "pending" "pending"
+    create_listitem_message_body "APNS Certificate" "" "" "pending" "pending"
 
     create_listitem_message_body "" "" "" "" "" "last"
     update_display_list "Create"
@@ -985,7 +985,7 @@ update_display_list "progress" "" "" "" "Checking for APNS expiration..." 60
 logMe "Retrieving APNS certificate information..."
 jamf-api-get-apns
 check_warning_threshold "$expireDays" "cert"
-update_display_list "update" "" "APNS Token" "$apns_expire_date" "$liststatus"
+update_display_list "update" "" "APNS Certificate" "$apns_expire_date" "$liststatus"
 
 # Get Configuration Profile Certificate Expiration Dates and check if they are within the warning threshold.
 update_display_list "progress" "" "" "" "Checking for Configuration Profile expiration..." 75
