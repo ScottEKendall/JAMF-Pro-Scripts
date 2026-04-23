@@ -58,6 +58,10 @@ Screen show all passed
 
 ![](./Screen2.png)
 
+NEW in v1.3 - Screens of Computer & Mobile Device Enrollments
+
+![](./Screen3.png)
+
 ## History ##
 
 | **Version**|**Notes**|
