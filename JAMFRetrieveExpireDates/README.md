@@ -27,12 +27,17 @@ USE_JAMF_CLI=false
 You can either use the ```jamf-cli``` method or the standard API calls.  If you choose to use the API calls, you need to set the following API roles:
 
 ```
-READ COMPUTER
-READ DEVICES
-READ PUSH CERTIFICATIONS
-READ iOS CONFIGURATION PROFILES
-READ MACOS CONFIGURATION PROFILES
-READ VPP ASSIGNMENTS
+Read VPP Assignment
+Read macOS Configuration Profiles
+Read Push Certificates
+Read iOS Configuration Profiles
+Read Mobile Device Enrollment Invitations
+Read VPP Invitations
+Read PKI
+Read Device Enrollment Program Instances
+Read Enrollment Profiles
+Read Enrollment Customizations
+Read Volume Purchasing Locations
 ```
 
 If you are using the ```jamf-cli``` method, please make sure to setup your environment before calling the script.  I don't have the the authentication setup for it (yet).
@@ -57,3 +62,4 @@ Screen show all passed
 | **Version**|**Notes**|
 |:--------:|-----|
 | 1.0 | Initial
+| 1.1 | Minor wording change from APNS Token to APNS Certificate, Also added some additional verbiage to the welcome message to clarify tokens and/or certificates
