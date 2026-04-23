@@ -35,6 +35,7 @@ Read Mobile Device Enrollment Invitations
 Read VPP Invitations
 Read PKI
 Read Device Enrollment Program Instances
+Read Computer Enrollment Invitations
 Read Enrollment Profiles
 Read Enrollment Customizations
 Read Volume Purchasing Locations
@@ -68,3 +69,4 @@ Screen show all passed
 ||       Made window resizable and moveable to accommodate for longer lists of expiring items
 ||       Optimized the API calls to reduce the number of calls being made to the server and speed up the retrieval process
 ||       Fixed issue of the jamf_cli for devices calling the incorrect API endpoints
+| 1.3 | Added check for Computer & Device Invitations and retrieval of their expiration dates

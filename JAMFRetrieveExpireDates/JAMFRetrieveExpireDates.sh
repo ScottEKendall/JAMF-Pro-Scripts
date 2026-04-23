@@ -16,6 +16,7 @@
 #       Made window resizable and moveable to accommodate for longer lists of expiring items
 #       Optimized the API calls to reduce the number of calls being made to the server and speed up the retrieval process
 #       Fixed issue of the jamf_cli for devices calling the incorrect API endpoints
+# 1.3 - Added check for Computer & Device Invitations and retrieval of their expiration dates
 
 ######################################################################################################
 #
@@ -851,6 +852,66 @@ function JAMF_api_getdevice-profiles ()
     done
 }
 
+function JAMF_api_get_computer_enrollment_invitations ()
+{
+    # PURPOSE: Get computer invitation information from JAMF Pro API
+    # RETURN: None
+    # EXPECTED: $JAMF_TOKEN, $JAMF_URL, jamfpro_url
+    declare invitation_array_ids invitation_expire_date invitation_computer_name
+    if [[ "$USE_JAMF_CLI" == true ]]; then
+        invitation_array_ids=($(${JAMF_CLI} pro -o json classic-computer-invitations list | jq -r '.[] | select(.expiration_date != "Unlimited") | .id'))
+    else
+        invitation_array_ids=( $(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}JSSResource/computerinvitations" | jq -r '.computer_invitations[] | select(.expiration_date != "Unlimited") | .id'))
+    fi
+    for id in $invitation_array_ids; do
+        if [[ "$USE_JAMF_CLI" == true ]]; then
+            invitation_json=$(${JAMF_CLI} pro -o json classic-computer-invitations get $id)
+            invitation_expire_date=$(echo -E "$invitation_json" | jq -r '.expiration_date')
+            invitation_computer_name=$(echo -E "$invitation_json" | jq -r '.id')
+        else
+            invitation_json=$(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}JSSResource/computerinvitations/id/$id")
+            invitation_expire_date=$(echo -E "$invitation_json" | jq -r '.computer_invitation.expiration_date')
+            invitation_computer_name=$(echo -E "$invitation_json" | jq -r '.computer_invitation.id')
+        fi
+        # Convert the expiration date to the correct format for comparison
+        invitation_expire_date=$(date -j -f "%Y-%m-%d %H:%M:%S" "$invitation_expire_date" +"%m/%d/%Y %I:%M %p" )
+        check_expiration "$invitation_expire_date"
+        expireDays=$?
+        check_warning_threshold $expireDays
+        update_display_list "add" "Computer Enrollment Invitation ($invitation_computer_name)" "$liststatus" "$invitation_expire_date"
+    done
+}
+
+function JAMF_api_get_device_enrollment_invitations ()
+{
+    # PURPOSE: Get device invitation information from JAMF Pro API
+    # RETURN: None
+    # EXPECTED: $JAMF_TOKEN, $JAMF_URL, jamfpro_url
+    declare invitation_array_ids invitation_expire_date invitation_computer_name
+    if [[ "$USE_JAMF_CLI" == true ]]; then
+        invitation_array_ids=($(${JAMF_CLI} pro -o json classic-mobile-invitations list | jq -r '.[] | select(.expiration_date != "Unlimited") | .id'))
+    else
+        invitation_array_ids=( $(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}JSSResource/mobiledeviceinvitations" | jq -r '.mobile_device_invitations[] | select(.expiration_date != "Unlimited") | .id'))
+    fi
+    for id in $invitation_array_ids; do
+        if [[ "$USE_JAMF_CLI" == true ]]; then
+            invitation_json=$(${JAMF_CLI} pro -o json classic-mobile-invitations get $id)
+            invitation_expire_date=$(echo -E "$invitation_json" | jq -r '.expiration_date')
+            invitation_computer_name=$(echo -E "$invitation_json" | jq -r '.id')
+        else
+            invitation_json=$(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}JSSResource/mobiledeviceinvitations/id/$id")
+            invitation_expire_date=$(echo -E "$invitation_json" | jq -r '.mobile_device_invitation.expiration_date')
+            invitation_computer_name=$(echo -E "$invitation_json" | jq -r '.mobile_device_invitation.id')
+        fi
+        # Convert the date to the correct format for comparison and display
+        invitation_expire_date=$(date -j -f "%Y-%m-%d %H:%M:%S" "$invitation_expire_date" +"%m/%d/%Y %I:%M %p" )
+        check_expiration "$invitation_expire_date"
+        expireDays=$?
+        check_warning_threshold $expireDays
+        update_display_list "add" "Device Enrollment Invitation ($invitation_computer_name)" "$liststatus" "$invitation_expire_date"
+    done
+}
+
 function check_expiration ()
 {
     # PURPOSE: Check expiration dates and determine if any are within the warning threshold
@@ -966,42 +1027,56 @@ check_warning_threshold "$expireDays" "cert"
 update_display_list "update" "" "PKI Token" "$pki_expire_date" "$liststatus"
 
 # Get VPP Expiration Date and check if it is within the warning threshold.
-update_display_list "progress" "" "" "" "Checking for VPP expiration..." 15
+update_display_list "progress" "" "" "" "Checking for VPP expiration..." 10
 logMe "Retrieving VPP license information..."
 JAMF_api_getvpp
 check_warning_threshold "$expireDays" "cert"
 update_display_list "update" "" "VPP Token" "$vpp_return_dates" "$liststatus"
 
 # Get ADE Expiration Date(s) and check if it is within the warning threshold.
-update_display_list "progress" "" "" "" "Checking for ADE expiration..." 30
+update_display_list "progress" "" "" "" "Checking for ADE expiration..." 20
 logMe "Retrieving ADE license information..."
 JAMF_api_getade
 check_warning_threshold "$expireDays" "cert"
 update_display_list "update" "" "ADE Token" "$ade_return_dates" "$liststatus"
 
 # Get ADE Last Sync Date and check if it is within the warning threshold.
-update_display_list "progress" "" "" "" "Checking for ADE last sync expiration..." 45
+update_display_list "progress" "" "" "" "Checking for ADE last sync expiration..." 30
 logMe "Retrieving ADE last sync information..."
 JAMF_api_getade-last-sync
 check_warning_threshold "$expireDays" "ade_sync"
 update_display_list "update" "" "ADE Last Sync" "$ade_last_sync" "$liststatus" 
 
 # Get APNS Expiration Date and check if it is within the warning threshold.
-update_display_list "progress" "" "" "" "Checking for APNS expiration..." 60
+update_display_list "progress" "" "" "" "Checking for APNS expiration..." 40
 logMe "Retrieving APNS certificate information..."
 JAMF_api_getapns
 check_warning_threshold "$expireDays" "cert"
 update_display_list "update" "" "APNS Certificate" "$apns_expire_date" "$liststatus"
 
+# Get Computer Enrollment Invitation Expiration Date(s) and check if it is within the warning threshold.
+update_display_list "progress" "" "" "" "Checking for computer enrollment invitation expiration..." 50
+logMe "Retrieving computer enrollment invitation information..."
+JAMF_api_get_computer_enrollment_invitations
+check_warning_threshold "$expireDays" "cert"
+update_display_list "update" "" "Computer Enrollment Invitations" "$liststatus"
+
+# Get Device Enrollment Invitation Expiration Date(s) and check if it is within the warning threshold.
+update_display_list "progress" "" "" "" "Checking for device enrollment invitation expiration..." 60
+logMe "Retrieving device enrollment invitation information..."
+JAMF_api_get_device_enrollment_invitations
+check_warning_threshold "$expireDays" "cert"
+update_display_list "update" "" "Device Enrollment Invitations" "$liststatus"
+
 # Get Configuration Profile Certificate Expiration Dates and check if they are within the warning threshold.
-update_display_list "progress" "" "" "" "Checking for Configuration Profile expiration..." 75
+update_display_list "progress" "" "" "" "Checking for Configuration Profile expiration..." 70
 logMe "Retrieving configuration profile certificate information..."
 JAMF_api_getcomputer-profiles
 check_warning_threshold "$expireDays" "cert"
 update_display_list "update" "" "Config Profile Certs" "$liststatus"
 
 # Get Device Configuration Profile Certificate Expiration Dates and check if they are within the warning threshold.
-update_display_list "progress" "" "" "" "Checking for Device Configuration Profile expiration..." 90
+update_display_list "progress" "" "" "" "Checking for Device Configuration Profile expiration..." 80
 logMe "Retrieving device configuration profile certificate information..."
 JAMF_api_getdevice-profiles
 check_warning_threshold "$expireDays" "cert"
