@@ -611,7 +611,7 @@ function JAMF_retrieve_config_profile_info ()
 ###########################
 
 
-function jamf-api-get-pki ()
+function JAMF_api_getpki ()
 {
     # PURPOSE: Get PKI certificate information from JAMF Pro API
     # RETURN: None
@@ -626,7 +626,7 @@ function jamf-api-get-pki ()
     echo "$retval"
 }
 
-function jamf-api-get-vpp ()
+function JAMF_api_getvpp ()
 {
     # PURPOSE: Get VPP token information from JAMF Pro API
     # RETURN: None
@@ -654,7 +654,7 @@ function jamf-api-get-vpp ()
     echo "$vpp_return_dates"
 }
 
-function jamf-api-get-ade ()
+function JAMF_api_getade ()
 {
     # PURPOSE: Get ade token information from JAMF Pro API
     # RETURN: None
@@ -682,7 +682,7 @@ function jamf-api-get-ade ()
     echo "$ade_return_dates"
 }
 
-function jamf-api-get-ade-last-sync ()
+function JAMF_api_getade-last-sync ()
 {
     # PURPOSE: Get last ADE sync information from JAMF Pro API
     # RETURN: None
@@ -701,7 +701,7 @@ function jamf-api-get-ade-last-sync ()
     echo "$ade_last_sync"
 }
 
-function jamf-api-get-apns ()
+function JAMF_api_getapns ()
 {
     # PURPOSE: Get APNS expiration information from JAMF Pro API
     # RETURN: None
@@ -723,7 +723,7 @@ function jamf-api-get-apns ()
     echo "$apns_expire_date"
 }
 
-function jamf-api-get-computer-profiles ()
+function JAMF_api_getcomputer-profiles ()
 {
     # PURPOSE: Get configuration profile information from JAMF Pro API
     # RETURN: None
@@ -784,7 +784,7 @@ function jamf-api-get-computer-profiles ()
     done
 }
 
-function jamf-api-get-device-profiles ()
+function JAMF_api_getdevice-profiles ()
 {
     # PURPOSE: Get configuration profile information from JAMF Pro API
     # RETURN: None
@@ -917,7 +917,6 @@ function welcomemsg ()
     create_listitem_message_body "ADE Token" "" "" "pending" "pending"
     create_listitem_message_body "ADE Last Sync" "" "" "pending" "pending"
     create_listitem_message_body "APNS Certificate" "" "" "pending" "pending"
-
     create_listitem_message_body "" "" "" "" "" "last"
     update_display_list "Create"
 }
@@ -956,49 +955,49 @@ welcomemsg
 # Get PKI Expiration Date and check if it is within the warning threshold.
 update_display_list "progress" "" "" "" "Checking for PKI expiration..." 0
 logMe "Retrieving PKI certificate information..."
-jamf-api-get-pki
+JAMF_api_getpki
 check_warning_threshold "$expireDays" "cert"
 update_display_list "update" "" "PKI Token" "$pki_expire_date" "$liststatus"
 
 # Get VPP Expiration Date and check if it is within the warning threshold.
 update_display_list "progress" "" "" "" "Checking for VPP expiration..." 15
 logMe "Retrieving VPP license information..."
-jamf-api-get-vpp
+JAMF_api_getvpp
 check_warning_threshold "$expireDays" "cert"
 update_display_list "update" "" "VPP Token" "$vpp_return_dates" "$liststatus"
 
 # Get ADE Expiration Date(s) and check if it is within the warning threshold.
 update_display_list "progress" "" "" "" "Checking for ADE expiration..." 30
 logMe "Retrieving ADE license information..."
-jamf-api-get-ade
+JAMF_api_getade
 check_warning_threshold "$expireDays" "cert"
 update_display_list "update" "" "ADE Token" "$ade_return_dates" "$liststatus"
 
 # Get ADE Last Sync Date and check if it is within the warning threshold.
 update_display_list "progress" "" "" "" "Checking for ADE last sync expiration..." 45
 logMe "Retrieving ADE last sync information..."
-jamf-api-get-ade-last-sync
+JAMF_api_getade-last-sync
 check_warning_threshold "$expireDays" "ade_sync"
 update_display_list "update" "" "ADE Last Sync" "$ade_last_sync" "$liststatus" 
 
 # Get APNS Expiration Date and check if it is within the warning threshold.
 update_display_list "progress" "" "" "" "Checking for APNS expiration..." 60
 logMe "Retrieving APNS certificate information..."
-jamf-api-get-apns
+JAMF_api_getapns
 check_warning_threshold "$expireDays" "cert"
 update_display_list "update" "" "APNS Certificate" "$apns_expire_date" "$liststatus"
 
 # Get Configuration Profile Certificate Expiration Dates and check if they are within the warning threshold.
 update_display_list "progress" "" "" "" "Checking for Configuration Profile expiration..." 75
 logMe "Retrieving configuration profile certificate information..."
-jamf-api-get-computer-profiles
+JAMF_api_getcomputer-profiles
 check_warning_threshold "$expireDays" "cert"
 update_display_list "update" "" "Config Profile Certs" "$liststatus"
 
 # Get Device Configuration Profile Certificate Expiration Dates and check if they are within the warning threshold.
 update_display_list "progress" "" "" "" "Checking for Device Configuration Profile expiration..." 90
 logMe "Retrieving device configuration profile certificate information..."
-jamf-api-get-device-profiles
+JAMF_api_getdevice-profiles
 check_warning_threshold "$expireDays" "cert"
 update_display_list "update" "" "Config Profile Certs" "$liststatus"
 
