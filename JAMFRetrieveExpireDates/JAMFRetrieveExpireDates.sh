@@ -11,6 +11,11 @@
 #
 # 1.0 - Initial
 # 1.1 - Minor wording change from APNS Token to APNS Certificate, Also added some additional verbiage to the welcome message to clarify tokens and/or certificates
+# 1.2 - Removed extraneous "echo" statements that were used for testing and debugging purposes
+#       Change APNS Sync date to show date & time in 12 hour format with AM/PM
+#       Made window resizable and moveable to accommodate for longer lists of expiring items
+#       Optimized the API calls to reduce the number of calls being made to the server and speed up the retrieval process
+#       Fixed issue of the jamf_cli for devices calling the incorrect API endpoints
 
 ######################################################################################################
 #
@@ -427,6 +432,7 @@ function construct_dialog_header_settings ()
         "button1text" : "OK",
         "height" : "75%",
         "width" : "950",
+        "resizable" : "true",
         "moveable" : "true",
         "json" : "true",
         "quitkey" : "0",
@@ -623,7 +629,7 @@ function JAMF_api_getpki ()
     fi
     check_expiration "$pki_expire_date"
     expireDays=$?
-    echo "$retval"
+    echo "$retval" > /dev/null
 }
 
 function JAMF_api_getvpp ()
@@ -631,7 +637,7 @@ function JAMF_api_getvpp ()
     # PURPOSE: Get VPP token information from JAMF Pro API
     # RETURN: None
     # EXPECTED: $JAMF_TOKEN, $JAMF_URL, jamfpro_url
-    declare vpp_array_ids vpp_expire_date
+    declare vpp_array_ids vpp_expire_date vpp_account_name vpp_json
     if [[ "$USE_JAMF_CLI" == true ]]; then
         vpp_array_ids=$(${JAMF_CLI} pro -o json classic-vpp-accounts list | jq -r '.[].id')
     else
@@ -639,19 +645,20 @@ function JAMF_api_getvpp ()
     fi
     for id in $vpp_array_ids; do
         if [[ "$USE_JAMF_CLI" == true ]]; then
-            vpp_expire_date=$(${JAMF_CLI} pro -o json classic-vpp-accounts get $id | jq -r '.expiration_date')
-            vpp_account_name=$(${JAMF_CLI} pro -o json classic-vpp-accounts get $id | jq -r '.name')
+            vpp_json=$(${JAMF_CLI} pro -o json classic-vpp-accounts get $id)
+            vpp_expire_date=$(echo "$vpp_json" | jq -r '.expiration_date')
+            vpp_account_name=$(echo "$vpp_json" | jq -r '.name')
         else
-            vpp_expire_date=$(curl -s -H  "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}JSSResource/vppaccounts/id/$id" | jq -r '.vpp_account.expiration_date')
-            vpp_account_name=$(curl -s -H  "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}JSSResource/vppaccounts/id/$id" | jq -r '.vpp_account.name')
+            vpp_json=$(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}JSSResource/vppaccounts/id/$id")
+            vpp_expire_date=$(echo "$vpp_json" | jq -r '.vpp_account.expiration_date')
+            vpp_account_name=$(echo "$vpp_json" | jq -r '.vpp_account.name')
         fi
-        echo $vpp_expire_date 1>&2
         vpp_expire_date=$(date -j -f "%Y/%m/%d" "$vpp_expire_date" +"%m/%d/%Y")
         check_expiration "$vpp_expire_date"
         expireDays=$?
         vpp_return_dates+=$vpp_expire_date" - "$vpp_account_name
     done
-    echo "$vpp_return_dates"
+    echo "$vpp_return_dates" > /dev/null
 }
 
 function JAMF_api_getade ()
@@ -668,18 +675,20 @@ function JAMF_api_getade ()
     fi
     for id in $ade_array_ids; do
         if [[ "$USE_JAMF_CLI" == true ]]; then
-            ade_expire_date=$(${JAMF_CLI} pro -o json device-enrollment-instances get $id | jq -r '.tokenExpirationDate')
-            ade_account_name=$(${JAMF_CLI} pro -o json device-enrollment-instances get $id | jq -r '.name')
+            ade_json=$(${JAMF_CLI} pro -o json device-enrollment-instances get $id)
+            ade_expire_date=$(echo "$ade_json" | jq -r '.tokenExpirationDate')
+            ade_account_name=$(echo "$ade_json" | jq -r '.name')
         else
-            ade_expire_date=$(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}api/v1/device-enrollments/$id" | jq -r '.tokenExpirationDate')
-            ade_account_name=$(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}api/v1/device-enrollments/$id" | jq -r '.name')
+            ade_json=$(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}api/v1/device-enrollments/$id")
+            ade_expire_date=$(echo "$ade_json" | jq -r '.tokenExpirationDate')
+            ade_account_name=$(echo "$ade_json" | jq -r '.name')
         fi
         ade_expire_date=$(date -j -f "%Y-%m-%d" "$ade_expire_date" +"%m/%d/%Y")
         check_expiration "$ade_expire_date"  
         expireDays=$? 
         ade_return_dates+=$ade_expire_date" - "$ade_account_name
     done
-    echo "$ade_return_dates"
+    echo "$ade_return_dates" > /dev/null
 }
 
 function JAMF_api_getade-last-sync ()
@@ -689,16 +698,13 @@ function JAMF_api_getade-last-sync ()
     # EXPECTED: $JAMF_TOKEN, $JAMF_URL, jamfpro_url
 
     if [[ "$USE_JAMF_CLI" == true ]]; then
-        ade_last_sync=$(${JAMF_CLI} pro -o json device-enrollment-instance-sync-states list | jq -r '.[0].timestamp  | .[:19] + "Z" | fromdate | strftime("%m/%d/%Y %H:%M")')
+        ade_last_sync=$(${JAMF_CLI} pro -o json device-enrollment-instance-sync-states list | jq -r '.[0].timestamp  | .[:19] + "Z" | fromdate | strftime("%m/%d/%Y %I:%M %p")')
     else
-        ade_last_sync=$(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}api/v1/device-enrollments/syncs"| jq -r '.[0].timestamp  | .[:19] + "Z" | fromdate | strftime("%m/%d/%Y %H:%M")')
+        ade_last_sync=$(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}api/v1/device-enrollments/syncs"| jq -r '.[0].timestamp  | .[:19] + "Z" | fromdate | strftime("%m/%d/%Y %I:%M %p")')
     fi
-    echo $ade_last_sync 1>&2
-    ade_last_sync=$(date -j -f "%m/%d/%Y %H:%M" "$ade_last_sync" +"%m/%d/%Y")
-
     check_expiration "$ade_last_sync"
     expireDays=$? 
-    echo "$ade_last_sync"
+    echo "$ade_last_sync" > /dev/null
 }
 
 function JAMF_api_getapns ()
@@ -720,7 +726,7 @@ function JAMF_api_getapns ()
         check_expiration "$apns_expire_date"
         expireDays=$?
     fi
-    echo "$apns_expire_date"
+    echo "$apns_expire_date" > /dev/null
 }
 
 function JAMF_api_getcomputer-profiles ()
@@ -793,7 +799,7 @@ function JAMF_api_getdevice-profiles ()
     # 1. Get the list of all profiles using the Classic API (JSON format)
     declare ALL_PROFILES PROFILE_IDS DETAIL NAME CERT_DATA EXPIRATION RAW_DATE CLEAN_DATE FINAL_DATE
     if [[ "$USE_JAMF_CLI" == true ]]; then
-        ALL_PROFILES=$(${JAMF_CLI} pro -o json classic-macos-config-profiles list)
+        ALL_PROFILES=$(${JAMF_CLI} pro -o json classic-mobile-config-profiles list)
         PROFILE_IDS=($(echo "$ALL_PROFILES" | tr -d '\n\r' | jq -r '.[].id'))
     else
         ALL_PROFILES=$(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}JSSResource/mobiledeviceconfigurationprofiles")
@@ -805,7 +811,7 @@ function JAMF_api_getdevice-profiles ()
         update_display_list "progress" "" "" "" "Scanning $counter/${#PROFILE_IDS[@]} Device Configuration Profiles"
         # Fetch details for each individual profile
         if [[ "$USE_JAMF_CLI" == true ]]; then
-            DETAIL=$(${JAMF_CLI} pro -o json classic-macos-config-profiles get $ID)
+            DETAIL=$(${JAMF_CLI} pro -o json classic-mobile-config-profiles get $ID)
             NAME=$(echo -E "$DETAIL" | tr -d '\n\r' | jq -r '.general.name')
         else
             DETAIL=$(curl -s -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}JSSResource/mobiledeviceconfigurationprofiles/id/$ID")

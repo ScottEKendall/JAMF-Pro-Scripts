@@ -63,3 +63,8 @@ Screen show all passed
 |:--------:|-----|
 | 1.0 | Initial
 | 1.1 | Minor wording change from APNS Token to APNS Certificate, Also added some additional verbiage to the welcome message to clarify tokens and/or certificates
+| 1.2 | Removed extraneous "echo" statements that were used for testing and debugging purposes
+||       Change APNS Sync date to show date & time in 12 hour format with AM/PM
+||       Made window resizable and moveable to accommodate for longer lists of expiring items
+||       Optimized the API calls to reduce the number of calls being made to the server and speed up the retrieval process
+||       Fixed issue of the jamf_cli for devices calling the incorrect API endpoints
