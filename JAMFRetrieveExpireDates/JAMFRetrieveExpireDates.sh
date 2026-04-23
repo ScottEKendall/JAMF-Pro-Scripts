@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 04/22/2026
-# Last updated: 04/22/2026
+# Last updated: 04/23/2026
 #
 # Script Purpose: This script is designed to retrieve the expiration dates of PKI, ADE, VPP & APNS tokens and Configuration Profiles from JAMF Pro 
 #
@@ -908,7 +908,7 @@ function check_warning_threshold ()
 
 function welcomemsg ()
 {
-    message="$SD_DIALOG_GREETING, $SD_FIRST_NAME. These are the expiration dates for your PKI, ADE, VPP, APNS & Configuration Profile tokens and/or certificates. Please review and take action if any items are nearing expiration."
+    message="$SD_DIALOG_GREETING, $SD_FIRST_NAME. These are the expiration dates for your PKI, ADE, VPP, APNS, Computer & Device Configuration Profile tokens and/or certificates. Please review and take action if any items are nearing expiration."
     message+="<br><br>**Note:** This information is pulled directly from JAMF Pro and may not reflect local certificate information stored on this device.<br>"
 
     construct_dialog_header_settings $message > "${JSON_DIALOG_BLOB}"
