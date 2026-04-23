@@ -298,24 +298,6 @@ function update_display_list ()
             /bin/echo "listitem: add, title: ${2}, status: ${3}, statustext: ${4}" >> "${DIALOG_COMMAND_FILE}"
             ;;
 
-        "buttonaction" )
-
-            # Change button 1 action
-            /bin/echo 'button1action: "'${2}'"' >> "${DIALOG_COMMAND_FILE}"
-            ;;
-  
-        "buttonchange" )
-
-            # change text of button 1
-            /bin/echo "button1text: ${2}" >> "${DIALOG_COMMAND_FILE}"
-            ;;
-
-        "buttondisable" )
-
-            # disable button 1
-            /bin/echo "button1: disable" >> "${DIALOG_COMMAND_FILE}"
-            ;;
-
         "buttonenable" )
 
             # Enable button 1
@@ -333,70 +315,6 @@ function update_display_list ()
             /bin/echo "progress: $6" >> "${DIALOG_COMMAND_FILE}"
 
             /bin/sleep .5
-            ;;
-  
-        "clear" )
-  
-            # Clear the list and show an optional message  
-            /bin/echo "list: clear" >> "${DIALOG_COMMAND_FILE}"
-            /bin/echo "message: ${2}" >> "${DIALOG_COMMAND_FILE}"
-            ;;
-  
-        "delete" )
-  
-            # Delete item from list  
-            /bin/echo "listitem: delete, title: ${2}" >> "${DIALOG_COMMAND_FILE}"
-            ;;
- 
-        "destroy" )
-     
-            # Kill the progress bar and clean up
-            /bin/echo "quit:" >> "${DIALOG_COMMAND_FILE}"
-            ;;
- 
-        "done" )
-          
-            # Complete the progress bar and clean up  
-            /bin/echo "progress: complete" >> "${DIALOG_COMMAND_FILE}"
-            /bin/echo "progresstext: $5" >> "${DIALOG_COMMAND_FILE}"
-            ;;
-          
-        "icon" )
-  
-            # set / clear the icon, pass <nil> if you want to clear the icon  
-            [[ -z ${2} ]] && /bin/echo "icon: none" >> "${DIALOG_COMMAND_FILE}" || /bin/echo "icon: ${2}" >> $"${DIALOG_COMMAND_FILE}"
-            ;;
-  
-  
-        "image" )
-  
-            # Display an image and show an optional message  
-            /bin/echo "image: ${2}" >> "${DIALOG_COMMAND_FILE}"
-            [[ ! -z ${3} ]] && /bin/echo "progresstext: $5" >> "${DIALOG_COMMAND_FILE}"
-            ;;
-  
-        "infobox" )
-  
-            # Show text message  
-            /bin/echo "infobox: ${2}" >> "${DIALOG_COMMAND_FILE}"
-            ;;
-
-        "infotext" )
-  
-            # Show text message  
-            /bin/echo "infotext: ${2}" >> "${DIALOG_COMMAND_FILE}"
-            ;;
-  
-        "show" )
-  
-            # Activate the dialog box
-            /bin/echo "activate:" >> $"${DIALOG_COMMAND_FILE}"
-            ;;
-  
-        "title" )
-  
-            # Set / Clear the title, pass <nil> to clear the title
-            [[ -z ${2} ]] && /bin/echo "title: none:" >> "${DIALOG_COMMAND_FILE}" || /bin/echo "title: ${2}" >> "${DIALOG_COMMAND_FILE}"
             ;;
   
         "progress" )
