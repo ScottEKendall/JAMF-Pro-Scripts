@@ -12,6 +12,7 @@ You can view items such as
 * Apple Push Notification Service (APNS)
 * Computer Config Profiles with cert dates
 * Device Config Profiles with cert dates
+* Computer & Device Enrollment Invitations (UDE)
 
 You can set custom thresholds for your warnings (Warning & Critical) and also set a warning if your ADE Sync is not working.
 
