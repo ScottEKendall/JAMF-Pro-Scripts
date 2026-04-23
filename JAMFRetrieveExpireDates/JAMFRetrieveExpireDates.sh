@@ -1011,4 +1011,5 @@ update_display_list "update" "" "Config Profile Certs" "$liststatus"
 update_display_list "progress" "" "" "" "Done!" 100
 update_display_list "buttonenable" "OK"
 
+JAMF_invalidate_token
 cleanup_and_exit 0
