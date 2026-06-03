@@ -25,6 +25,9 @@
 #       Bumped Swift Dialog to v2.5.0
 # 1.5 - Had to increase window height for Tahoe & SD v3.0
 # 1.6 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+# 1.7 - Fixed incorrect variable name in retreival of the JAMF credentials
+#       Fixed issue of not finding Self Service Plus path
+#       Adjusted window height after fixing icon issue
 
 ######################################################################################################
 #
@@ -230,7 +233,7 @@ function welcomemsg ()
         --button2text "Quit"
         --infobox "${SD_INFO_BOX_MSG}"
         --ontop
-        --height 420
+        --height 460
         --json
         --moveable
      )
@@ -282,7 +285,7 @@ function JAMF_which_self_service ()
     # RETURN: None
     # EXPECTED: None
     local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    [[ $retval == *"does not exist"* ]] || [[ -z "$retval" ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
@@ -328,7 +331,7 @@ function JAMF_get_access_token ()
         --data-urlencode "client_id=${CLIENT_ID}" \
         --data-urlencode "grant_type=client_credentials" \
         --data-urlencode "client_secret=${CLIENT_SECRET}")
-    
+
     if [[ -z "$returnval" ]]; then
         logMe "Check Jamf URL"
         exit 1
@@ -337,8 +340,8 @@ function JAMF_get_access_token ()
         exit 1
     fi
     
-    api_token=$(echo "$response" | plutil -extract access_token raw -)
-    token_expires_in=$(echo "$response" | plutil -extract expires_in raw -)
+    api_token=$(echo "$returnval" | plutil -extract access_token raw -)
+    token_expires_in=$(echo "$returnval" | plutil -extract expires_in raw -)
     token_expiration_epoch=$((current_epoch + token_expires_in - 1))
 }
 
