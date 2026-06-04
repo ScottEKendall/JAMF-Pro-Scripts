@@ -41,3 +41,7 @@ Results of a compliance failure screen with details
 | 1.6 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 ||       Optimized "Common" section for better performance
 ||       Fixed variable names in the defaults file section
+| 1.7 | Fixed icon retrieval for Self Service (Classic/Plus)
+||       Added option in JAMF inventory retrieval to strip out control characters from output
+||       Change JAMF API call for inventory lookup to use v3
+||       Adjust the height of the screen so the bottom wasn't getting cut off

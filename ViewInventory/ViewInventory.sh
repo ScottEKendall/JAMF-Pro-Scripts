@@ -4,7 +4,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 03/13/2026
+# Last updated: 06/04/2026
 
 # Script to view inventory detail of a JAMF record and show pertinent info in SwiftDialog
 # 
@@ -22,7 +22,10 @@
 # 1.6 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
-
+# 1.7 - Fixed icon retrieval for Self Service (Classic/Plus)
+#       Added option in JAMF inventory retrieval to strip out control characters from output
+#       Change JAMF API call for inventory lookup to use v3
+#       Adjust the height of the screen so the bottom wasn't getting cut off
 #
 ######################################################################################################
 #
@@ -225,7 +228,7 @@ function display_device_entry_message ()
         --button2text "Quit"
         --infobox "${SD_INFO_BOX_MSG}"
         --ontop
-        --height 420
+        --height 460
         --json
         --moveable
      )
@@ -319,8 +322,8 @@ function JAMF_which_self_service ()
     # PURPOSE: Function to see which Self service to use (SS / SS+)
     # RETURN: None
     # EXPECTED: None
-    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
-    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
+    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
@@ -464,8 +467,7 @@ function get_JAMF_DeviceID ()
     # PARMS: $1 - search identifier to use (Serial or Hostname)
 
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-
-    jamfID=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" | /usr/bin/plutil -extract results.0.id raw -)
+    jamfID=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v3/computers-inventory?filter=${type}==${computer_id}"  | awk '{gsub(/\r/,""); printf "%s", $0}'| jq -r '.results[].id')
 
     # if ID is not found, display a message or something...
     [[ "$jamfID" == *"Could not extract value"* || "$jamfID" == *"null"* ]] && display_failure_message
@@ -479,7 +481,7 @@ function get_JAMF_InventoryRecord ()
     # PARMS: $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
     #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
     #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
-    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$jamfID?section=$1") # 2>/dev/null)
+    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v3/computers-inventory/$jamfID?section=$1") # 2>/dev/null)
     echo $retval | tr -d '\n'
 }
 
@@ -654,7 +656,7 @@ declare jamfpro_url
 declare api_token
 declare search_type
 declare computer_id
-declare jamfID
+declare -g jamfID
 declare recordGeneral
 declare recordExtensions
 declare message && message=""
@@ -722,7 +724,7 @@ else
     JAMF_get_server
     [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token 
     jamfID=$(get_JAMF_DeviceID ${search_type})
-
+    logMe "Device ID for ${computer_id} is ${jamfID}"
     recordGeneral=$(get_JAMF_InventoryRecord "GENERAL")
     recordExtensions=$(get_JAMF_InventoryRecord "EXTENSION_ATTRIBUTES")
     recordHardware=$(get_JAMF_InventoryRecord "HARDWARE")
