@@ -26,6 +26,7 @@
 #       Added option in JAMF inventory retrieval to strip out control characters from output
 #       Change JAMF API call for inventory lookup to use v3
 #       Adjust the height of the screen so the bottom wasn't getting cut off
+#       Fixed missing info when running local (Free space, max space, serial #)
 #
 ######################################################################################################
 #
@@ -39,11 +40,15 @@ SCRIPT_NAME="ViewInventory"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
-
+JSS_FILE="${USER_DIR}/Library/Application Support/com.GiantEagleEntra.plist"
 MACOS_NAME=$(sw_vers -productName)
 MACOS_VERSION=$(sw_vers -productVersion)
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
 MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
+MAC_MODEL=$(ioreg -l | grep "product-name" | awk -F ' = ' '{print $2}' | tr -d '<>"')
+MAC_SERIAL_NUMBER=$(ioreg -l | grep IOPlatformSerialNumber | awk -F'"' '{print $4}')
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+TOTAL_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Total Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -675,6 +680,7 @@ if [[ ${INVENTORY_MODE} == "local" ]]; then
     # Users is viewing local info, so pull all the data from current system  
 
     SD_WINDOW_TITLE+=" (Local)"
+    jamfID="Running local"
     get_nic_info
     zScaler_status=$(get_zscaler_info)
 
@@ -788,7 +794,8 @@ passswordAge=$(duration_in_days $userPassword $(date))
 
 # determine falcon status
 
-[[ $falcon_connect_status == *"Running"* ]] && falcon_connect_status="Connected" || falcon_connect_status="Not Connected"
+[[ $falcon_connect_status == *"Running"* ]] || [[ ${falcon_connect_status:l} == *"connected"* ]] && falcon_connect_status="Connected" || falcon_connect_status="Not Connected"
+[[ ${falcon_connect_status:l} == "connected" ]] && falcon_connect_icon="success" || falcon_connect_icon="fail"
 
 # determine zScaler status
 if [[ $zScaler_status == *"Logged In"* ]]; then
@@ -812,7 +819,7 @@ is-at-least "$MIN_HD_SPACE" "$deviceAvailStorage" && hd_status_icon="success" ||
 
 # check FV Status
 [[ $filevaultStatus == "FV Enabled" ]] && filevaultStatus_icon="success" || filevaultStatus_icon="fail"
-[[ $falcon_connect_status == "Connected" ]] && falcon_connect_icon="success" || falcon_connect_icon="fail"
+
 
 #Determine JAMF last check-in
 days=$(duration_in_days $JAMFLastCheckinTime $(date))
@@ -842,7 +849,7 @@ create_message_body "Current IP" "https://www.iconarchive.com/download/i91394/ic
 create_message_body "FileVault Status" "${ICON_FILES}FileVaultIcon.icns" "$filevaultStatus" "$filevaultStatus_icon"
 create_message_body "Free Disk Space"  "https://ics.services.jamfcloud.com/icon/hash_522d1d726357cda2b122810601899663e468a065db3d66046778ceecb6e81c2b" "${deviceAvailStorage}Gb ($DiskFreeSpace% Free)" "$hd_status_icon"
 create_message_body "JAMF ID #" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" $jamfID ""
-create_message_body "Last Jamf Checkin:" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$JAMFLastCheckinTime" "$JAMF_checkin_icon"
+create_message_body "Last Jamf Checkin" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$JAMFLastCheckinTime" "$JAMF_checkin_icon"
 create_message_body "MDM Profile Status" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$mdmprofile" "" "last"
 
 display_device_info
