@@ -32,6 +32,8 @@ Detemrining the results of these outputs can provide remediation on what to do:
 
 What I am needing your help with is what should be done under non-ideal circumstances.  Once we determine what do to do for what issue, then I can construct a SD display or script steps to get the user back into ideal conditions
 
+>DISCLAIMER: This script is in no way complete, and should not be used as-is for remediation >purposes!  Please provide PRs or reach out to me on Slack via #Macadmins channel so we can >work together and making a good robust script
+
 | **Version**|**Notes**|
 |:--------:|-----|
 | 1.0 Alpha | JAMF Admins / Developer help needed
