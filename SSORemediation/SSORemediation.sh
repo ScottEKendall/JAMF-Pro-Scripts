@@ -50,6 +50,13 @@ get_appsso_status()
         # Status: Healthy. Authentication tokens are active, and no further user action is required.
         echo 0 
         ;;
+    "" )
+        # Empty or Unreachable Status
+        # Meaning: The script was unable to retrieve a valid status from the Apple SSO system, which could indicate a problem with the local SSO agent, network connectivity issues, or an unexpected error in the command execution.
+        # Status: Unknown. Further investigation is needed to determine the root cause of the issue and to verify the device's actual registration status in Entra ID.
+        # Action: Platform SSO Config Profile is likely missing, but further investigation is needed to confirm.
+        echo 3
+        ;;
     esac
 
 }
@@ -183,6 +190,14 @@ case "${APP_SSO_STATUS}${JAMF_CA_STATUS}" in
         echo "Navigate to Apple Menu > System Settings > Users & Groups > Network Account Server and click on the Repair button next to Mac SSO Extension and follow the prompts to re-register"
         ;;
 
+    "30" )
+        echo "[Critical] Status Code Combo: (3,0)"
+        echo "Analysis   : Apple SSO status is unreachable, and Jamf CA shows unregistered. This likely indicates a significant issue with the local SSO agent or the device's ability to communicate with the necessary services to retrieve the SSO status, and the device is not registered in Entra ID."
+        echo "Remediation Steps:"
+        echo "  1. Verify the 'Extensible SSO Profile' is properly scoped to the device and user, targeting the bundle ID 'com.microsoft.CompanyPortalMac.ssoextension'."
+        echo "  2. Check for any local issues with the App SSO agent by running '/usr/bin/app-sso platform -s' directly in the terminal and reviewing any error messages or logs for clues."
+        echo "  3. Ensure the latest version of Microsoft Company Portal app is installed locally, as the SSO extension relies on components from the Company Portal app."
+        ;;
     *)
         echo "[?] Unknown Matrix State: ($APP_SSO_STATUS,$JAMF_CA_STATUS)"
         echo "Remediation: Force reload management policies via 'sudo jamf policy' and restart the Mac."
