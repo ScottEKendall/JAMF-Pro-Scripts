@@ -157,7 +157,8 @@ case "${APP_SSO_STATUS}${JAMF_CA_STATUS}" in
         echo "[ATTENTION] Status Code Combo: (1,0)"
         echo "Analysis   : Platform SSO profile is present but the user has not completed registration, and Jamf CA is not yet linked."
         echo "Remediation Steps:"
-
+        echo "Navigate to Apple Menu > System Settings > Users & Groups > Network Account Server and click on the Repair button next to Mac SSO Extension and follow the prompts to complete registration,"
+        echo "then run '/Library/Application Support/JAMF/Jamf.app/Contents/MacOS/Jamf Conditional Access.app/Contents/MacOS/JAMF Conditional Access registerWithIntune' to link with Entra ID."
         ;;
 
     "11")
@@ -170,6 +171,10 @@ case "${APP_SSO_STATUS}${JAMF_CA_STATUS}" in
         echo "[ATTENTION] Status Code Combo: (1,2)"
         echo "Analysis   : Configuration Profile deployed, but the user hasn't triggered Entra PSSO registration."
         echo "Remediation Steps:"
+        echo "Navigate to Apple Menu > System Settings > Users & Groups > Network Account Server and click on the Repair button next to Mac SSO Extension and follow the prompts to complete registration,"
+        echo "the JAMF command'/Library/Application Support/JAMF/Jamf.app/Contents/MacOS/Jamf Conditional Access.app/Contents/MacOS/JAMF Conditional Access should gather compliant status on its own once the user"
+        echo "completes the SSO registration process, but you can also run '/Library/Application Support/JAMF/Jamf.app/Contents/MacOS/Jamf Conditional Access.app/Contents/MacOS/JAMF Conditional Access' gatherAADInfo"
+        echo "to expedite the status update in Jamf CA."
         ;;
     "20")
         echo "[CRITICAL] Status Code Combo: (2,0)"
