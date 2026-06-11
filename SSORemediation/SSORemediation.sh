@@ -190,7 +190,7 @@ case "${APP_SSO_STATUS}${JAMF_CA_STATUS}" in
         echo "Navigate to Apple Menu > System Settings > Users & Groups > Network Account Server and click on the Repair button next to Mac SSO Extension and follow the prompts to re-register"
         ;;
 
-    "30" )
+    "31" )
         echo "[Critical] Status Code Combo: (3,0)"
         echo "Analysis   : Apple SSO status is unreachable, and Jamf CA shows unregistered. This likely indicates a significant issue with the local SSO agent or the device's ability to communicate with the necessary services to retrieve the SSO status, and the device is not registered in Entra ID."
         echo "Remediation Steps:"
