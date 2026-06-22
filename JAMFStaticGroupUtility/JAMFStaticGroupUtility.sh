@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/09/2025
-# Last updated: 03/13/2026
+# Last updated: 06/22/2026
 #
 # Script Purpose: View, Add or Delete JAMF static group members
 #
@@ -38,6 +38,8 @@
 # 2.2 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
+# 2.3 - Had to add MAC_HOSTNAME=$(scutil --get HostName) to the global variables section to get the hostname for comparison in the list item creation function.  This is because the "HostName" variable was not 
+#       being passed into the create_listitem_message_body function correctly and was always evaluating as blank, which caused the script to never recognize a match and display all items as "Not Found"
 
 ######################################################################################################
 #
@@ -56,6 +58,7 @@ MACOS_NAME=$(sw_vers -productName)
 MACOS_VERSION=$(sw_vers -productVersion)
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
 MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
+MAC_HOSTNAME=$(scutil --get HostName)
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 

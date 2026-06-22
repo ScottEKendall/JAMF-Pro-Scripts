@@ -81,3 +81,4 @@ If you are using the Modern JAMF API credentials, you need to set:
 | 2.2 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 ||       Optimized "Common" section for better performance
 ||       Fixed variable names in the defaults file section
+| 2.3 | Had to add MAC_HOSTNAME=$(scutil --get HostName) to the global variables section to get the hostname for comparison in the list item creation function.  This is because the "HostName" variable was not being passed into the create_listitem_message_body function correctly and was always evaluating as blank, which caused the script to never recognize a match and display all items as "Not Found"
