@@ -99,7 +99,7 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SD_IMAGE_POLICY="install_passwordSS"
 
-JSS_FILE="/Library/Managed Preferences/com.gianteagle.jss.plist"
+JSS_FILE="$USER_DIR/Library/Application Support/com.GiantEagleEntra.plist"
 SD_TIMER="240"
 
 ##################################################
