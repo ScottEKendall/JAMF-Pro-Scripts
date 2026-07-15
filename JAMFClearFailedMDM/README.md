@@ -32,5 +32,6 @@ Original source: https://gist.github.com/karthikeyan-mac/4c46121ddd95b43465bd1b5
 ||       Bumped Swift Dialog to v2.5.0
 | 1.5 | Had to increase window height for Tahoe & SD v3.0
 | 1.6 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
-| 2.0 | Updated SD Version requirements to 3.1.0
-||       Added ability to set subtitle, color, and padding from defaults file
+| 1.7 | Fixed incorrect variable name in retreival of the JAMF credentials
+||       Fixed issue of not finding Self Service Plus path
+||       Adjusted window height after fixing icon issue

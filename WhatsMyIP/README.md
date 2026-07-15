@@ -23,5 +23,6 @@ Nice GUI to display all of the IPv4 address on a user's system (will find Cisco 
 ||       Rename any adapter with "Ethernet" or "LAN" in the name to just "Ethernet"
 ||       Check for both Cisco Secure Client and AnyConnect for VPN IP collection
 | 1.8 | Fixed logic to check for VPN IP to look for "Not Available" instead of just checking if the variable is empty.
-| 2.0 | Updated SD Version requirements to 3.1.0
-||       Added ability to set subtitle, color, and padding from defaults file
+| 1.9 | # 1.9 - Added logic to display the Wi-Fi network name next to the IP address for Wi-Fi connections.  
+||       This will help users identify which network they are connected to, especially if they have multiple Wi-Fi networks with different IP addresses.
+||       Reworked VPN logic detection (put inside of a do...while loop) to be more efficient and to accommodate for any VPN client that may be installed in the future (instead of just checking for specific clients). 

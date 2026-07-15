@@ -4,7 +4,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 04/07/2026
+# Last updated: 06/04/2026
 
 # Script to view inventory detail of a JAMF record and show pertinent info in SwiftDialog
 # 
@@ -22,9 +22,11 @@
 # 1.6 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
-# 2.0 - Updated SD Version requirements to 3.1.0
-#       Added ability to set subtitle, color, and padding from defaults file
-
+# 1.7 - Fixed icon retrieval for Self Service (Classic/Plus)
+#       Added option in JAMF inventory retrieval to strip out control characters from output
+#       Change JAMF API call for inventory lookup to use v3
+#       Adjust the height of the screen so the bottom wasn't getting cut off
+#       Fixed missing info when running local (Free space, max space, serial #)
 #
 ######################################################################################################
 #
@@ -38,11 +40,15 @@ SCRIPT_NAME="ViewInventory"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 USER_UID=$(id -u "$LOGGED_IN_USER")
-
+JSS_FILE="${USER_DIR}/Library/Application Support/com.GiantEagleEntra.plist"
 MACOS_NAME=$(sw_vers -productName)
 MACOS_VERSION=$(sw_vers -productVersion)
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
 MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
+MAC_MODEL=$(ioreg -l | grep "product-name" | awk -F ' = ' '{print $2}' | tr -d '<>"')
+MAC_SERIAL_NUMBER=$(ioreg -l | grep IOPlatformSerialNumber | awk -F'"' '{print $4}')
+FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
+TOTAL_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Total Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
 
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
@@ -234,7 +240,7 @@ function display_device_entry_message ()
         --button2text "Quit"
         --infobox "${SD_INFO_BOX_MSG}"
         --ontop
-        --height 420
+        --height 460
         --json
         --moveable
      )
@@ -330,8 +336,8 @@ function JAMF_which_self_service ()
     # PURPOSE: Function to see which Self service to use (SS / SS+)
     # RETURN: None
     # EXPECTED: None
-    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path)
-    [[ -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
+    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
+    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
     echo $retval
 }
 
@@ -475,8 +481,7 @@ function get_JAMF_DeviceID ()
     # PARMS: $1 - search identifier to use (Serial or Hostname)
 
     [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-
-    jamfID=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v1/computers-inventory?filter=${type}==${computer_id}" | /usr/bin/plutil -extract results.0.id raw -)
+    jamfID=$(/usr/bin/curl --silent --fail -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v3/computers-inventory?filter=${type}==${computer_id}"  | awk '{gsub(/\r/,""); printf "%s", $0}'| jq -r '.results[].id')
 
     # if ID is not found, display a message or something...
     [[ "$jamfID" == *"Could not extract value"* || "$jamfID" == *"null"* ]] && display_failure_message
@@ -490,7 +495,7 @@ function get_JAMF_InventoryRecord ()
     # PARMS: $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
     #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
     #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
-    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/computers-inventory/$jamfID?section=$1") # 2>/dev/null)
+    retval=$(/usr/bin/curl --silent --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/api/v3/computers-inventory/$jamfID?section=$1") # 2>/dev/null)
     echo $retval | tr -d '\n'
 }
 
@@ -665,7 +670,7 @@ declare jamfpro_url
 declare api_token
 declare search_type
 declare computer_id
-declare jamfID
+declare -g jamfID
 declare recordGeneral
 declare recordExtensions
 declare message && message=""
@@ -684,6 +689,7 @@ if [[ ${INVENTORY_MODE} == "local" ]]; then
     # Users is viewing local info, so pull all the data from current system  
 
     SD_WINDOW_TITLE+=" (Local)"
+    jamfID="Running local"
     get_nic_info
     zScaler_status=$(get_zscaler_info)
 
@@ -733,7 +739,7 @@ else
     JAMF_get_server
     [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token 
     jamfID=$(get_JAMF_DeviceID ${search_type})
-
+    logMe "Device ID for ${computer_id} is ${jamfID}"
     recordGeneral=$(get_JAMF_InventoryRecord "GENERAL")
     recordExtensions=$(get_JAMF_InventoryRecord "EXTENSION_ATTRIBUTES")
     recordHardware=$(get_JAMF_InventoryRecord "HARDWARE")
@@ -797,7 +803,8 @@ passswordAge=$(duration_in_days $userPassword $(date))
 
 # determine falcon status
 
-[[ $falcon_connect_status == *"Running"* ]] && falcon_connect_status="Connected" || falcon_connect_status="Not Connected"
+[[ $falcon_connect_status == *"Running"* ]] || [[ ${falcon_connect_status:l} == *"connected"* ]] && falcon_connect_status="Connected" || falcon_connect_status="Not Connected"
+[[ ${falcon_connect_status:l} == "connected" ]] && falcon_connect_icon="success" || falcon_connect_icon="fail"
 
 # determine zScaler status
 if [[ $zScaler_status == *"Logged In"* ]]; then
@@ -821,7 +828,7 @@ is-at-least "$MIN_HD_SPACE" "$deviceAvailStorage" && hd_status_icon="success" ||
 
 # check FV Status
 [[ $filevaultStatus == "FV Enabled" ]] && filevaultStatus_icon="success" || filevaultStatus_icon="fail"
-[[ $falcon_connect_status == "Connected" ]] && falcon_connect_icon="success" || falcon_connect_icon="fail"
+
 
 #Determine JAMF last check-in
 days=$(duration_in_days $JAMFLastCheckinTime $(date))
@@ -851,7 +858,7 @@ create_message_body "Current IP" "https://www.iconarchive.com/download/i91394/ic
 create_message_body "FileVault Status" "${ICON_FILES}FileVaultIcon.icns" "$filevaultStatus" "$filevaultStatus_icon"
 create_message_body "Free Disk Space"  "https://ics.services.jamfcloud.com/icon/hash_522d1d726357cda2b122810601899663e468a065db3d66046778ceecb6e81c2b" "${deviceAvailStorage}Gb ($DiskFreeSpace% Free)" "$hd_status_icon"
 create_message_body "JAMF ID #" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" $jamfID ""
-create_message_body "Last Jamf Checkin:" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$JAMFLastCheckinTime" "$JAMF_checkin_icon"
+create_message_body "Last Jamf Checkin" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$JAMFLastCheckinTime" "$JAMF_checkin_icon"
 create_message_body "MDM Profile Status" "https://resources.jamf.com/images/logos/Jamf-Icon-color.png" "$mdmprofile" "" "last"
 
 display_device_info

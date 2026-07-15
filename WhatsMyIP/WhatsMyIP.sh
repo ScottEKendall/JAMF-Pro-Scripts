@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 9/20/2023
-# Last updated: 04/07/2026
+# Last updated: 06/01/2026
 #
 # Script Purpose: Display the IP address on all adapters as well as Cisco VPN if they are connected
 #
@@ -26,15 +26,16 @@
 #       Added logic to rename any adapter with "Ethernet" or "LAN" in the name to just "Ethernet" for better readability for users.
 #       Added logic to check for both Cisco Secure Client and AnyConnect for VPN IP collection and to only check for the one that is installed
 # 1.8 - Fixed logic to check for VPN IP to look for "Not Available" instead of just checking if the variable is empty.
-# 2.0 - Updated SD Version requirements to 3.1.0
-#       Added ability to set subtitle, color, and padding from defaults file
+# 1.9 - Added logic to display the Wi-Fi network name next to the IP address for Wi-Fi connections.  
+#       This will help users identify which network they are connected to, especially if they have multiple Wi-Fi networks with different IP addresses.
+#       Reworked VPN logic detection (put inside of a do...while loop) to be more efficient and to accommodate for any VPN client that may be installed in the future (instead of just checking for specific clients). 
 
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
-
+#set -x
 SCRIPT_NAME="WhatsMyIP"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -207,7 +208,7 @@ function get_nic_info
         # Rename anything containing "Ethernet" or "LAN" to just "Ethernet"
         [[ "$port" =~ "Ethernet" || "$port" =~ "LAN" ]] && port="Ethernet"
         adapter+="$port"
-        if [[ $sname == *"Wi-Fi"* ]]; then
+        if [[ $port == *"Wi-Fi"* ]]; then
             wirelessInterface=$( networksetup -listnetworkserviceorder | sed -En 's/^\(Hardware Port: (Wi-Fi|AirPort), Device: (en.)\)$/\2/p' )
             ipconfig setverbose 1
             wifiName='('$( ipconfig getsummary "${wirelessInterface}" | awk -F ' SSID : ' '/ SSID : / {print $2}')')'
@@ -218,16 +219,14 @@ function get_nic_info
         #echo "$port: $ip"
     done
 
-    # Section for Cisco VPN IP Collection
-    SECURE_CLIENT="/opt/cisco/secureclient/bin/vpn"
-    ANYCONNECT="/opt/cisco/anyconnect/bin/vpn"
+    #  Look for the presence of the VPN client and then runs the appropriate command to get the VPN IP address.  
 
-    # Check which version is installed
-    if [[ -f "$SECURE_CLIENT" ]]; then
-        VPN_BIN="$SECURE_CLIENT"
-    elif [[ -f "$ANYCONNECT" ]]; then
-        VPN_BIN="$ANYCONNECT"
-    fi
+    for bin in "/opt/cisco/secureclient/bin/vpn" "/opt/cisco/anyconnect/bin/vpn"; do
+        if [[ -e "$bin" ]]; then
+            VPN_BIN="$bin"
+            break
+        fi
+    done
 
     # Extract the IPv4 address from the vpn stats output
 

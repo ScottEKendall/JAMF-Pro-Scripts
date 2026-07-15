@@ -83,3 +83,4 @@ If you are using the Modern JAMF API credentials, you need to set:
 ||       Fixed variable names in the defaults file section
 | 2.3 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.3 | Had to add MAC_HOSTNAME=$(scutil --get HostName) to the global variables section to get the hostname for comparison in the list item creation function.  This is because the "HostName" variable was not being passed into the create_listitem_message_body function correctly and was always evaluating as blank, which caused the script to never recognize a match and display all items as "Not Found"

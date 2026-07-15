@@ -6,6 +6,7 @@
 #
 # Written: 10/02/2025
 # Last updated: 04/01/2026
+# Last updated: 05/21/2026
 #
 # Script Purpose: Deploys Platform Single Sign-on
 #
@@ -691,7 +692,10 @@ function force_touch_id ()
     # RETURN: 0 if successful, 1 if aborted
     # EXPECTED: TOUCH_ID_STATUS = Status of TouchID sensor
     # PARAMETERS: None
+    buttonpress=0
     while true; do
+        TOUCH_ID_STATUS=$(touch_id_status)
+        [[ $TOUCH_ID_STATUS == "Enabled" || $buttonpress == 2 ]] && break
         open "x-apple.systempreferences:com.apple.Touch-ID-Settings.extension"
         "${SW_DIALOG}" \
         --title "Touch ID Required" \
@@ -705,12 +709,10 @@ function force_touch_id ()
         --ontop \
 
         buttonpress=$?
-        TOUCH_ID_STATUS=$(touch_id_status)
-        [[ $TOUCH_ID_STATUS == "enabled" || $buttonpress == 2 ]] && break
     done
     killall "System Settings" >/dev/null 2>&1
     # Set the status code
-    [[ $buttonpress == 2 ]] && return 1 || return 0
+    [[ $buttonpress == 2 ]] && exit 1 || return 0
 }
 
 function enable_app_extension ()
