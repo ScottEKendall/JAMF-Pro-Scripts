@@ -5,6 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 10/02/2025
+# Last updated: 04/01/2026
 # Last updated: 05/21/2026
 #
 # Script Purpose: Deploys Platform Single Sign-on
@@ -58,7 +59,8 @@
 # 2.1 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
-# 2.2 - Reorder events in the TouchID section so it wouldn't endless hang if you enabled TouchID
+# 2.2 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 
 ######################################################################################################
@@ -85,7 +87,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 HOUR=$(date +%H)
 case $HOUR in
     0[0-9]|1[0-1]) GREET="morning" ;;
@@ -112,13 +114,16 @@ if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
     SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
     SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
+    BANNER_TEXT_COLOR="white"
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
 
 # Log files location
 
@@ -126,7 +131,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Register Platform Single Sign-on"
+SD_WINDOW_TITLE="Register Platform Single Sign-on"
 OVERLAY_ICON="${ICON_FILES}UserIcon.icns"
 SD_ICON_FILE="${SUPPORT_DIR}/SupportFiles/sso.png"
 SSO_GRAPHIC="${SUPPORT_DIR}/SupportFiles/pSSO_Notification.png"
@@ -233,7 +238,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
     [[ ! -e "${SD_ICON_FILE}" ]] && /usr/local/bin/jamf policy -event ${PSSO_ICON_POLICY}
     [[ ! -e "${SSO_GRAPHIC}" ]] && /usr/local/bin/jamf policy -event ${SSO_GRAPHIC_POLICY}
 }
@@ -588,12 +593,13 @@ function displaymsg ()
     if [[ $FOCUS_STATUS = "On" ]] && message+="<br><br>**Since your focus mode is turned on, you will need to click in the notification center to see this prompt**"
 	MainDialogBody=(
         --message "<br>$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-        --titlefont shadow=1
+        --titlefont "color=${BANNER_TEXT_COLOR}, shadow=1, offset=${BANNER_TEXT_PADDING}"
         --appearance light
         --icon "${SD_ICON_FILE}"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
 		--commandfile "${DIALOG_COMMAND_FILE}"
 		--image "${SSO_GRAPHIC}"
         --helpmessage "Contact the TSD or put in a ticket if you are having problems registering your device."

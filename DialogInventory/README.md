@@ -9,4 +9,6 @@ Nice little script to display a GUI when user performs a JAMF recon command thru
 | 1.0 | Initial
 | 1.1 | Bumped min version of SD to v3.5.0_
 | 1.2 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file
 

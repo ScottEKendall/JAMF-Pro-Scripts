@@ -36,3 +36,5 @@ If you are using the Modern JAMF API credentials, you need to set:
 ||       Added option to read in the defaults file
 ||       Fixed function to check which SS/SS+ is being used (again)
 ||       Fully multitasking enabled for faster processing of large user counts
+| 2.1 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file

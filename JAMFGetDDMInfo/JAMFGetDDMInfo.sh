@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 03/03/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: Retrieve the DDM info for JAMF devices
 #
@@ -47,6 +47,8 @@
 #       Significant rework of logic to determine valid, invalid or unknown deployments
 # 1.0RC5 - Fixed issue of failed blueprints not returning correct results when doing a blueprint scan
 #       Added option for cross reference file so you can associate Blueprint IDs to Names and it will show the name results during scans
+#       Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 ######################################################################################################
 #
 # Global "Common" variables
@@ -72,7 +74,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.6"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 HOUR=$(date +%H)
 case $HOUR in
     0[0-9]|1[0-1]) GREET="morning" ;;
@@ -101,14 +103,18 @@ DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    spacing=5 #5 spaces to accommodate for icon offset
+    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
@@ -116,7 +122,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Retrieve JAMF DDM Info"
+SD_WINDOW_TITLE="Retrieve JAMF DDM Info"
 SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
 OVERLAY_ICON="SF=list.bullet.circle,color=orange,weight=heavy,bgcolor=none"
 #OVERLAY_ICON="/System/Applications/App Store.app"
@@ -224,7 +230,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
     [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
@@ -445,11 +451,12 @@ function construct_dialog_header_settings ()
         "icon" : "'${SD_ICON_FILE}'",
         "message" : "'$1'",
         "bannerimage" : "'${SD_BANNER_IMAGE}'",
+        "subtitledetail" : "'${BANNER_SUBTITLE}'",
         "infobox" : "'${SD_INFO_BOX_MSG}'",
         "overlayicon" : "'${OVERLAY_ICON}'",
         "ontop" : "true",
         "bannertitle" : "'${SD_WINDOW_TITLE}'",
-        "titlefont" : "shadow=1",
+        "titlefont" : "shadow=1,color='${BANNER_TEXT_COLOR}',offset='${BANNER_TEXT_PADDING}'",
         "button1text" : "OK",
         "button2text" : "Cancel",
         "infotext": "'$SCRIPT_VERSION'",
@@ -596,7 +603,8 @@ function display_failure_message ()
      MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
         --message "**Problems retrieving JAMF Info**<br><br>Error Message: $1"
         --icon "${SD_ICON_FILE}"
         --overlayicon warning
@@ -1056,12 +1064,13 @@ function welcomemsg ()
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
         --icon "${SD_ICON_FILE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
         --infotext $SCRIPT_VERSION
-        --titlefont shadow=1
         --message $message
         --messagefont name=Arial,size=17
         --selecttitle "DDM Action (Read / Sync):",radio --selectvalues "Scan Blueprint ID, View Single System, Scan Smart/Static Group, Force Sync Single System, Populate Cross Reference File"
@@ -1124,12 +1133,13 @@ function welcomemsg_crossreference ()
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
         --icon "${SD_ICON_FILE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
         --infotext $SCRIPT_VERSION
-        --titlefont shadow=1
         --message "$message"
         --messagefont name=Arial,size=17
         --textfield "DDM Cross Reference,editor",value="$DDMCrossRef",name=crossref
@@ -1219,12 +1229,13 @@ function welcomemsg_blueprint ()
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
         --icon "${SD_ICON_FILE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
         --infotext $SCRIPT_VERSION
-        --titlefont shadow=1
         --message "$message"
         --messagefont name=Arial,size=17
         --vieworder "textfield,dropdown"
@@ -1410,12 +1421,13 @@ function welcomemsg_individual ()
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
         --icon "${SD_ICON_FILE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
         --infotext $SCRIPT_VERSION
-        --titlefont shadow=1
         --message $message
         --messagefont name=Arial,size=17
         --vieworder "dropdown,textfield"
@@ -1551,11 +1563,12 @@ function display_results ()
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
         --icon "${SD_ICON_FILE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
-        --titlefont shadow=1
         --message "Here are the result of the DDM info for this mac:<br><br>$message"
         --messagefont name=Arial,size=14
         --helpmessage "Add this URL prefix to the Blueprint ID to find the Blueprint details<br>${jamfpro_url}view/mfe/blueprints/"
@@ -1802,12 +1815,13 @@ function welcomemsg_forcesync ()
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
         --icon "${SD_ICON_FILE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
         --infotext $SCRIPT_VERSION
-        --titlefont shadow=1
         --message $message
         --messagefont name=Arial,size=17
         --vieworder "dropdown,textfield"

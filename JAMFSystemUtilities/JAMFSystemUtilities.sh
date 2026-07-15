@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/03/2025
-# Last updated: 03/17/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: This script will extract all of the email addresses from your JAMF server and store them in local folder in a VCF format.
 #
@@ -38,6 +38,8 @@
 #       Optimized "Common" section for better performance
 #       Added option to read in the defaults file
 #       Fixed function to check which SS/SS+ is being used (again)
+# 2.11- Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -60,7 +62,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
 DIALOG_CMD_FILE=$(mktemp /var/tmp/JAMFSystemUtilities.XXXXX)
@@ -80,14 +82,18 @@ DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Support / Log files location
 
@@ -96,7 +102,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/AppDelete.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}JAMF System Admin Tools"
+SD_WINDOW_TITLE="JAMF System Admin Tools"
 OVERLAY_ICON=""
 SD_ICON_FILE="https://i0.wp.com/macmule.com/wp-content/uploads/2020/08/2062092.png?resize=256%2C256&ssl=1"
 
@@ -193,7 +199,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
     [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
 }
 
@@ -402,11 +408,12 @@ function construct_dialog_header_settings ()
         "icon" : "'${SD_ICON_FILE}'",
         "message" : "'$1'",
         "bannerimage" : "'${SD_BANNER_IMAGE}'",
+        "subtitle" : "'${BANNER_SUBTITLE}'",
         "infobox" : "'${SD_INFO_BOX_MSG}'",
         "overlayicon" : "'${OVERLAY_ICON}'",
         "ontop" : "true",
         "bannertitle" : "'${SD_WINDOW_TITLE}'",
-        "titlefont" : "shadow=1",
+        "titlefont" : "shadow=1,color='${BANNER_TEXT_COLOR}',offset='${BANNER_TEXT_PADDING}'",
         "button1text" : "OK",
         "moveable" : "true",
         "json" : "true", 
@@ -904,12 +911,13 @@ function export_failed_mdm_commands_menu ()
     message="**Export Failed MDM Commands**<br><br>You have selected to export the failed MDM commnds.<br><br>There are some additional items to select:"
     MainDialogBody=(
         --message "$message"
-        --titlefont shadow=1
+        --titlefont "shadow=1, color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
         --ontop
         --icon "${SD_ICON_FILE}"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --checkbox "Clear failed items while exporting",name=ClearFailedMDMCommands
         --width 800
@@ -1962,8 +1970,9 @@ function construct_header_settings ()
     "message" : "'$1'",
     "bannerimage" : "'${SD_BANNER_IMAGE}'",
     "bannertitle" : "'${SD_WINDOW_TITLE}'",
+    "subtitle" : "'${BANNER_SUBTITLE}'",
     "infobox" : "'${SD_INFO_BOX_MSG}'",
-    "titlefont" : "shadow=1",
+    "titlefont" : "shadow=1,color='${BANNER_TEXT_COLOR}',offset='${BANNER_TEXT_PADDING}'",
     "button1text" : "OK",
     "button2text" : "Cancel",
     "moveable" : "true",
@@ -2013,11 +2022,12 @@ function display_welcome_msg ()
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-        --titlefont shadow=1
+        --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
         --ontop
         --icon "${SD_ICON_FILE}"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --width 890
@@ -2084,7 +2094,8 @@ function show_backup_errors ()
 
 	MainDialogBody=(
         --message "$message"
-        --titlefont shadow=1
+        --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
+        --subtitle "${BANNER_SUBTITLE}"
         --ontop
         --icon "${SD_ICON_FILE}"
         --overlayicon warning

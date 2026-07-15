@@ -20,6 +20,9 @@ If you are using the Modern JAMF API credentials, you need to set:
 ||   Added feature to read in defaults file
 ||   Add verification of JAMF credentials and error trapping if ID doesn't have rights
 ||   Compatible with JAMF 11.21 and higher using the new APIs
-| 2.1 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+| 2.1 | Had to increase window height for Tahoe & SD v3.0
+| 2.2 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 ||       Optimized "Common" section for better performance
 ||       Fixed variable names in the defaults file section
+| 2.3 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file

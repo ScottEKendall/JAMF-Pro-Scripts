@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 05/21/2025
-# Last updated: 03/16/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: Backup JAMF Self service icons to a local folder
 #
@@ -23,13 +23,15 @@
 #       Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Added section to use the defaults file if found to set the banner image and spacing
+# 2.1 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
-
+set -x
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -45,7 +47,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 # Make some temp files for this app
@@ -68,14 +70,18 @@ DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Support / Log files location
 
@@ -84,7 +90,7 @@ LOG_FILE="${SUPPORT_DIR}/BackupSSIcons.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Backup Self Service Icons"
+SD_WINDOW_TITLE="Backup Self Service Icons"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 OVERLAY_ICON=""
 
@@ -177,7 +183,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -217,7 +223,8 @@ function construct_dialog_header_settings ()
 		"message" : "'$1'",
 		"bannerimage" : "'${SD_BANNER_IMAGE}'",
 		"bannertitle" : "'${SD_WINDOW_TITLE}'",
-		"titlefont" : "shadow=1",
+        "subtitle" : "'${BANNER_SUBTITLE}'",
+		"titlefont" : "shadow=1, color='${BANNER_TEXT_COLOR}', offset='${BANNER_TEXT_PADDING}'",
 		"button1text" : "OK",
 		"moveable" : "true",
 		"quitkey" : "0",
@@ -492,7 +499,38 @@ function JAMF_retrieve_xml_data_details ()
 
 function JAMF_get_policy_list ()
 {
-    echo $(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/policies" )
+    retval=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}JSSResource/policies" )
+        case "${retval}" in
+        *"The request requires user authentication<"* ) 
+            printf '%s\n' "ERR"
+            return 1
+             ;;
+        *) 
+            printf '%s\n' "${retval}"
+            return 0
+            ;;
+    esac
+
+}
+
+function display_failure_message ()
+{
+     MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --titlefont shadow=1
+        --message "**Problems retrieving JAMF Info**<br><br>Error Message: $1"
+        --icon "${SD_ICON_FILE}"
+        --overlayicon warning
+        --iconsize 128
+        --messagefont name=Arial,size=17
+        --button1text "OK"
+        --ontop
+        --moveable
+    )
+
+    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    buttonpress=$?
 
 }
 
@@ -508,11 +546,12 @@ function welcomemsg ()
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-        --titlefont shadow=1
+        --titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}"
         --ontop
         --icon "${SD_ICON_FILE}"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --helpmessage ""
@@ -617,6 +656,11 @@ welcomemsg
 # Download all Jamf Pro policy ID numbers
 
 PolicyList=$(JAMF_get_policy_list)
+if [[ "$PolicyList" == 'ERR' ]]; then
+    logMe "Error retrieving policy list.  Please check the API credentials passed to the script and try again."
+    display_failure_message "Error retrieving policy list.  Please check the API credentials passed to the script and try again."
+    cleanup_and_exit 1
+fi
 create_display_list
 
 PolicyIDList=$(echo $PolicyList | xmllint --xpath '//id' - 2>/dev/null)

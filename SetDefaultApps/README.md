@@ -50,5 +50,7 @@ macvfx has modified this script to be MDM agnostic, if you want to use that vers
 ||       Optimized "Common" section for better performance
 ||       Fixed variable names in the defaults file section
 | 1.5 | added support for file type (ics) and added some additional logging for troubleshooting
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file
 
 

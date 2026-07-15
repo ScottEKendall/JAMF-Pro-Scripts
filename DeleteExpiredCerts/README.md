@@ -48,3 +48,5 @@ Edit the pattern to EXCLUDE what you do not want the script to remove
 | 1.1 | Added support to delete expired certificates in system keychain as well as user keychain
 ||       More logging
 | 1.3 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file

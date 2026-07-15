@@ -22,3 +22,5 @@ To scope this in JAMF, we used the following SmartGroup, it runs on a daily basi
 | 1.5 | Optimized Common section
 |     | Added check for logged in user and system not asleep
 | 1.6 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file

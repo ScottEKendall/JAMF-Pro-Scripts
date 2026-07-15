@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 12/23/2025
-# Last updated: 03/27/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose:Mount network drives based on user group membership.  
 # This script is meant to be used in conjunction with a Jamf Pro policy that populates a plist file with the appropriate drive mappings for the user,
@@ -14,6 +14,8 @@
 # 1.0 - Initial
 # 1.1 - Add more checking against the plist file...make sure it is intact and correct keys are present
 # 1.2 - Cleaned up code to be more constant with my other apps
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -44,16 +46,20 @@ DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Connect to Network Drives"
+SD_WINDOW_TITLE="Connect to Network Drives"
 
 FQDN="corp.gianteagle.com"
 SD_FIRST_NAME="${(C)${LOGGED_IN_USER%%.*}}"
@@ -81,6 +87,7 @@ function test_plist_config ()
     if [[ ! -e "${JSS_FILE}" ]]; then
         ${SW_DIALOG} --bannerimage "${SD_BANNER_IMAGE}" \
         --bannertitle "${SD_WINDOW_TITLE}" \
+        --subtitle "${BANNER_SUBTITLE}" \
         --icon computer \
         --overlayicon warning \
         --width 700 \
@@ -92,7 +99,7 @@ function test_plist_config ()
         --ontop \
         --ignorednd \
         --iconsize 128 \
-        --titlefont shadow=1
+        --titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}"
 
         returnCode=$?
         [[ "$returnCode" == "0" ]] && open "$CHECK_GROUPS_POLICY"
@@ -105,6 +112,7 @@ function test_plist_config ()
     if [[ $? -ne 0 ]]; then
         ${SW_DIALOG} --bannerimage "${SD_BANNER_IMAGE}" \
         --bannertitle "${SD_WINDOW_TITLE}" \
+        --subtitle "${BANNER_SUBTITLE}" \
         --icon computer \
         --overlayicon warning \
         --width 700 \
@@ -116,7 +124,7 @@ function test_plist_config ()
         --ontop \
         --ignorednd \
         --iconsize 128 \
-        --titlefont shadow=1
+        --titlefont shadow=1, color="${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}"
 
         returnCode=$?
         [[ "$returnCode" == "0" ]] && open "$CHECK_GROUPS_POLICY"
@@ -142,11 +150,15 @@ function test_connection ()
             --message "${WelcomeMsg}"
             --bannerimage "${SD_BANNER_IMAGE}"
             --bannertitle "${SD_WINDOW_TITLE}"
+            --subtitle "${BANNER_SUBTITLE}"
+            --helpmessage "If you need assistance, please contact the TSD using the 'Get Help' button." \
+            --infobuttontext "Get Help" \
+            --infobuttonaction "$HELPDESK_URL" \
             --overlayicon "${SD_ICON}"
             --icon computer
             --overlayicon warning
             --quitkey 0
-            --titlefont shadow=1
+            --titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}"
             --messagefont size=18
             --helpmessage "If you need assistance, please contact the TSD using the 'Get Help' button."
             --infobuttontext "Get Help" \
@@ -194,7 +206,7 @@ function show_test_message ()
     # Results: None
     # Params: None
 
-    ${SW_DIALOG} --notification --identifier "connection" --title "Testing network connection" --message "Please be patient" --button1text "Dismiss"
+    ${SW_DIALOG} --notification --style alert --identifier "connection" --title "Testing network connection" --message "Please be patient" --button1text "Dismiss"
 }
 
 ##################

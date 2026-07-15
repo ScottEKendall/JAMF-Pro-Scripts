@@ -22,4 +22,6 @@ Results screen
 ||       Fixed variable names in the defaults file section
 | 2.0 | Now includes TeamID in the listing as well
 || Changed the order of the items in the welcome screen
+| 2.1 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file
 

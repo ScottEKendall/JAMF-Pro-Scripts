@@ -41,3 +41,5 @@ If you are using the Modern JAMF API credentials, you need to set:
 ||       Fixed variable names in the defaults file section
 ||       Fixed function to check which SS/SS+ is being used (again)
 ||       Had to increase window height for Tahoe & SD v3.0
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file

@@ -26,3 +26,5 @@ _and if the battery is bad (critical)_
 ||       Fixed typos
 | 1.7 | Had to increase window height for Tahoe & SD v3.0
 | 1.8 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and offset from defaults file

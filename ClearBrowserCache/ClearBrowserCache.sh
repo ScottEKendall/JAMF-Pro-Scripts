@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 09/01/2023
-# Last updated: 03/13/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: Clear all cache/cookies from all browsers currently installed
 #
@@ -18,6 +18,8 @@
 # 1.3 - Fixed window layout for Tahoe & SD v3.0
 # 1.4   Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -65,14 +67,18 @@ DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
 if [[ -f "$DEFAULTS_DIR" ]]; then
     echo "Found Defaults Files.  Reading in Info"
     SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    SPACING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
 else
     SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    SPACING=5 #5 spaces to accommodate for icon offset
+    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
+    BANNER_SUBTITLE=""
 fi
-BANNER_TEXT_PADDING="${(j::)${(l:$SPACING:: :)}}"
+[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
@@ -80,8 +86,7 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-BANNER_TEXT_PADDING="      " #5 spaces to accomodate for icon offset
-SD_WINDOW_TITLE="${BANNER_TEXT_PADDING}Clear Browser Cache(s)"
+SD_WINDOW_TITLE="Clear Browser Cache(s)"
 SD_INFO_BOX_MSG=""
 SD_ICON_FILE=$ICON_FILES"GenericNetworkIcon.icns"
 
@@ -169,7 +174,7 @@ function install_swift_dialog ()
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
 }
 
 function create_infobox_message()
@@ -196,6 +201,37 @@ function cleanup_and_exit ()
 	exit $1
 }
 
+function admin_user ()
+{
+    [[ $UID -eq 0 ]] && return 0 || return 1
+}
+
+function check_for_sudo ()
+{
+	# Ensures that script is run as ROOT
+    if ! admin_user; then
+    	MainDialogBody=(
+            --message "In order for this script to function properly, it must be run as an admin user!"
+            --ontop
+            --icon computer
+            --overlayicon warning
+            --bannerimage "${SD_BANNER_IMAGE}"
+            --bannertitle "${SD_WINDOW_TITLE}"
+            --subtitle "$BANNER_SUBTITLE"
+            --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
+            --button1text "OK"
+        )
+    	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+		cleanup_and_exit 1
+	fi
+}
+
+####################################################################################################
+#
+# Script Specific Functions
+#
+####################################################################################################
+
 function display_welcome_message()
 {
 
@@ -214,6 +250,7 @@ function display_welcome_message()
         "checkbox" : [
             { "label" : "Safari", "checked" : true, "disabled" : false, "icon" : "'${app_safari}'"},' > ${JSON_OPTIONS}
 
+    # Look for the browsers and if they exist, add them to the JSON blob for display in the dialog.  If they don't exist, then skip them.
     [[ -e ${app_firefox} ]] && echo '{ "label" : "Firefox", "checked" : true, "disabled" : false, "icon" : "'${app_firefox}'"},' >> ${JSON_OPTIONS}
     [[ -e ${app_chrome} ]] && echo '{ "label" : "Google Chrome", "checked" : true, "disabled" : false, "icon" : "'${app_chrome}'"},' >> ${JSON_OPTIONS}
     [[ -e ${app_edge} ]] && echo '{ "label" : "Microsoft Edge", "checked" : true, "disabled" : false, "icon" : "'${app_edge}'"},' >> ${JSON_OPTIONS}
@@ -229,8 +266,9 @@ function display_welcome_message()
         --overlayicon computer
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
         --infobox "${SD_INFO_BOX_MSG}"
-        --titlefont shadow=1
         --height 550
         --width 920
         --button1text "Ok"
@@ -421,6 +459,7 @@ function clear_edge()
 declare browser_choice
 autoload 'is-at-least'
 
+check_for_sudo
 check_swift_dialog_install
 check_support_files
 create_infobox_message
@@ -433,4 +472,5 @@ display_welcome_message
 [[ $(echo $browser_choice | grep "Firefox" | awk -F " : " '{print $NF}' | tr -d ',') == "true" ]] && clear_firefox
 [[ $(echo $browser_choice | grep "Edge" | awk -F " : " '{print $NF}' | tr -d ',') == "true" ]] && clear_edge
 
-cleanup_and_exit
+cleanup_and_exit 0
+exit 0

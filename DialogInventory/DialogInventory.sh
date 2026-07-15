@@ -5,13 +5,15 @@
 # by: Scott Kendall
 #
 # Written: 06/03/2025
-# Last updated: 03/13/2026
+# Last updated: 04/01/2026
 #
 # Script Purpose: Perform the JAMF Recon command with Swift Dialog feedback
 #
 # 1.0 - Initial
 # 1.1 - Bumped SD to v2.5.0
 # 1.2 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+# 2.0 - Updated SD Version requirements to 3.1.0
+#       Added ability to set subtitle, color, and padding from defaults file
 
 ######################################################################################################
 #
@@ -22,7 +24,7 @@
 SCRIPT_NAME="DialogInventory"
 SW_DIALOG="/usr/local/bin/dialog"
 [[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
-MIN_SD_REQUIRED_VERSION="2.5.0"
+MIN_SD_REQUIRED_VERSION="3.1.0"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
@@ -137,6 +139,7 @@ function welcomemsg ()
         "iconsize" : "100",
         "message" : "Performing the JAMF inventory update process...",
         "bannertitle" : "'${SD_WINDOW_TITLE}'",
+        "titlefont" : "shadow=1, color=black",
         "messageposition" : "true",
         "progress" : "true",
         "moveable" : "true",

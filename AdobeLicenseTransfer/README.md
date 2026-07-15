@@ -4,11 +4,11 @@ This was born out of necessity.  In our environment, we have to transfer license
 
 Inital Welcome screen
 
-![](/AdobeLicenseTransfer/AdobeLicenseTransfer_Welcome.png)
+![](./AdobeLicenseTransfer_Welcome.png)
 
 Results message after form
 
-![](/AdobeLicenseTransfer/AdobeLicenseTransfer_Done.png)
+![](./AdobeLicenseTransfer_Done.png)
 
 | **Version**|**Notes**|
 |:--------:|-----|
@@ -18,4 +18,5 @@ Results message after form
 | 1.3 | Code cleanup / Added feature to read in defaults file / removed unnecessary variables.
 | 1.4 | Fixed window layout for Tahoe & SD v3.0
 | 1.5 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
-
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file

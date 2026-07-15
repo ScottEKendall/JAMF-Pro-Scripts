@@ -17,3 +17,5 @@ Sometimes applications in the Microsoft Office suite just refuse to work properl
 | 1.4 | Add removal for Teams
 | 1.5 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 ||       Changed to new office Icon
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file

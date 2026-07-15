@@ -21,6 +21,7 @@ Manual Step method
 
 ![](./JAMBinaryRedeploy%20-%20Manual.png)
 
+
 ## JAMF API Information ##
 
 There are two ways you can call this script.  It can be done from either a terminal command or thru Self Service (Plus).  If you are using the Modern JAMF API credentials, you need to set:
@@ -60,3 +61,5 @@ If you want to call this from Self service, you need to set your params so it pa
 ||       Fixed variable names in the defaults file section
 || Put more error trapping around invalid privleges
 || Fixed display issues with Swift Dialog 3.0
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file

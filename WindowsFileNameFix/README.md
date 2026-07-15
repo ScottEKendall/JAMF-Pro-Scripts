@@ -53,3 +53,5 @@ Tip: To fix existing issues, you can use the OneDrive Sync Problems Viewer on yo
 | **Version**|**Notes**|
 |:--------:|-----|
 | 1.0 | Initial
+| 2.0 | Updated SD Version requirements to 3.1.0
+||       Added ability to set subtitle, color, and padding from defaults file
