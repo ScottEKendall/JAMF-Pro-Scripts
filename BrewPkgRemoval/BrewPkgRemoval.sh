@@ -4,8 +4,8 @@
 #
 # by: Scott Kendall
 #
-# Written: 01/03/2023
-# Last updated: 12/23/2025
+# Written: 07/16/2026
+# Last updated: 07/16/2026
 #
 # Script Purpose: Remove HomeBrew Casks / Forumals using Swfit dialog GUI
 #
