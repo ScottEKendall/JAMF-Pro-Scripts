@@ -229,7 +229,6 @@ function build_file_list_array ()
 		runAsUser "$BREW_PATH" list --cask 2>/dev/null
 	)"} )
 
-    #brew_list=( ${(f)"$(brew list --formula; brew list --cask)"} )
     FILES_LIST=("${brew_list[@]}")
 }
 
@@ -408,7 +407,6 @@ function delete_files ()
 		fi
 		# try and remove the package and mark it accordingly
 		if runAsUser "$BREW_PATH" "${brewArgs[@]}" "$pkg" >> "$LOG_FILE" 2>&1; then
-		#if runAsUser "$BREW_PATH" "${brewArgs[@]}" "$pkg" ; then
 			logMe "SUCCESS: Successfully removed $pkg"
 			SUCCESSFUL_REMOVALS+=("$pkg")
 		else
