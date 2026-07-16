@@ -1,46 +1,22 @@
-## App Delete
+## Brew Package Removal ##
 
-This script is designed to allow non-admin users the ability to remove applications and folders from the /Applications folder. 
+I designed a graphical method to remove Homebrew packages (Casks/Formulas) so you don't have to do this from the command line.  This script can can be used in JAMF Self service so users can delete their own packages. Even thought it needs to be run from a 'sudo' account, it will perform tasks based on the currently logged in user. 
 
-You can control what applications they are not allowed to remove by putting items into the ```MANAGED_APPS``` array.  
+This script will allow you to ignore dependencies (force removal) & show you a list of dependencies before deletion.
 
-You can also include folders that are allowed to be deleted, by putting them into the ```ALLOWED_FOLDERS``` array.
+![](./BrewPkgRemoval-Choose.png)
 
-It automatically excludes the preinstalled items that come with the OS _[SIP Protected]_.
+Choices option...shows all casks & formulas and option to ignore/respect dependencies
 
-### Screenshots ###
-Picture of what the end users see when they run it:
+![](./BrewPkgRemoval-Confirm.png)
 
-![User's View](./AppDelete-Welcome.png)
+Confirm before removal (with dependicy alert)
 
-The script will have them confirm their choices before the actual deletion occurs
+![](./BrewPkgRemoval-Done.png)
 
-![](./AppDelete-Confirm.png)
-
-and give them an option to do it again (and again)
-
-![](./AppDelete-Results.png)
-
+Confirmation of delete (or failed) files
 
 | **Version**|**Notes**|
 |:--------:|-----|
 | 1.0 |  Initial Release |
-| 1.1 |  Major code cleanup & documentation |
-||		Structured code to be more inline / consistent across all apps |
-| 1.2 |  Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore... |
-| 2.0 |  Bumped Swift Dialog min version to 2.5.0 |
-||		NEW: Added option to allow folders to be deleted (ALLOWED_FOLDERS) |
-||		Put shadows in the banner text |
-|| 		Reordered sections to better show what can be modified |
-| 2.1 |  Added option to sort array (case insensitive) after the application scan & folders added  |
-| 2.2 |  Code cleanup |
-||       Added feature to read in defaults file |
-||        removed unnecessary variables. |
-||        Fixed typos |
-| 2.3 |  Add logic in the delete_files section to not continue processing if name is blank |
-|| Fixed issue with reading in the defaults file and setting the variables. |
-| 2.4 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
-||       Optimized "Common" section for better performance
-||       Fixed variable names in the defaults file section
-| 2.5 | Updated SD Version requirements to 3.1.0
-||       Added ability to set subtitle, color, and padding from defaults file
+
