@@ -2,7 +2,7 @@
 
 ## last updated by: Scott Kendall
 ## last updated on: April 10, 2025
-## Script version: 5.10.0
+## Script version: 5.2.0
 
 ###############
 # App variables
@@ -319,12 +319,14 @@ function perform_install_action()
 		
 		"dmg" )
             logMe "Mounting DMG ${DMGName}"
-			hdiutil attach "${DMGName}" -nobrowse -quiet
+			#hdiutil attach "${DMGName}" -nobrowse -quiet
+			diskutil image attach "${DMGName}" --nobrowse -quiet
 			sleep 5
             logMe "Copying ${DMGVolumeName}/${appName} to ${DestPath}"
 			cp -R "/Volumes/${DMGVolumeName}/${appName}" "${DestPath}"
             logMe "Unmounting DMG ${DMGName}"
-			hdiutil detach "/Volumes/${DMGVolumeName}" -force -quiet
+			#hdiutil detach "/Volumes/${DMGVolumeName}" -force -quiet
+			diskutil eject "/Volumes/${DMGVolumeName}" -force -quiet
 			;;
 
 		"jav" )
