@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 12/15/2023
-# Last updated: 04/07/2026
+# Last updated: 07/29/2026
 #
 # Script Purpose: Method for search thru all users scripts for specific text (or keys)
 #
@@ -15,13 +15,16 @@
 #       Fixed variable names in the defaults file section
 # 2.0 - Updated SD Version requirements to 3.1.0
 #       Added ability to set subtitle, color, and padding from defaults file
-
+# 2.1 - truncated the log_body to 2000 characters to avoid SD crashing on large results
+#       Included .mobileconfig and .bash files in the search filetypes
+#       Santized with MS Copilot
 
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
+#set -x
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 SCRIPT_NAME="TextFileSearch"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
@@ -47,7 +50,9 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 # Make some temp files
 
 TMP_FILE_STORAGE=$(mktemp /var/tmp/$SCRIPT_NAME.XXXXX)
-chmod 666 $TMP_FILE_STORAGE
+TMP_PREVIEW_STORAGE=$(mktemp "/var/tmp/${SCRIPT_NAME}_preview.XXXXX")
+chmod 600 "$TMP_PREVIEW_STORAGE"
+chmod 600 "$TMP_FILE_STORAGE"
 
 ###################################################
 #
@@ -70,7 +75,7 @@ else
     BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
     BANNER_SUBTITLE=""
 fi
-[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE}"
 [[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
@@ -82,6 +87,8 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 SD_WINDOW_TITLE="Text File Search"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 OVERLAY_ICON="${ICON_FILES}ClippingText.icns"
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
 
 ##################################################
 #
@@ -164,12 +171,12 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
+	/usr/local/bin/jamf policy -event "${DIALOG_INSTALL_POLICY}"
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event "${SUPPORT_FILE_INSTALL_POLICY}"
 }
 
 function create_infobox_message()
@@ -190,10 +197,11 @@ function create_infobox_message()
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit $1
+    [[ -n "$JSON_OPTIONS" && -f "$JSON_OPTIONS" ]] && /bin/rm -f -- "$JSON_OPTIONS"
+    [[ -n "$TMP_FILE_STORAGE" && -f "$TMP_FILE_STORAGE" ]] && /bin/rm -f -- "$TMP_FILE_STORAGE"
+    [[ -n "$DIALOG_COMMAND_FILE" && -f "$DIALOG_COMMAND_FILE" ]] && /bin/rm -f -- "$DIALOG_COMMAND_FILE"
+    [[ -n "$TMP_PREVIEW_STORAGE" && -f "$TMP_PREVIEW_STORAGE" ]] && /bin/rm -f -- "$TMP_PREVIEW_STORAGE"
+    exit "$1"
 }
 
 function admin_user ()
@@ -204,7 +212,7 @@ function admin_user ()
 function welcomemsg ()
 {
     windowHeight=$((420 + $SEARCH_CRITERIA * 20))
-    message="This script will scan thru all of your chosen folder(s) and search for any lines that might contain yor search string.  Enter up to $SEARCH_CRITERIA search criteria below:<br><br>"
+    message="This script will scan through the selected folder and search for lines containing your search string. Enter up to $SEARCH_CRITERIA search criteria below:<br><br>"
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
         --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
@@ -223,8 +231,8 @@ function welcomemsg ()
     )
     start=1
     for ((i = start; i <= $SEARCH_CRITERIA; i++)); do
-        if [[ ! -z $SEARCH_FOR_KEYS[i] ]]; then
-            MainDialogBody+=(--textfield "Search Criteria $i",value=$SEARCH_FOR_KEYS[i])
+        if [[ -n "${SEARCH_FOR_KEYS[i]}" ]]; then
+            MainDialogBody+=(--textfield "Search Criteria $i",value="${SEARCH_FOR_KEYS[i]}")
         else
             MainDialogBody+=(--textfield "Search Criteria $i")
         fi
@@ -241,61 +249,100 @@ function welcomemsg ()
 
     [[ "$returnCode" == "2" ]] && {logMe "Cancel..."; cleanup_and_exit 0; }
 
-    sourceFiles=$(echo $temp | grep "SourceFiles" | awk -F ":" '{print $2}' | xargs)
+    #sourceFiles=$(echo $temp | grep "SourceFiles" | awk -F ":" '{print $2}' | xargs)
+    sourceFiles=$(printf '%s\n' "$temp" | /usr/bin/awk -F ': ' '/SourceFiles/ {print $2; exit}')
 
     # Build the search array from search keys
     
     SEARCH_FOR_KEYS=()
     start=1
     for ((i = start; i <= $SEARCH_CRITERIA; i++)); do
-        criteria=$(echo $temp | grep "Criteria $i" | awk -F ":" '{print $2}' | xargs)
-        if [[ ! -z $criteria ]] && SEARCH_FOR_KEYS+=($criteria)
+        criteria=$(printf '%s\n' "$temp" | awk -F ': ' "/Criteria $i/ {print \$2; exit}")
+        if [[ -n "$criteria" ]] && SEARCH_FOR_KEYS+=("$criteria")
     done
 }
 
 function scan_files ()
 {
+    local start
+    local i
+    local item
+    local filename
+    local line_number
+    local line_content
+
     start=1
-    for ((i = start; i <= $SEARCH_CRITERIA; i++)); do
-        item=${SEARCH_FOR_KEYS[i]}
-        if [[ -z $item ]]; then
-            continue
-        fi
-        logMe "Searching for $item in $sourceFiles"
-        # Search with grep and process each result
-        # If you need to add more search criteria, add '--include "*.<ext>' to the below line
-        grep -r -i -n "$item" "$sourceFiles" --include="*.txt" --include="*.sh" --include "*.zsh" --include "*.bash" | while IFS=: read -r filename line_number line_content; do
+
+    for ((i = start; i <= SEARCH_CRITERIA; i++)); do
+        item="${SEARCH_FOR_KEYS[i]}"
+
+        [[ -z "$item" ]] && continue
+
+        logMe "Searching for '$item' in '$sourceFiles'"
+
+        /usr/bin/grep -R -I -F -i -n \
+            --include="*.txt" \
+            --include="*.sh" \
+            --include="*.zsh" \
+            --include="*.mobileconfig" \
+            --include="*.bash" \
+            --exclude-dir=".git" \
+            --exclude-dir="node_modules" \
+            --exclude-dir=".venv" \
+            -- "$item" "$sourceFiles" 2>/dev/null | while IFS= read -r result; do
+
+            filename="${result%%:*}"
+
+            remainder="${result#*:}"
+            line_number="${remainder%%:*}"
+            line_content="${remainder#*:}"
+
             process_result "$filename" "$line_number" "$line_content"
+
         done
     done
 }
 
+function csv_escape() {
+    local value="$1"
+    value="${value//\"/\"\"}"
+    printf '"%s"' "$value"
+}
+
 function process_result ()
 {
-    # Purpose: export the grep results into a file
-    # PARMS $1 - filename
-    #       $2 - Line # from grep results
-    #       $3 - script line of found results
-    # RETURN: None   
+    local full_path="$1"
     local line_number="$2"
     local line_content="$3"
-    filename=$(echo "${1//$sourceFiles/}")
-    echo "$filename, $line_number, $line_content" >> "$TMP_FILE_STORAGE"
+    local filename
+
+    filename="${full_path#$sourceFiles/}"
+
+    {
+        csv_escape "$filename"
+        printf ','
+        csv_escape "$line_number"
+        printf ','
+        csv_escape "$line_content"
+        printf '\n'
+    } >> "$TMP_FILE_STORAGE"
+    printf '%s | %s | %s\n' "$filename" "$line_number" "$line_content" >> "$TMP_PREVIEW_STORAGE"
 }
 
 function import_results ()
 {
     log_body=""
     logMe "Reading in and formatting results"
+
     while IFS= read -r item; do
-        # If you want to format your results different, change the AWK fields here
-        item=$(echo $item | awk -F',' '{print $1 " | " $2 " | " $3}')
-        log_body+="$item<br>"
-    done < "${TMP_FILE_STORAGE}"
+        log_body+="${item}<br>"
+    done < "${TMP_PREVIEW_STORAGE}"
 }
 
 function display_results ()
 {
+    log_length=2000
+    log_body="${log_body:0:$log_length}"
 	MainDialogBody=(
         --message "### Results Preview ###\n\n$log_body"
         --messagefont "size=14"
@@ -339,11 +386,11 @@ function save_results ()
     case "${outputType:l}" in
         "csv" )
             outputFilename="${destPath}/${OUTPUT_NAME}.csv"
-            cp $TMP_FILE_STORAGE $outputFilename
+            cp "$TMP_FILE_STORAGE" "$outputFilename"
             ;;
         "text" )
             outputFilename="${destPath}/${OUTPUT_NAME}.txt"
-            cat $TMP_FILE_STORAGE | awk -F ',' '{print $1 " | " $2 " | " $3}' > $outputFilename
+            /bin/cp "$TMP_PREVIEW_STORAGE" "$outputFilename"
             ;;
         * )
             logMe "An error has occurred while processing file"
@@ -353,7 +400,7 @@ function save_results ()
     [[ $exit_code == 0 ]] && logMe "Saving file: $outputFilename"
 
     # Open the finder window to show the results
-    open $destPath
+    open "$destPath"
     cleanup_and_exit $exit_code
 }
 
@@ -385,5 +432,10 @@ check_support_files
 create_infobox_message
 welcomemsg
 scan_files
-import_results
+if [[ ! -s "$TMP_FILE_STORAGE" ]]; then
+    logMe "No results found."
+    log_body="No results found."
+else
+    import_results
+fi
 display_results
