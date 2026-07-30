@@ -83,22 +83,21 @@ chmod 666 $DIALOG_COMMAND_FILE
 ###################################################
    
 # See if there is a "defaults" file...if so, read in the contents
-DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -f "$DEFAULTS_DIR" ]]; then
+DEFAULTS_PLIST="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
+if [[ -f "$DEFAULTS_PLIST" ]]; then
     echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
-    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
-    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
-    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
-else
-    SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
-    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
-    BANNER_SUBTITLE=""
+    SUPPORT_DIR=$(defaults read "$DEFAULTS_PLIST" SupportFiles 2>/dev/null)
+    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_PLIST" BannerImage 2>/dev/null)
+    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_PLIST" BannerPadding 2>/dev/null)
+    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_PLIST" BannerSubtitle 2>/dev/null)
+    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_PLIST" TitleFontColor 2>/dev/null)
 fi
-[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+[[ -z "$SUPPORT_DIR" ]] && SUPPORT_DIR="/Library/Application Support/GiantEagle"
+[[ -z "$SD_BANNER_IMAGE" ]] && SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+[[ -z "$BANNER_TEXT_PADDING" ]] && BANNER_TEXT_PADDING=10
 [[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
+
+SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE}"
 
 # Log files location
 
@@ -135,7 +134,7 @@ CLIENT_SECRET=${5}
 #
 ####################################################################################################
 
-function admin_user ()
+function running_as_root ()
 {
     [[ $UID -eq 0 ]] && return 0 || return 1
 }
@@ -148,7 +147,7 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
-    if admin_user; then
+    if running_as_root; then
         LOG_DIR=${LOG_FILE%/*}
         [[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
         /bin/chmod 755 "${LOG_DIR}"
@@ -170,8 +169,8 @@ function logMe ()
     # if the user is an admin, it will write to the logfile, otherwise it will just echo to the screen
     #
     # RETURN: None
-    if admin_user; then
-        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+    if running_as_root; then
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | /usr/bin/tee -a "${LOG_FILE}"
     else
         echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
     fi
@@ -188,8 +187,9 @@ function check_swift_dialog_install ()
     if [[ ! -x "${SW_DIALOG}" ]]; then
         logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
         install_swift_dialog
+        SD_VERSION=$("${SW_DIALOG}" --version)      
     fi
-    SD_VERSION=$( ${SW_DIALOG} --version) 
+
     if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
         logMe "Swift Dialog is outdated - Installing version '${MIN_SD_REQUIRED_VERSION}' from JAMF..."
         install_swift_dialog
@@ -200,12 +200,23 @@ function check_swift_dialog_install ()
 
 function install_swift_dialog ()
 {
-    # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
-    #
-    # RETURN: None
+    if [[ ! -x /usr/local/bin/jamf ]]; then
+        logMe "ERROR: Jamf binary not found. Cannot install Swift Dialog."
+        cleanup_and_exit 1
+    fi
 
-	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
+    /usr/local/bin/jamf policy -event "${DIALOG_INSTALL_POLICY}"
+    local jamf_exit="$?"
+
+    if [[ "$jamf_exit" -ne 0 ]]; then
+        logMe "ERROR: Jamf policy failed while installing Swift Dialog. Exit code: $jamf_exit"
+        cleanup_and_exit 1
+    fi
+
+    if [[ ! -x "${SW_DIALOG}" ]]; then
+        logMe "ERROR: Swift Dialog still missing after install attempt."
+        cleanup_and_exit 1
+    fi
 }
 
 function check_support_files ()
@@ -257,16 +268,16 @@ function check_display_sleep ()
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit $1
+    [[ -n "$JSON_OPTIONS" && -f "$JSON_OPTIONS" ]] && /bin/rm -f -- "$JSON_OPTIONS"
+    [[ -n "$TMP_FILE_STORAGE" && -f "$TMP_FILE_STORAGE" ]] && /bin/rm -f -- "$TMP_FILE_STORAGE"
+    [[ -n "$DIALOG_COMMAND_FILE" && -f "$DIALOG_COMMAND_FILE" ]] && /bin/rm -f -- "$DIALOG_COMMAND_FILE"
+    exit $1
 }
 
 function check_for_sudo ()
 {
 	# Ensures that script is run as ROOT
-    if ! admin_user; then
+    if ! running_as_root; then
     	MainDialogBody=(
         --message "In order for this script to function properly, it must be run as an admin user!"
 		--ontop
