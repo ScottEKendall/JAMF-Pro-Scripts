@@ -228,6 +228,7 @@ function cleanup_and_exit ()
     [[ -n "$TMP_FILE_STORAGE" && -f "$TMP_FILE_STORAGE" ]] && /bin/rm -f -- "$TMP_FILE_STORAGE"
     [[ -n "$DIALOG_COMMAND_FILE" && -f "$DIALOG_COMMAND_FILE" ]] && /bin/rm -f -- "$DIALOG_COMMAND_FILE"
     [[ -n "$TMP_PREVIEW_STORAGE" && -f "$TMP_PREVIEW_STORAGE" ]] && /bin/rm -f -- "$TMP_PREVIEW_STORAGE"
+    exit $1
 }
 
 function running_as_root ()
@@ -282,7 +283,6 @@ function welcomemsg ()
 
     [[ "$returnCode" == "2" ]] && {logMe "Cancel..."; cleanup_and_exit 0; }
 
-    #sourceFiles=$(echo $temp | grep "SourceFiles" | awk -F ":" '{print $2}' | xargs)
     sourceFiles=$(printf '%s\n' "$temp" | /usr/bin/awk -F ': ' '/SourceFiles/ {print $2; exit}')
 
     # Build the search array from search keys
