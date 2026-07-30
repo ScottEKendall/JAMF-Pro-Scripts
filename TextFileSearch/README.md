@@ -25,4 +25,14 @@ In this example, you can save your results as a .TXT or .CSV file, but you can e
 ||       Added ability to set subtitle, color, and padding from defaults file
 | 2.1 | truncated the log_body to 2000 characters to avoid SD crashing on large results
 ||       Included .mobileconfig and .bash files in the search filetypes
-||       Santized with MS Copilot
+||       Added a check to ensure that the destination path is inside the logged-in user's home directory
+||       Defined local variables
+||       Verifed logged in user and home directory before proceeding
+||       Added a check to ensure that the source path is not a sensitive system path
+||       Added a check to ensure that the destination path is not a symlink
+||       Added a check to ensure that the source path is not a symlink
+||       Verified that defaults file variables are not empty before using them
+||       Verified that search criteria is not empty before proceeding
+||       Added timestamp to output file name
+||       Defaulted output file to users desktop
+||       Sanitized with MS Copilot
