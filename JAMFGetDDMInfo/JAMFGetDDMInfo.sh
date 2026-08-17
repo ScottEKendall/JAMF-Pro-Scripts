@@ -54,7 +54,7 @@
 # Global "Common" variables
 #
 ######################################################################################################
-#set -x 
+set -x 
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 declare DIALOG_PROCESS
 SCRIPT_NAME="GetDDMInfo"
@@ -129,9 +129,10 @@ OVERLAY_ICON="SF=list.bullet.circle,color=orange,weight=heavy,bgcolor=none"
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
-JQ_FILE_INSTALL_POLICY="install_jq"
+JQ_INSTALL_POLICY="install_jq"
 CSV_PATH="$USER_DIR/Desktop/DDM Data Dump for "
 DDM_CROSS_REF_FILE="${USER_DIR}/Documents/DDMCrossRef.csv"
+LOCK_FILE="/var/tmp/${SCRIPT_NAME}_csv.lock"
 
 # Multitasking items
 
@@ -231,7 +232,9 @@ function install_swift_dialog ()
 function check_support_files ()
 {
     [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
+    if ! command -v jq >/dev/null 2>&1; then
+        /usr/local/bin/jamf policy -event "${JQ_INSTALL_POLICY}"
+    fi
 }
 
 function create_infobox_message()
@@ -260,10 +263,10 @@ function check_logged_in_user ()
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit $1
+    [[ -f "${JSON_DIALOG_BLOB}" ]] && /bin/rm -f "${JSON_DIALOG_BLOB}"
+    [[ -f "${TMP_FILE_STORAGE}" ]] && /bin/rm -f "${TMP_FILE_STORAGE}"
+    [[ -f "${DIALOG_COMMAND_FILE}" ]] && /bin/rm -f "${DIALOG_COMMAND_FILE}"
+    exit "$1"
 }
 
 function check_for_sudo ()
@@ -274,7 +277,7 @@ function check_for_sudo ()
         --message "In order for this script to function properly, it must be run as an admin user!"
 		--ontop
 		--icon computer
-		--overlayicon "$STOP_ICON"
+		--overlayicon caution
 		--bannerimage "${SD_BANNER_IMAGE}"
 		--bannertitle "${SD_WINDOW_TITLE}"
         --titlefont shadow=1
@@ -620,6 +623,42 @@ function display_failure_message ()
 
 }
 
+function append_csv_line ()
+{
+    local line="$1"
+    local lockDir="/var/tmp/${SCRIPT_NAME}_csv.lock"
+
+    while ! mkdir "$lockDir" 2>/dev/null; do
+        sleep 0.05
+    done
+
+    printf '%s\n' "$line" >> "$CSV_OUTPUT"
+
+    rmdir "$lockDir"
+}
+
+function dialog_cmd ()
+{
+    local command="$1"
+    local lockDir="/var/tmp/${SCRIPT_NAME}_dialog.lock"
+
+    while ! mkdir "$lockDir" 2>/dev/null; do
+        sleep 0.05
+    done
+
+    printf '%s\n' "$command" >> "${DIALOG_COMMAND_FILE}"
+    rmdir "$lockDir" 2>/dev/null
+}
+
+function csv_escape ()
+{
+    local value="$1"
+    value="${value//$'\r'/ }"
+    value="${value//$'\n'/ }"
+    value="${value//\"/\"\"}"
+    printf '"%s"' "$value"
+}
+
 ###########################
 #
 # JAMF functions
@@ -659,6 +698,7 @@ function JAMF_get_server ()
     # EXPECTED: None
 
     jamfpro_url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
+    #jamfpro_url="${jamfpro_url%/}"
     logMe "JAMF Pro server is: $jamfpro_url"
 }
 
@@ -835,7 +875,7 @@ function JAMF_get_bulk_inventory_record ()
     local JAMF_API_KEY="api/v3/computers-inventory"
     local page=0
     local first_item=true  # Flag to track the very first item
-    ${SW_DIALOG} --notification --identifier "inventory" --title "Retieving JAMF Inventory Records" --message "Please be patient" --button1text "Dismiss"
+    ${SW_DIALOG} --notification --identifier "inventory" --title "Retrieving JAMF Inventory Records" --message "Please be patient" --button1text "Dismiss"
 
     echo '[' > "$TMP_FILE_STORAGE"
     while :; do
@@ -878,11 +918,18 @@ function JAMF_get_deviceID()
 
     local retval type id total
     [[ $1 == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-    retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v3/computers-inventory?section=GENERAL&filter=${type}=='${2}'") || {
+    retval=$(/usr/bin/curl -s --fail --get -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" \
+    --data-urlencode "section=GENERAL" --data-urlencode "filter=${type}=='${2}'" "${jamfpro_url}/api/v3/computers-inventory") || {
         display_failure_message "Failed to contact Jamf Pro"
         echo "ERR"
         return 1
     }
+    #retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v3/computers-inventory?section=GENERAL&filter=$
+    #{type}=='${2}'") || {
+    #    display_failure_message "Failed to contact Jamf Pro"
+    #    echo "ERR"
+    #    return 1
+    #}
 
     if [[ $retval == *"PRIVILEGE"* ]]; then
         display_failure_message "Invalid Privilege to read inventory"
@@ -921,6 +968,11 @@ function JAMF_get_DDM_info ()
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - Management ID
     local retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v1/ddm/${1}/status-items")
+    if ! printf "%s" "$retval" | jq -e . >/dev/null 2>&1; then
+        printf '%s\n' "ERR"
+        display_failure_message "Invalid or empty response from Jamf Pro while reading DDM info."
+        return 1
+    fi
     http_status=$(printf "%s" "$retval" | jq -r '.httpStatus')
     case "${http_status}" in
         *"INVALID"* | *"PRIVILEGE"* ) 
@@ -945,6 +997,11 @@ function JAMF_force_ddm_sync ()
     # RETURN: the device ID for the device in question.
     # PARMS: $1 - Management ID
     local retval=$(/usr/bin/curl -s -X 'POST' -H "Authorization: Bearer ${api_token}" -H "accept: */*" "${jamfpro_url}api/v1/ddm/${1}/sync" -d '')
+    if ! printf "%s" "$retval" | jq -e . >/dev/null 2>&1; then
+        printf '%s\n' "ERR"
+        display_failure_message "Invalid or empty response from Jamf Pro while forcing DDM sync."
+        return 1
+    fi                  
     case "${retval}" in
         *"PRIVILEGE"* ) 
             printf '%s\n' "ERR"
@@ -999,7 +1056,7 @@ function JAMF_retrieve_ddm_blueprint_active ()
     DDMBlueprintSuccess=(${(f)"$(printf "%s" "$1" | jq -r '.value' | perl -nle 'while(/active=true, identifier=(Blueprint_)?([^,}_]+)(?:_s1_sys_act1)?/g) { print $2 }')"})
 }
 
-function JAMF_retrieve_ddm_blueprint_errrors ()
+function JAMF_retrieve_ddm_blueprint_errors ()
 {
     # 1. jq extracts the inner 'value' string.
     # 2. perl searches for blocks containing active=false.
@@ -1084,11 +1141,11 @@ function welcomemsg ()
         --moveable
     )
 
-    message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+    message=$(${SW_DIALOG} "${MainDialogBody[@]}" 2>/dev/null )
 
     buttonpress=$?
     [[ $buttonpress = 2 ]] && DDMoption="quit" || DDMoption=$(echo $message | plutil -extract 'SelectedOption' 'raw' -)
-    logMe "$DDMoption was choosen"
+    logMe "$DDMoption was chosen"
 }
 
 function execute_in_parallel ()
@@ -1125,7 +1182,7 @@ function welcomemsg_crossreference ()
 
     message="**Populate Cross Reference File**<br><br>JAMF does not support viewing of Blueprints by Name. Follow the below instructions to create a cross reference file"
     message+=" that will display the name of the Blueprint with the ID:<br><br>"
-    message+="1.  Enter just the blueprint ID and the name of your blueprint seperated by a comma<br>"
+    message+="1.  Enter just the blueprint ID and the name of your blueprint separated by a comma<br>"
     message+="    _ex: 8bb536f0-140a-44e5-8e88-fe88523e9742,OS | Sequoia | Minor | Update_<br>"
     message+="2.  Make sure to put a return at the end of each line.<br>"
     message+="3.  The file will be saved here: **$DDM_CROSS_REF_FILE**<br>"
@@ -1149,7 +1206,7 @@ function welcomemsg_crossreference ()
         --height 720
         --moveable
     )
-    retval=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+    retval=$(${SW_DIALOG} "${MainDialogBody[@]}" 2>/dev/null )
     buttonpress=$?
     [[ $buttonpress -eq 0 ]] && write_crossref_file $retval
 
@@ -1165,7 +1222,7 @@ function read_crossref_file ()
     else
         logMe "Error: File '$DDM_CROSS_REF_FILE' not found." 1>&2
     fi
-    echo $CSV_CONTENT
+    printf '%s\n' "$CSV_CONTENT"
 }
 
 function write_crossref_file ()
@@ -1252,7 +1309,7 @@ function welcomemsg_blueprint ()
         --moveable
     )
 
-    message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+    message=$(${SW_DIALOG} "${MainDialogBody[@]}" 2>/dev/null )
 
     buttonpress=$?
 
@@ -1295,7 +1352,7 @@ function process_blueprint ()
     logMe "Retrieving DDM Info for Blueprint: $CSVfile"
 
     # Read in the computer inventory for all systems, capture, the ID, name & managementID of each computer
-    # by using the modern API with the inventory pagination method, we are doing to use as litle RAM as possible
+    # by using the modern API with the inventory pagination method, we are doing to use as little RAM as possible
     computerList=$(JAMF_get_bulk_inventory_record)
 
     numberOfComputers=$(jq -r 'length' <<< "$computerList")
@@ -1359,14 +1416,14 @@ function process_blueprint_computer ()
     DDMDeviceCurrentOSName=$(jq -r '.statusItems[] | select(.key == "device.operating-system.marketing-name").value' <<< "$DDMInfo_clean")
 
     JAMF_retrieve_ddm_blueprint_active "$DDMKeys"
-    JAMF_retrieve_ddm_blueprint_errrors "$DDMKeys"
+    JAMF_retrieve_ddm_blueprint_errors "$DDMKeys"
     JAMF_retrieve_ddm_softwareupdate_failures "$DDMInfo_clean"
     JAMF_retrieve_ddm_blueprint_invalid "$DDMKeys"
     JAMF_retrieve_ddm_blueprint_invalid_reason "$DDMKeys"
 
     if [[ -z $(echo "$DDMBlueprintSuccess" | grep "$blueprintID") ]]; then
         liststatus="pending"
-        statusmessage="BP nout found"
+        statusmessage="BP not found"
     elif [[ -n $DDMBlueprintInvalid ]]; then
         #echo $DDMBlueprintInvalid
         liststatus="error"
@@ -1380,6 +1437,7 @@ function process_blueprint_computer ()
     update_display_list "Update" "" "${name}" "${statusmessage}" "${liststatus}"
 
     # Eval criteria
+    local canWrite=false
     case "$displayResults" in
         "Failed Only") [[ "$liststatus" == "fail" ]] && canWrite=true ;;
         "Active Only") [[ "$liststatus" == "success" ]] && canWrite=true ;;
@@ -1401,9 +1459,25 @@ function process_blueprint_computer ()
     fi
 
     if [[ $canWrite  = true ]]; then
+
         # Write out this info to the CSV file
         [[ $liststatus == "pending" ]] && liststatus="BP Not Installed"
-        printf "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$DDMDeviceCurrentOSName" "$lastUpdateTime" "$liststatus" "$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_bpinvalid" "$sanitized_bpinvalid_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
+        {
+            csv_escape "$name"; printf ","
+            csv_escape "$managementId"; printf ","
+            csv_escape "$DDMDeviceCurrentOSName"; printf ","
+            csv_escape "$lastUpdateTime"; printf ","
+            csv_escape "$liststatus"; printf ","
+            csv_escape "$sanitized_bperrors"; printf ","
+            csv_escape "$sanitized_bperrors_reason"; printf ","
+            csv_escape "$sanitized_bpinvalid"; printf ","
+            csv_escape "$sanitized_bpinvalid_reason"; printf ","
+            csv_escape "$sanitized_clean_swu"
+            printf "\n"
+        } >> "$CSV_OUTPUT"
+        #append_csv_line "$(printf "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s" "$name" "$managementId" "$DDMDeviceCurrentOSName" "$lastUpdateTime" "$liststatus" \
+        #"$sanitized_bperrors" "$sanitized_bperrors_reason" "$sanitized_bpinvalid" "$sanitized_bpinvalid_reason" "$sanitized_clean_swu")"
+        #printf "%s, %s, %s, %s, %s, %s, %s, %s, %s, %s\n" "$name" "$managementId" "$DDMDeviceCurrentOSName" "$lastUpdateTime" "$liststatus" "$sanitized_bperrors" #"$sanitized_bperrors_reason" "$sanitized_bpinvalid" "$sanitized_bpinvalid_reason" "$sanitized_clean_swu" >> "$CSV_OUTPUT"
         logMe "$statusmessage found on system: $name"
     fi
 }
@@ -1445,13 +1519,13 @@ function welcomemsg_individual ()
         --moveable
     )
 
-    message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+    message=$(${SW_DIALOG} "${MainDialogBody[@]}" 2>/dev/null )
     buttonpress=$?
     [[ $buttonpress = 2 ]] && return
     search_type=$(echo $message | jq -r '.SelectedOption')
     computer_id=$(echo $message | jq -r '.Device')
     writeTXTFile=$(echo $message | jq -r '.writeTXTFile')
-    process_individual $search_type $computer_id "View"
+    process_individual "$search_type" "$computer_id" "View"
 }
 
 function process_individual ()
@@ -1469,12 +1543,12 @@ function process_individual ()
 
     # First we have to get the JAMF ManagementID of the machine
 
-    ID=$(JAMF_get_deviceID "${search_type}" ${computer_id} ".results[].general.managementId")
+    ID=$(JAMF_get_deviceID "${search_type}" "${computer_id}" ".results[].general.managementId")
     [[ $ID == *"ERR"* ]] && cleanup_and_exit 1
     [[ $ID == *"NOT FOUND"* || $ID == *"PRIVILEGE"* ]] && return 1
 
     # Second is to extract the DDM info for the machine
-    DDMInfo=$(JAMF_get_DDM_info $ID)
+    DDMInfo=$(JAMF_get_DDM_info "$ID")
     if [[ $? -eq 1 ]]; then
         logMe "INFO: JAMF ID: $ID"
         [[ $DDMInfo == *"not found"* ]] && display_failure_message "No DDM info found for ${2}!<br>Is DDM enabled on that Mac?"
@@ -1510,7 +1584,7 @@ function process_individual ()
     logMe "INFO: Active Blueprints: "$DDMBlueprintSuccess
 
     # Sixth, see if there are any inactive Blueprints
-    JAMF_retrieve_ddm_blueprint_errrors "$DDMKeys"
+    JAMF_retrieve_ddm_blueprint_errors "$DDMKeys"
     logMe "INFO: Inactive Blueprints: "$DDMBlueprintErrors
 
     #Lastly, see if there are any invalid blueprints
@@ -1547,7 +1621,7 @@ function process_individual ()
     display_results $message $ID $action_type
  
     if [[ ! -z "$writeTXTFile" ]]; then
-        CSV_OUTPUT="$writeTXTFile/DDM Resuults for $computer_id.txt"
+        CSV_OUTPUT="$writeTXTFile/DDM Results for $computer_id.txt"
         logMessage="${message//<br>/\\n}"
         clean="${logMessage//\*\*/--}"
         logMe "Export file: $CSV_OUTPUT"
@@ -1587,7 +1661,7 @@ function display_results ()
     fi
 
 
-    $($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null)
+    $(${SW_DIALOG} "${MainDialogBody[@]}" 2>/dev/null)
     buttonpress=$?
     [[ $buttonpress = 0 ]] && return
 
@@ -1607,11 +1681,20 @@ function display_results ()
 
 }
 
+#function open_blueprint_links ()
+#{
+#    declare -a BPLinks
+#    for item in "${DDMBlueprintSuccess[@]}"; do
+#        open "${jamfpro_url}/view/mfe/blueprints/$item"
+#    done
+#}
+
 function open_blueprint_links ()
 {
-    declare -a BPLinks
+    local item uuid
     for item in "${DDMBlueprintSuccess[@]}"; do
-        open "${jamfpro_url}/view/mfe/blueprints/$item"
+        uuid="${item%% *}"
+        open "${jamfpro_url}/view/mfe/blueprints/${uuid}"
     done
 }
 
@@ -1631,7 +1714,7 @@ function welcomemsg_group ()
     declare -a array
     declare JAMF_API_KEY="JSSResource/computergroups"
 
-    message="**View DDM info from groups**<br><br>You have selected to view information from Smart/Static Groups.<br>Please select the group and display results fron options below:<br><br>"
+    message="**View DDM info from groups**<br><br>You have selected to view information from Smart/Static Groups.<br>Please select the group and display results from options below:<br><br>"
     message+="*NOTE: If you choose to export the data to a CSV file, it will be created to show the data with more details.*"
     construct_dialog_header_settings "$message" > "${JSON_DIALOG_BLOB}"
 
@@ -1679,11 +1762,14 @@ function process_group ()
     # then, you have to use the Management ID to call the DDM info
 
     # Remove double quotes and split by '-' into an array 'parts'
-    local parts=("${(@s:-:)${1//\"/}}")
+    #local parts=("${(@s:-:)${1//\"/}}")
 
     # Assign variables and trim surrounding whitespace using the (z) flag or expansion
-    local GroupID="${parts[1]//[[:space:]]/}"
-    local GroupName="${parts[2]}"
+    local selected="${1//\"/}"
+    local GroupID="${selected%% - *}"
+    local GroupName="${selected#* - }"
+    #local GroupID="${parts[1]//[[:space:]]/}"
+    #local GroupName="${parts[2]}"
     local JAMF_API_KEY="JSSResource/computergroups/id"
     local computerList
     local shouldWrite=false
@@ -1699,7 +1785,7 @@ function process_group ()
     fi
 
     logMe "Retrieving DDM Info for group: $GroupName (ID: $GroupID)"
-    # Locate the IDs of each computer in the selected gruop
+    # Locate the IDs of each computer in the selected group
     logMe "INFO: Retrieve information for: $1"
     computerList=$(JAMF_retrieve_data_blob "$JAMF_API_KEY/$GroupID" "json")
     [[ $computerList == "ERR" ]] && {logMe "ERROR: Insufficient privleges to read Groups"; cleanup_and_exit 1;}
@@ -1761,7 +1847,7 @@ function process_group_computer ()
     DDMDeviceCurrentOSName=$(jq -r '.statusItems[] | select(.key == "device.operating-system.marketing-name").value' <<< "$DDMInfo_clean")
 
     JAMF_retrieve_ddm_blueprint_active "$DDMKeys"
-    JAMF_retrieve_ddm_blueprint_errrors "$DDMKeys"
+    JAMF_retrieve_ddm_blueprint_errors "$DDMKeys"
     JAMF_retrieve_ddm_softwareupdate_failures "$DDMInfo_clean"
     JAMF_retrieve_ddm_blueprint_invalid "$DDMKeys"    
 
@@ -1838,12 +1924,12 @@ function welcomemsg_forcesync ()
         --moveable
     )
 
-    message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+    message=$(${SW_DIALOG} "${MainDialogBody[@]}" 2>/dev/null )
     buttonpress=$?
     [[ $buttonpress = 2 ]] && return
     search_type=$(echo $message | jq -r '.SelectedOption')
     computer_id=$(echo $message | jq -r '.Device')
-    process_individual $search_type $computer_id "Sync"
+    process_individual "$search_type" "$computer_id" "Sync"
 }
 
 ####################################################################################################
@@ -1851,19 +1937,20 @@ function welcomemsg_forcesync ()
 # Main Script
 #
 ####################################################################################################
-autoload 'is-at-least'
+autoload -Uz 'is-at-least'
 zmodload zsh/parameter
 
 declare api_token
 declare jamfpro_url
 declare computer_id
+declare DDMoption
 declare -a DDMSoftwareUpdateActive
 declare -a DDMSoftwareUpdateFailures
 declare -a DDMBlueprintErrors
 declare -a DDMBlueprintSuccess
 declare -a DDMBlueprintInvalid
 declare -a writeCSVFile
-declare  CSV_HEADER="System, ManagementID, Current OS, LastUpdate, Status, Blueprint Failed IDs, Failed IDs (Reason), Blueprint Invalid IDs, Failed Reason, Software Update Failures"
+declare  CSV_HEADER="System,ManagementID,Current OS,LastUpdate,Status,Blueprint Failed IDs,Blueprint Failed Reason,Blueprint Invalid IDs,Blueprint Invalid Reason,Software Update Failures"
 #declare jamfGroup
 #declare displayResults
 
@@ -1876,6 +1963,7 @@ create_infobox_message
 
 JAMF_check_connection
 JAMF_get_server
+JAMF_check_credentials
 OVERLAY_ICON=$(JAMF_which_self_service)
 
 # Show the welcome message and give the user some options
@@ -1889,11 +1977,12 @@ while true; do
     DDMBlueprintSuccess=''
     writeCSVFile=''
 
-    DDMoption=$(welcomemsg)
+    welcomemsg
     # Check if the JAMF Pro server is using the new API or the classic API
     # If the client ID is longer than 30 characters, then it is using the new API
     [[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token  
 
+    logMe "$DDMoption was chosen"
     case "${DDMoption}" in
         *"Populate"* )    welcomemsg_crossreference ;;
         *"Force Sync"* )  welcomemsg_forcesync ;;
