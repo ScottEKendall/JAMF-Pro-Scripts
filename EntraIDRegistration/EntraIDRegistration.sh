@@ -32,7 +32,7 @@
 # Global "Common" variables
 #
 ######################################################################################################
-#set -x
+set -x
 SCRIPT_NAME="EntraIDRegistration"
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
@@ -280,6 +280,7 @@ function check_Apple_Registration ()
     helpmessage+="**Apple SSO**: Not Registered<br>"
     appleSSOStatus=2
     appleSSOStatusVerbose="Registration Not Completed"
+    logMe "Apple SSO Status: ${appleSSOStatusVerbose}"
     return 0
   fi
   # Apple shows registered, so lets see what state it is in
@@ -462,7 +463,12 @@ function construct_messagebody ()
       action="registerSSO"
       ;;
     2:0 ) ;;
-    2:1 ) ;;
+    2:1 )
+      messagebody+="Problem with SSO!  It appears that you are not properly registered with the Apple SSO. <br><br>When the next window appears, click on 'Edit...' next to the 'Network Account Server' section and then click on 'Register (or Repair) buton to re-register. <br><br>Please click on the 'Register with SSO' below to start."
+      messageimage="warning"
+      action="registerSSO"
+      ;;
+      
     2:2 ) ;;
 
     "WPJ Key present, JamfAAD PLIST missing" )
