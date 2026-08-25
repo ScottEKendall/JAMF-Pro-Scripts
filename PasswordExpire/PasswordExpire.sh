@@ -6,7 +6,7 @@
 # Purpose: Provide user notifications of a password expiration.
 #
 # Created: 04/18/2024
-# Last updated: 04/01/2026
+# Last updated: 08/25/2026
 #
 # 1.0 - Initial Release
 # 1.1 - Major code cleanup & documentation
@@ -25,6 +25,7 @@
 # 1.8 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 # 2.0 - Updated SD Version requirements to 3.1.0
 #       Added ability to set subtitle, color, and padding from defaults file
+# 2.1 - Added support to show a notification if the password is expired (PASSWORD_EXPIRE_IN_DAYS days or more)
 #
 # Expected Parameters: 
 # $4 - Password Expiration in Days
@@ -320,7 +321,11 @@ fi
 passwordAge=$(get_password_info)
 logMe "INFO: Users password age is: "$passwordAge
 
-if [[ ${passwordAge} -le 8 && ${PASSWORD_CHECK:l} == "no" ]]; then
+if [[ ${passwordAge} -le 0 ]]; then
+    SD_WELCOME_MSG="According to the server, your password has expired $((PASSWORD_EXPIRE_IN_DAYS - passwordAge)) days ago.  Please click on the 'Unlock / Reset Network Password...' option in **JAMF Connect** to change your password."
+    logMe "INFO: Display prompt for user that password has expired $((PASSWORD_EXPIRE_IN_DAYS - passwordAge)) days ago."
+    display_msg
+ elif [[ ${passwordAge} -le 8 && ${PASSWORD_CHECK:l} == "no" ]]; then
     SD_WELCOME_MSG="Your are receiving this notice because your password is about to expire within the next ${passwordAge} days.  You can click on the 'Unlock / Reset Network Password...' option in **JAMF Connect** to change your password.  You will receive further notices when your password is about to expire within the next 7 days."
     logMe "INFO: Display prompt for user that password will expire in ${passwordAge} days"
     display_msg

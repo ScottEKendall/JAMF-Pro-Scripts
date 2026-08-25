@@ -40,4 +40,6 @@ v1.2 adds the option to view your password days until expiration "on demand" so 
 | 1.8 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 | 2.0 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.1 | Added support to show a notification if the password is expired (PASSWORD_EXPIRE_IN_DAYS days or more)
+
 
