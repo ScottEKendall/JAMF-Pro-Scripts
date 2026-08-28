@@ -112,6 +112,24 @@ If you have any ideas/suggestions on how to improve the DDM reporting ability, p
 ||      Significant rework of logic to determine valid, invalid or unknown deployments
 | 1.0RC5 | Fixed issue of failed blueprints not returning correct results when doing a blueprint scan
 ||       Added option for cross reference file so you can associate Blueprint IDs to Names and it will show the name results during scans
+| 1.0RC6 | Added extensive logging and comments
+||       Added centralized cleanup traps
+||       Added thread-safe CSV writes
+||       Added thread-safe SwiftDialog command writes
+||       Added background worker failure tracking
+||       Added reliable dialog process waiting
+||       Added HTTP and JSON validation for DDM API calls
+||       Added Force Sync support
+||       Added Blueprint friendly-name cross-reference support
+||       Added Failed, Invalid, Active, Inactive, Conditional, and Not Found result classifications
+||       Added result-specific Blueprint filtering
+||       Added display-only-matching behavior
+||       Added consistent CSV and display classifications
+||       Added CSV field escaping
+||       Improved Jamf group dropdown construction
+||       Corrected initial SwiftDialog list-item status values
+||       Prevented empty progress commands during list updates
+||       Improved handling of missing DDM data and management IDs
 
 
 
