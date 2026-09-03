@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 08/26/2026
+# Last updated: 09/01/2026
 #
 # Script Purpose: Retrieve the DDM info for Jamf devices
 #
@@ -420,7 +420,6 @@ trap 'cleanup_and_exit 130' INT
 trap 'cleanup_and_exit 143' TERM
 trap 'cleanup_files' EXIT
 
-
 function check_for_sudo ()
 {
 	# Ensures that script is run as ROOT
@@ -630,7 +629,6 @@ function construct_dialog_header_settings ()
         "quitkey" : "0",
         "messageposition" : "top",'
 }
-
 
 function create_listitem_list ()
 {
