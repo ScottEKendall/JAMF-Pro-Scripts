@@ -118,10 +118,10 @@ Blueprint names will automatically appear throughout reports and device views.
 
 Retrieve DDM software update information including:
 
-Pending Updates
-Install Status
-Failure Reasons
-Failure Timestamps
+* Pending Updates
+* Install Status
+* Failure Reasons
+* Failure Timestamps
 
 This provides significantly more visibility than traditional MDM command reporting.
 
