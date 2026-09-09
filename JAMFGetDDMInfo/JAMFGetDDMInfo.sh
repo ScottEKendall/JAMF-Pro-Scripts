@@ -78,7 +78,7 @@
 #
 ######################################################################################################
 #set -x
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
 umask 022
 typeset -g DIALOG_PROCESS=""
 MAIN_PID=$$
@@ -97,6 +97,11 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="3.1.0"
+
+# jq requirements
+
+JQ_BINARY="/usr/local/bin/jq"
+MIN_JQ_REQUIRED_VERSION="1.6"
 HOUR=$(date +%H)
 case $HOUR in
     0[0-9]|1[0-1]) GREET="morning" ;;
@@ -111,16 +116,101 @@ SD_DIALOG_GREETING="Good $GREET"
 #
 ###################################################
 
-# See if there is a "defaults" file...if so, read in the contents
-DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-echo "Setting Default values"
-SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles 2>/dev/null) || SUPPORT_DIR="/Library/Application Support/GiantEagle"
-SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage 2>/dev/null) || SD_BANNER_IMAGE="GE_SD_BannerImage.png"
-BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding 2>/dev/null) || BANNER_TEXT_PADDING=10
-BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle 2>/dev/null) || BANNER_SUBTITLE=""
-BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor 2>/dev/null) || BANNER_TEXT_COLOR="white"
+# Configuration is resolved in this order, highest priority first:
+#
+#   1. An environment variable      SUPPORT_DIR="/path" ./JAMFGetDDMInfo.sh ...
+#   2. A key in the managed preference domain located below
+#   3. The built-in default listed in this block
+#
+# To run against a different tenant, either export SCRIPT_DEFAULTS_DOMAIN (a domain
+# name or a full plist path) or add that tenant's domain to the candidate list below.
+# The first candidate that exists on disk wins.
 
-[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+typeset -ga DEFAULTS_DOMAIN_CANDIDATES=(
+    "com.gianteaglescript.defaults"
+)
+
+function locate_defaults_domain ()
+{
+    # Find the managed preference plist to read configuration from.
+    #
+    # PARMS Expected: SCRIPT_DEFAULTS_DOMAIN (optional), DEFAULTS_DOMAIN_CANDIDATES
+    #
+    # RETURN: prints the plist path, 1 if no candidate exists
+
+    local candidate plist
+
+    for candidate in ${SCRIPT_DEFAULTS_DOMAIN:+"$SCRIPT_DEFAULTS_DOMAIN"} "${DEFAULTS_DOMAIN_CANDIDATES[@]}"; do
+
+        [[ -n "$candidate" ]] || continue
+
+        # A candidate may be a full plist path or a bare domain name
+
+        if [[ "$candidate" == /* ]]; then
+            [[ -r "$candidate" ]] && { print -r -- "$candidate" ; return 0 ; }
+            continue
+        fi
+
+        for plist in "/Library/Managed Preferences/${candidate}.plist" "/Library/Preferences/${candidate}.plist"; do
+            [[ -r "$plist" ]] && { print -r -- "$plist" ; return 0 ; }
+        done
+    done
+
+    return 1
+}
+
+function read_config ()
+{
+    # Resolve one configuration value: environment override, then managed preference,
+    # then the built-in default. An empty preference value is treated as unset, which
+    # a bare "defaults read" exit-status check does not catch.
+    #
+    # PARMS Expected: $1 - preference key, $2 - environment variable name, $3 - default
+    #
+    # RETURN: prints the resolved value
+
+    local key="$1" env_var="$2" fallback="$3" value
+
+    value="${(P)env_var}"
+    [[ -n "$value" ]] && { print -r -- "$value" ; return 0 ; }
+
+    if [[ -n "$DEFAULTS_DIR" ]]; then
+        value=$(defaults read "$DEFAULTS_DIR" "$key" 2>/dev/null)
+        [[ -n "$value" ]] && { print -r -- "$value" ; return 0 ; }
+    fi
+
+    print -r -- "$fallback"
+    return 0
+}
+
+# See if there is a "defaults" file...if so, read in the contents
+DEFAULTS_DIR=$(locate_defaults_domain) || DEFAULTS_DIR=""
+echo "Setting Default values"
+SUPPORT_DIR=$(read_config SupportFiles SUPPORT_DIR "/Library/Application Support/GiantEagle")
+SD_BANNER_IMAGE=$(read_config BannerImage SD_BANNER_IMAGE "GE_SD_BannerImage.png")
+BANNER_TEXT_PADDING=$(read_config BannerPadding BANNER_TEXT_PADDING 10)
+BANNER_SUBTITLE=$(read_config BannerSubtitle BANNER_SUBTITLE "")
+BANNER_TEXT_COLOR=$(read_config TitleFontColor BANNER_TEXT_COLOR "white")
+
+# Used when the banner image cannot be found. swiftDialog 3.1.0 and later accept a
+# colour or gradient in place of a file, so the window keeps a branded banner bar
+# instead of a blank strip. check_swift_dialog_install already enforces 3.1.0.
+#
+#   gradient=<colour>,<colour>[,...][:angle=<degrees>]   0 = bottom-to-top,
+#                                                        90 = left-to-right (default),
+#                                                        180 = top-to-bottom
+#   colour=<name|#hex>[,nogradient]                      "accent" tracks the system accent
+#
+# Set BannerFallback to "none" to keep the missing-file behaviour instead.
+
+SD_BANNER_FALLBACK=$(read_config BannerFallback SD_BANNER_FALLBACK "gradient=#1f2933,#3e5c76:angle=135")
+[[ "${SD_BANNER_FALLBACK:l}" == (none|off) ]] && SD_BANNER_FALLBACK=""
+
+# Resolve a bare filename against the support directory, whether or not the file is
+# present yet, so later existence checks test the real location instead of the CWD.
+# Absolute paths, URLs and swiftDialog colour/gradient specs are left alone.
+
+[[ "$SD_BANNER_IMAGE" == (/*|http://*|https://*|colour=*|color=*|gradient=*) ]] || SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
 
 # Log files location
 
@@ -133,9 +223,24 @@ SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_aut
 OVERLAY_ICON="SF=list.bullet.circle,color=orange,weight=heavy,bgcolor=none"
 #OVERLAY_ICON="/System/Applications/App Store.app"
 
-SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
-DIALOG_INSTALL_POLICY="install_SwiftDialog"
-JQ_INSTALL_POLICY="install_jq"
+# Policy triggers used to fetch support files and dependencies. These are tenant
+# specific -- override them the same way as everything else in the block above.
+
+SUPPORT_FILE_INSTALL_POLICY=$(read_config SupportFilePolicy SUPPORT_FILE_INSTALL_POLICY "install_SymFiles")
+DIALOG_INSTALL_POLICY=$(read_config DialogInstallPolicy DIALOG_INSTALL_POLICY "install_SwiftDialog")
+JQ_INSTALL_POLICY=$(read_config JQInstallPolicy JQ_INSTALL_POLICY "install_jq")
+
+# Setting the support-file trigger to "none" skips the policy entirely, for tenants that
+# ship the banner by other means. The dialog and jq triggers are fallback installers and
+# are always attempted, so they have no equivalent opt-out.
+
+[[ "${SUPPORT_FILE_INSTALL_POLICY:l}" == (none|off) ]] && SUPPORT_FILE_INSTALL_POLICY=""
+
+# Jamf Pro server to query. Left empty by default, in which case the script falls back to
+# the server this Mac is enrolled with. Set JamfProURL here, or pass script parameter 6,
+# to point the script at a test tenant or run it from a Mac enrolled somewhere else.
+
+JAMF_PRO_URL=$(read_config JamfProURL JAMF_PRO_URL "")
 
 # Multitasking items
 
@@ -211,7 +316,7 @@ function check_swift_dialog_install ()
         fi
     fi
 
-    if ! SD_VERSION=$("$SW_DIALOG" --version ); then #2>/dev/null); then
+    if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
         logMe "ERROR: Unable to determine SwiftDialog version." >&2
         return 1
     fi
@@ -246,35 +351,278 @@ function check_swift_dialog_install ()
 
 function install_swift_dialog ()
 {
-    # Install Swift dialog From Jamf
+    # Install / update SwiftDialog directly from the swiftDialog GitHub releases page,
+    # falling back to the Jamf policy trigger if the direct download cannot be verified.
+    #
+    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from Jamf (fallback only)
+    #
+    # RETURN: 0 on success, 1 on failure
+
+    local EXPECTED_TEAM_ID="PWA5E9TQ59"
+    local DIALOG_URL TEMP_DIR TEAM_ID
+
+    DIALOG_URL=$(/usr/bin/curl -L --silent --fail "https://api.github.com/repos/swiftDialog/swiftDialog/releases/latest" 2>/dev/null | \
+        /usr/bin/awk -F '"' '/browser_download_url/ && /pkg"/ { print $4; exit }')
+
+    if [[ -z "$DIALOG_URL" ]]; then
+        logMe "WARNING: Unable to determine the latest SwiftDialog download URL; falling back to Jamf policy." >&2
+        install_swift_dialog_from_jamf
+        return $?
+    fi
+
+    TEMP_DIR=$(/usr/bin/mktemp -d "/private/tmp/${SCRIPT_NAME}.dialog.XXXXXX") || {
+        logMe "ERROR: Unable to create a temporary directory for the SwiftDialog installer." >&2
+        return 1
+    }
+
+    logMe "Downloading SwiftDialog from ${DIALOG_URL}"
+
+    if ! /usr/bin/curl --location --silent --fail "$DIALOG_URL" -o "${TEMP_DIR}/Dialog.pkg"; then
+        logMe "WARNING: SwiftDialog download failed; falling back to Jamf policy." >&2
+        /bin/rm -Rf "$TEMP_DIR"
+        install_swift_dialog_from_jamf
+        return $?
+    fi
+
+    # Verify the package is signed by the expected developer before installing it
+
+    TEAM_ID=$(/usr/sbin/spctl -a -vv -t install "${TEMP_DIR}/Dialog.pkg" 2>&1 | /usr/bin/awk '/origin=/ {print $NF}' | /usr/bin/tr -d '()')
+
+    if [[ "$TEAM_ID" != "$EXPECTED_TEAM_ID" ]]; then
+        logMe "ERROR: SwiftDialog package Team ID '${TEAM_ID}' does not match expected '${EXPECTED_TEAM_ID}'; not installing." >&2
+        /bin/rm -Rf "$TEMP_DIR"
+        install_swift_dialog_from_jamf
+        return $?
+    fi
+
+    if ! /usr/sbin/installer -pkg "${TEMP_DIR}/Dialog.pkg" -target / >/dev/null 2>&1; then
+        logMe "ERROR: SwiftDialog installer failed." >&2
+        /bin/rm -Rf "$TEMP_DIR"
+        return 1
+    fi
+
+    /bin/rm -Rf "$TEMP_DIR"
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "ERROR: SwiftDialog installed but ${SW_DIALOG} is missing." >&2
+        return 1
+    fi
+
+    logMe "SwiftDialog installed successfully."
+    return 0
+}
+
+function install_swift_dialog_from_jamf ()
+{
+    # Fallback installer: use the Jamf policy trigger
+    #
     # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from Jamf
     #
-    # RETURN: None
+    # RETURN: 0 if the dialog binary is present afterwards, 1 if not
 
-	/usr/local/bin/jamf policy -event "${DIALOG_INSTALL_POLICY}"
+    [[ -x /usr/local/bin/jamf ]] || { logMe "ERROR: jamf binary not found; cannot install SwiftDialog." >&2 ; return 1; }
+
+    logMe "Attempting SwiftDialog install via Jamf policy '${DIALOG_INSTALL_POLICY}'"
+    /usr/local/bin/jamf policy -event "${DIALOG_INSTALL_POLICY}"
+
+    [[ -x "$SW_DIALOG" ]] || { logMe "ERROR: SwiftDialog still missing after Jamf policy run." >&2 ; return 1; }
+    return 0
 }
 
 function check_support_files ()
 {
-    if [[ ! -e "$SD_BANNER_IMAGE" ]] && [[ "$SD_BANNER_IMAGE" =~ \.(jpg|png|heic)$ ]]; then
-        if ! /usr/local/bin/jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"
-        then
+    # Only reach for the Jamf policy when a support-file install could actually supply the
+    # banner: it has to be a local image path that is missing, and jamf has to be present.
+
+    if [[ "$SD_BANNER_IMAGE" == /* ]] && [[ ! -e "$SD_BANNER_IMAGE" ]] && [[ "$SD_BANNER_IMAGE" =~ \.(jpg|png|heic)$ ]]; then
+
+        if [[ -z "$SUPPORT_FILE_INSTALL_POLICY" ]]; then
+            logMe "${SD_BANNER_IMAGE} is missing and no support-file policy is configured."
+        elif [[ ! -x /usr/local/bin/jamf ]]; then
+            logMe "WARNING: ${SD_BANNER_IMAGE} is missing and the jamf binary is unavailable." >&2
+        elif ! /usr/local/bin/jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"; then
             logMe "WARNING: Support-file installation failed." >&2
+        elif [[ ! -e "$SD_BANNER_IMAGE" ]]; then
+            logMe "WARNING: ${SD_BANNER_IMAGE} is still missing after the '${SUPPORT_FILE_INSTALL_POLICY}' policy." >&2
+        fi
+
+        # Nothing supplied the image, so fall back to a colour/gradient banner rather
+        # than handing swiftDialog a path that is not there.
+
+        if [[ ! -e "$SD_BANNER_IMAGE" ]] && [[ -n "$SD_BANNER_FALLBACK" ]]; then
+            logMe "Falling back to the '${SD_BANNER_FALLBACK}' banner."
+            SD_BANNER_IMAGE="$SD_BANNER_FALLBACK"
         fi
     fi
 
+    if ! check_jq_install; then
+        return 1
+    fi
+
+    return 0
+}
+
+function check_jq_install ()
+{
+    # Ensure a usable jq is present, installing or updating it if required.
+    # Every jq call site in this script uses a bare "jq", so it must be on PATH.
+    #
+    # RETURN: 0 if jq is available and current, 1 if not
+
+    local JQ_VERSION
+
+    logMe "Ensuring that jq is installed..."
+
     if ! command -v jq >/dev/null 2>&1; then
-        if ! /usr/local/bin/jamf policy -event "$JQ_INSTALL_POLICY"; then
-            logMe "ERROR: jq installation policy failed." >&2
+        logMe "jq is missing. Attempting installation."
+
+        if ! install_jq || ! command -v jq >/dev/null 2>&1; then
+            logMe "ERROR: jq installation failed." >&2
             return 1
         fi
     fi
 
-    if ! command -v jq >/dev/null 2>&1; then
-        logMe "ERROR: jq remains unavailable after installation." >&2
+    # jq reports itself as "jq-1.8.2" -- strip the prefix before comparing
+
+    JQ_VERSION=$(jq --version 2>/dev/null)
+    JQ_VERSION="${JQ_VERSION#jq-}"
+
+    if [[ -z "$JQ_VERSION" ]]; then
+        logMe "ERROR: Unable to determine the installed jq version." >&2
         return 1
     fi
 
+    if ! is-at-least "$MIN_JQ_REQUIRED_VERSION" "$JQ_VERSION"; then
+        logMe "jq ${JQ_VERSION} is outdated. Attempting update."
+
+        if ! install_jq; then
+            logMe "ERROR: jq update failed." >&2
+            return 1
+        fi
+
+        JQ_VERSION=$(jq --version 2>/dev/null)
+        JQ_VERSION="${JQ_VERSION#jq-}"
+
+        if ! is-at-least "$MIN_JQ_REQUIRED_VERSION" "$JQ_VERSION"; then
+            logMe "ERROR: jq remains below the required version ${MIN_JQ_REQUIRED_VERSION}." >&2
+            return 1
+        fi
+    fi
+
+    logMe "jq version ${JQ_VERSION} is available."
+    return 0
+}
+
+function install_jq ()
+{
+    # Install / update jq directly from the jqlang GitHub releases page, falling back to
+    # the Jamf policy trigger if the download cannot be completed or verified.
+    #
+    # The published macOS jq binaries are ad-hoc (linker) signed with no Developer ID, so a
+    # Team ID check is not possible the way it is for SwiftDialog. Each release does publish a
+    # sha256sum.txt, so the download is verified against that instead.
+    #
+    # PARMS Expected: JQ_INSTALL_POLICY - policy trigger from Jamf (fallback only)
+    #
+    # RETURN: 0 on success, 1 on failure
+
+    local ASSET_NAME TEMP_DIR RELEASE_JSON JQ_URL SHA_URL EXPECTED_SHA ACTUAL_SHA
+
+    case "$(/usr/bin/uname -m)" in
+        arm64)  ASSET_NAME="jq-macos-arm64" ;;
+        x86_64) ASSET_NAME="jq-macos-amd64" ;;
+        *)
+            logMe "WARNING: Unrecognised architecture; falling back to Jamf policy for jq." >&2
+            install_jq_from_jamf
+            return $?
+            ;;
+    esac
+
+    RELEASE_JSON=$(/usr/bin/curl -L --silent --fail "https://api.github.com/repos/jqlang/jq/releases/latest" 2>/dev/null)
+
+    JQ_URL=$(printf '%s' "$RELEASE_JSON" | /usr/bin/awk -F '"' -v asset="$ASSET_NAME" '$0 ~ ("browser_download_url") && $4 ~ (asset "$") { print $4; exit }')
+    SHA_URL=$(printf '%s' "$RELEASE_JSON" | /usr/bin/awk -F '"' '/browser_download_url/ && /sha256sum\.txt"/ { print $4; exit }')
+
+    if [[ -z "$JQ_URL" || -z "$SHA_URL" ]]; then
+        logMe "WARNING: Unable to determine the latest jq download URL; falling back to Jamf policy." >&2
+        install_jq_from_jamf
+        return $?
+    fi
+
+    TEMP_DIR=$(/usr/bin/mktemp -d "/private/tmp/${SCRIPT_NAME}.jq.XXXXXX") || {
+        logMe "ERROR: Unable to create a temporary directory for the jq download." >&2
+        return 1
+    }
+
+    logMe "Downloading jq from ${JQ_URL}"
+
+    if ! /usr/bin/curl --location --silent --fail "$JQ_URL" -o "${TEMP_DIR}/jq" || \
+       ! /usr/bin/curl --location --silent --fail "$SHA_URL" -o "${TEMP_DIR}/sha256sum.txt"; then
+        logMe "WARNING: jq download failed; falling back to Jamf policy." >&2
+        /bin/rm -Rf "$TEMP_DIR"
+        install_jq_from_jamf
+        return $?
+    fi
+
+    # Verify the download against the checksum published with the release
+
+    EXPECTED_SHA=$(/usr/bin/awk -v asset="$ASSET_NAME" '$2 == asset { print $1; exit }' "${TEMP_DIR}/sha256sum.txt")
+    ACTUAL_SHA=$(/usr/bin/shasum -a 256 "${TEMP_DIR}/jq" | /usr/bin/awk '{print $1}')
+
+    if [[ -z "$EXPECTED_SHA" || "$EXPECTED_SHA" != "$ACTUAL_SHA" ]]; then
+        logMe "ERROR: jq checksum mismatch (expected '${EXPECTED_SHA}', got '${ACTUAL_SHA}'); not installing." >&2
+        /bin/rm -Rf "$TEMP_DIR"
+        install_jq_from_jamf
+        return $?
+    fi
+
+    if ! /bin/mkdir -p "$(/usr/bin/dirname "$JQ_BINARY")"; then
+        logMe "ERROR: Unable to create $(/usr/bin/dirname "$JQ_BINARY")" >&2
+        /bin/rm -Rf "$TEMP_DIR"
+        return 1
+    fi
+
+    if ! /bin/mv -f "${TEMP_DIR}/jq" "$JQ_BINARY"; then
+        logMe "ERROR: Unable to install jq to ${JQ_BINARY}" >&2
+        /bin/rm -Rf "$TEMP_DIR"
+        return 1
+    fi
+
+    /usr/sbin/chown root:wheel "$JQ_BINARY" 2>/dev/null
+    /bin/chmod 755 "$JQ_BINARY"
+    /usr/bin/xattr -d com.apple.quarantine "$JQ_BINARY" 2>/dev/null
+
+    /bin/rm -Rf "$TEMP_DIR"
+
+    if ! "$JQ_BINARY" --version >/dev/null 2>&1; then
+        logMe "ERROR: jq installed to ${JQ_BINARY} but will not execute." >&2
+        return 1
+    fi
+
+    # zsh caches command lookups; clear it so the new binary is found on PATH
+
+    rehash
+
+    logMe "jq installed successfully to ${JQ_BINARY}."
+    return 0
+}
+
+function install_jq_from_jamf ()
+{
+    # Fallback installer: use the Jamf policy trigger
+    #
+    # PARMS Expected: JQ_INSTALL_POLICY - policy trigger from Jamf
+    #
+    # RETURN: 0 if jq is on PATH afterwards, 1 if not
+
+    [[ -x /usr/local/bin/jamf ]] || { logMe "ERROR: jamf binary not found; cannot install jq." >&2 ; return 1; }
+
+    logMe "Attempting jq install via Jamf policy '${JQ_INSTALL_POLICY}'"
+    /usr/local/bin/jamf policy -event "${JQ_INSTALL_POLICY}"
+
+    rehash
+
+    command -v jq >/dev/null 2>&1 || { logMe "ERROR: jq still missing after Jamf policy run." >&2 ; return 1; }
     return 0
 }
 
@@ -855,22 +1203,158 @@ function Jamf_check_connection ()
     # RETURN: None
     # EXPECTED: None
 
-    if ! /usr/local/bin/jamf -checkjssconnection -retry 5; then
-        logMe "Error: JSS connection not active."
+    # The jamf binary only ever checks the server this Mac is enrolled with, so it can
+    # answer for us only when that is also the server we are about to query.
+
+    if [[ "$JAMF_URL_SOURCE" == "enrolled" ]]; then
+
+        if ! /usr/local/bin/jamf -checkjssconnection -retry 5; then
+            logMe "Error: JSS connection not active."
+            return 1
+        fi
+
+        logMe "JSS connection active!"
+        return 0
+    fi
+
+    local http_status
+
+    http_status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "${jamfpro_url}/api/v1/jamf-pro-version" 2>/dev/null)
+
+    # 401 is a healthy answer here -- the endpoint requires a token we do not have yet
+
+    if [[ "$http_status" == "200" || "$http_status" == "401" ]]; then
+        logMe "Jamf Pro server at ${jamfpro_url} is reachable."
+        return 0
+    fi
+
+    logMe "ERROR: No Jamf Pro server responded at ${jamfpro_url} (HTTP ${http_status:-none})." >&2
+    return 1
+}
+
+function normalize_jamf_url ()
+{
+    # Tidy up a URL that may have been typed or pasted by hand.
+    #
+    # PARMS Expected: $1 - the URL to clean up
+    #
+    # RETURN: prints the normalised URL, 1 if it is not usable
+
+    setopt localoptions extendedglob
+
+    local url="$1"
+
+    # Trim surrounding whitespace only -- internal spaces mean it is not a URL at all
+
+    url="${url##[[:space:]]#}"
+    url="${url%%[[:space:]]#}"
+
+    [[ -n "$url" ]] || return 1
+
+    # A bare hostname is the usual shorthand, so assume https rather than rejecting it
+
+    [[ "$url" == (http://*|https://*) ]] || url="https://${url}"
+
+    url="${url%%\?*}"
+    url="${url%%\#*}"
+
+    while [[ "$url" == */ ]]; do
+        url="${url%/}"
+    done
+
+    [[ "$url" =~ '^https?://[A-Za-z0-9._-]+(:[0-9]+)?(/.*)?$' ]] || return 1
+
+    print -r -- "$url"
+    return 0
+}
+
+function prompt_for_jamf_url ()
+{
+    # Last resort when nothing else supplies a URL and the Mac is not enrolled.
+    #
+    # RETURN: prints the URL entered, 1 if cancelled or left blank
+
+    local dialog_output buttonpress url
+
+    MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
+        --icon "${SD_ICON_FILE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --overlayicon "${OVERLAY_ICON}"
+        --iconsize 128
+        --infotext "$SCRIPT_VERSION"
+        --message "**Jamf Pro server**<br><br>This Mac is not enrolled with a Jamf Pro server and no Jamf Pro URL has been configured.<br><br>Enter the URL of the server you want to query."
+        --messagefont name=Arial,size=17
+        --textfield "Jamf Pro URL",name=JamfURL,required,prompt="your-instance.jamfcloud.com"
+        --button1text "Continue"
+        --button2text "Cancel"
+        --ontop
+        --height 340
+        --json
+        --moveable
+    )
+
+    dialog_output=$("$SW_DIALOG" "${MainDialogBody[@]}" 2>/dev/null)
+    buttonpress=$?
+
+    if (( buttonpress != 0 )); then
+        logMe "Jamf Pro URL prompt cancelled by the user." >&2
         return 1
     fi
-    logMe "JSS connection active!"
+
+    url=$(jq -r '.JamfURL // empty' <<< "$dialog_output")
+
+    [[ -n "$url" ]] || { logMe "ERROR: No Jamf Pro URL was entered." >&2 ; return 1 ; }
+
+    print -r -- "$url"
     return 0
 }
 
 function Jamf_get_server ()
 {
-    jamfpro_url=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url) || {
-        logMe "ERROR: Unable to read Jamf Pro URL" >&2
+    # Work out which Jamf Pro server to query. An explicit setting beats the server this
+    # Mac happens to be enrolled with, so the script is not tied to one instance.
+    #
+    # PARMS Expected: JAMF_URL_PARAMETER (script parameter 6), JAMF_PRO_URL (env / managed pref)
+    #
+    # RETURN: 0 with jamfpro_url and JAMF_URL_SOURCE set, 1 if no usable URL was found
+
+    local candidate
+
+    JAMF_URL_SOURCE="override"
+
+    if [[ -n "$JAMF_URL_PARAMETER" ]]; then
+
+        candidate="$JAMF_URL_PARAMETER"
+        logMe "Using the Jamf Pro URL passed as script parameter 6."
+
+    elif [[ -n "$JAMF_PRO_URL" ]]; then
+
+        candidate="$JAMF_PRO_URL"
+        logMe "Using the configured Jamf Pro URL."
+
+    elif candidate=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url 2>/dev/null) && [[ -n "$candidate" ]]; then
+
+        JAMF_URL_SOURCE="enrolled"
+        logMe "Using the Jamf Pro URL this Mac is enrolled with."
+
+    else
+
+        logMe "No Jamf Pro URL is configured and this Mac is not enrolled."
+
+        candidate=$(prompt_for_jamf_url) || return 1
+    fi
+
+    if ! jamfpro_url=$(normalize_jamf_url "$candidate"); then
+        logMe "ERROR: '${candidate}' is not a usable Jamf Pro URL." >&2
         return 1
-    }
-    jamfpro_url="${jamfpro_url%/}"
+    fi
+
     logMe "Jamf Pro server is: $jamfpro_url"
+    return 0
 }
 
 function Jamf_get_classic_api_token ()
@@ -1293,7 +1777,8 @@ function Jamf_get_deviceID ()
         printf '%s\n' "$id"
         return 0
 
-    } always {rm -f -- "$response_file"
+    } always {
+        rm -f -- "$response_file"
     }
 }
 
@@ -3235,7 +3720,7 @@ function welcomemsg_forcesync ()
 # Main Script
 #
 ####################################################################################################
-autoload 'is-at-least'
+autoload -Uz is-at-least
 zmodload zsh/parameter
 
 typeset -g api_token
@@ -3262,6 +3747,8 @@ typeset -g CSV_PATH=""
 typeset -g Jamf_PARAMETER_USER="${3:-}"
 typeset -g CLIENT_ID="${4:-}"
 typeset -g CLIENT_SECRET="${5:-}"
+typeset -g JAMF_URL_PARAMETER="${6:-}"
+typeset -g JAMF_URL_SOURCE=""
 typeset -g CSV_OUTPUT=""
 typeset -g RESULTS_DIR=""
 typeset -g blueprintID=""
@@ -3300,15 +3787,18 @@ fi
 
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with Jamf credentials we are using
 create_infobox_message
+
+# Resolve the server first -- the connection check needs to know what to test
+
+if ! Jamf_get_server; then
+    cleanup_and_exit 1
+fi
+
 if ! Jamf_check_connection; then
     cleanup_and_exit 1
 fi
 
 if ! Jamf_check_credentials; then
-    cleanup_and_exit 1
-fi
-
-if ! Jamf_get_server; then
     cleanup_and_exit 1
 fi
 OVERLAY_ICON=$(Jamf_which_self_service)
