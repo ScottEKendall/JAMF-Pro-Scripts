@@ -236,6 +236,12 @@ JQ_INSTALL_POLICY=$(read_config JQInstallPolicy JQ_INSTALL_POLICY "install_jq")
 
 [[ "${SUPPORT_FILE_INSTALL_POLICY:l}" == (none|off) ]] && SUPPORT_FILE_INSTALL_POLICY=""
 
+# Jamf Pro server to query. Left empty by default, in which case the script falls back to
+# the server this Mac is enrolled with. Set JamfProURL here, or pass script parameter 6,
+# to point the script at a test tenant or run it from a Mac enrolled somewhere else.
+
+JAMF_PRO_URL=$(read_config JamfProURL JAMF_PRO_URL "")
+
 # Multitasking items
 
 BACKGROUND_TASKS=10                 # Number of background tasks to run in parallel
@@ -1197,22 +1203,158 @@ function Jamf_check_connection ()
     # RETURN: None
     # EXPECTED: None
 
-    if ! /usr/local/bin/jamf -checkjssconnection -retry 5; then
-        logMe "Error: JSS connection not active."
+    # The jamf binary only ever checks the server this Mac is enrolled with, so it can
+    # answer for us only when that is also the server we are about to query.
+
+    if [[ "$JAMF_URL_SOURCE" == "enrolled" ]]; then
+
+        if ! /usr/local/bin/jamf -checkjssconnection -retry 5; then
+            logMe "Error: JSS connection not active."
+            return 1
+        fi
+
+        logMe "JSS connection active!"
+        return 0
+    fi
+
+    local http_status
+
+    http_status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 "${jamfpro_url}/api/v1/jamf-pro-version" 2>/dev/null)
+
+    # 401 is a healthy answer here -- the endpoint requires a token we do not have yet
+
+    if [[ "$http_status" == "200" || "$http_status" == "401" ]]; then
+        logMe "Jamf Pro server at ${jamfpro_url} is reachable."
+        return 0
+    fi
+
+    logMe "ERROR: No Jamf Pro server responded at ${jamfpro_url} (HTTP ${http_status:-none})." >&2
+    return 1
+}
+
+function normalize_jamf_url ()
+{
+    # Tidy up a URL that may have been typed or pasted by hand.
+    #
+    # PARMS Expected: $1 - the URL to clean up
+    #
+    # RETURN: prints the normalised URL, 1 if it is not usable
+
+    setopt localoptions extendedglob
+
+    local url="$1"
+
+    # Trim surrounding whitespace only -- internal spaces mean it is not a URL at all
+
+    url="${url##[[:space:]]#}"
+    url="${url%%[[:space:]]#}"
+
+    [[ -n "$url" ]] || return 1
+
+    # A bare hostname is the usual shorthand, so assume https rather than rejecting it
+
+    [[ "$url" == (http://*|https://*) ]] || url="https://${url}"
+
+    url="${url%%\?*}"
+    url="${url%%\#*}"
+
+    while [[ "$url" == */ ]]; do
+        url="${url%/}"
+    done
+
+    [[ "$url" =~ '^https?://[A-Za-z0-9._-]+(:[0-9]+)?(/.*)?$' ]] || return 1
+
+    print -r -- "$url"
+    return 0
+}
+
+function prompt_for_jamf_url ()
+{
+    # Last resort when nothing else supplies a URL and the Mac is not enrolled.
+    #
+    # RETURN: prints the URL entered, 1 if cancelled or left blank
+
+    local dialog_output buttonpress url
+
+    MainDialogBody=(
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
+        --icon "${SD_ICON_FILE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --overlayicon "${OVERLAY_ICON}"
+        --iconsize 128
+        --infotext "$SCRIPT_VERSION"
+        --message "**Jamf Pro server**<br><br>This Mac is not enrolled with a Jamf Pro server and no Jamf Pro URL has been configured.<br><br>Enter the URL of the server you want to query."
+        --messagefont name=Arial,size=17
+        --textfield "Jamf Pro URL",name=JamfURL,required,prompt="your-instance.jamfcloud.com"
+        --button1text "Continue"
+        --button2text "Cancel"
+        --ontop
+        --height 340
+        --json
+        --moveable
+    )
+
+    dialog_output=$("$SW_DIALOG" "${MainDialogBody[@]}" 2>/dev/null)
+    buttonpress=$?
+
+    if (( buttonpress != 0 )); then
+        logMe "Jamf Pro URL prompt cancelled by the user." >&2
         return 1
     fi
-    logMe "JSS connection active!"
+
+    url=$(jq -r '.JamfURL // empty' <<< "$dialog_output")
+
+    [[ -n "$url" ]] || { logMe "ERROR: No Jamf Pro URL was entered." >&2 ; return 1 ; }
+
+    print -r -- "$url"
     return 0
 }
 
 function Jamf_get_server ()
 {
-    jamfpro_url=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url) || {
-        logMe "ERROR: Unable to read Jamf Pro URL" >&2
+    # Work out which Jamf Pro server to query. An explicit setting beats the server this
+    # Mac happens to be enrolled with, so the script is not tied to one instance.
+    #
+    # PARMS Expected: JAMF_URL_PARAMETER (script parameter 6), JAMF_PRO_URL (env / managed pref)
+    #
+    # RETURN: 0 with jamfpro_url and JAMF_URL_SOURCE set, 1 if no usable URL was found
+
+    local candidate
+
+    JAMF_URL_SOURCE="override"
+
+    if [[ -n "$JAMF_URL_PARAMETER" ]]; then
+
+        candidate="$JAMF_URL_PARAMETER"
+        logMe "Using the Jamf Pro URL passed as script parameter 6."
+
+    elif [[ -n "$JAMF_PRO_URL" ]]; then
+
+        candidate="$JAMF_PRO_URL"
+        logMe "Using the configured Jamf Pro URL."
+
+    elif candidate=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url 2>/dev/null) && [[ -n "$candidate" ]]; then
+
+        JAMF_URL_SOURCE="enrolled"
+        logMe "Using the Jamf Pro URL this Mac is enrolled with."
+
+    else
+
+        logMe "No Jamf Pro URL is configured and this Mac is not enrolled."
+
+        candidate=$(prompt_for_jamf_url) || return 1
+    fi
+
+    if ! jamfpro_url=$(normalize_jamf_url "$candidate"); then
+        logMe "ERROR: '${candidate}' is not a usable Jamf Pro URL." >&2
         return 1
-    }
-    jamfpro_url="${jamfpro_url%/}"
+    fi
+
     logMe "Jamf Pro server is: $jamfpro_url"
+    return 0
 }
 
 function Jamf_get_classic_api_token ()
@@ -3605,6 +3747,8 @@ typeset -g CSV_PATH=""
 typeset -g Jamf_PARAMETER_USER="${3:-}"
 typeset -g CLIENT_ID="${4:-}"
 typeset -g CLIENT_SECRET="${5:-}"
+typeset -g JAMF_URL_PARAMETER="${6:-}"
+typeset -g JAMF_URL_SOURCE=""
 typeset -g CSV_OUTPUT=""
 typeset -g RESULTS_DIR=""
 typeset -g blueprintID=""
@@ -3643,15 +3787,18 @@ fi
 
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with Jamf credentials we are using
 create_infobox_message
+
+# Resolve the server first -- the connection check needs to know what to test
+
+if ! Jamf_get_server; then
+    cleanup_and_exit 1
+fi
+
 if ! Jamf_check_connection; then
     cleanup_and_exit 1
 fi
 
 if ! Jamf_check_credentials; then
-    cleanup_and_exit 1
-fi
-
-if ! Jamf_get_server; then
     cleanup_and_exit 1
 fi
 OVERLAY_ICON=$(Jamf_which_self_service)
