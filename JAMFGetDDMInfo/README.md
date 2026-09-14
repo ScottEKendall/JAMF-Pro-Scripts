@@ -192,8 +192,8 @@ Jamf Pro Required permissions include:
 ```
 Read Computers
 Read Computer Groups
-Read DDM Status
-Send DDM Sync Commands
+Read Mobile Devices
+Send Declarative Management Command
 ```
 
 ## Gemini results of what can be extracted from JAMF about DDM: ##
