@@ -21,7 +21,7 @@
 ######################################################################################################
 #set -x
 SCRIPT_NAME="JAMFBrandingManager"
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
 MAIN_PID=$$
 
 FREE_DISK_SPACE=$(/bin/df -k / | /usr/bin/awk 'NR == 2 { printf "%.0f", $4 / 1024 / 1024 }')
@@ -202,7 +202,7 @@ function install_swift_dialog ()
     #
     # RETURN: None
 
-	/usr/local/bin/jamf policy -event "${DIALOG_INSTALL_POLICY}"
+	jamf policy -event "${DIALOG_INSTALL_POLICY}"
 }
 
 function check_support_files ()
@@ -214,7 +214,7 @@ function check_support_files ()
     if [[ ! -e "$SD_BANNER_IMAGE" ]]; then
         logMe "SwiftDialog support files are missing. Attempting installation."
 
-        if ! /usr/local/bin/jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"; then
+        if ! jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"; then
             logMe "ERROR: Support-file installation failed." >&2
             return 1
         fi
@@ -230,7 +230,7 @@ function check_support_files ()
     fi
 
     if ! command -v jq >/dev/null 2>&1; then
-        if ! /usr/local/bin/jamf policy -event "$JQ_INSTALL_POLICY"; then
+        if ! jamf policy -event "$JQ_INSTALL_POLICY"; then
             logMe "ERROR: jq installation policy failed." >&2
             return 1
         fi
@@ -310,8 +310,6 @@ function cleanup_files ()
         [[ -n "$tempFile" && -e "$tempFile" ]] && rm -f -- "$tempFile"
     done
 
-    [[ -d "${BANNER_LOCK_DIR:-}" ]] && rmdir "$BANNER_LOCK_DIR" 2>/dev/null
-
     if [[ -n "${api_token:-}" ]]; then
         Jamf_invalidate_token >/dev/null 2>&1
     fi
@@ -388,7 +386,7 @@ function Jamf_check_connection ()
     # RETURN: None
     # EXPECTED: None
 
-    if ! /usr/local/bin/jamf -checkjssconnection -retry 5; then
+    if ! jamf -checkjssconnection -retry 5; then
         logMe "Error: JSS connection not active."
         return 1
     fi
@@ -483,6 +481,26 @@ function Jamf_validate_token ()
     local http_status
     http_status=$(curl -sS --write-out '%{http_code}' --output /dev/null --request GET --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth") || return 1
     [[ "$http_status" == "200" ]]
+}
+
+function Jamf_ensure_valid_token ()
+{
+   Jamf_validate_token && return 0
+
+   logMe "Jamf token is invalid or expired. Requesting a new token."
+
+    case "$JAMF_TOKEN" in
+        new)
+            Jamf_get_access_token
+            ;;
+        classic)
+            Jamf_get_classic_api_token
+            ;;
+        *)
+            logMe "ERROR: Unknown Jamf authentication mode: ${JAMF_TOKEN}"
+            return 1
+            ;;
+    esac
 }
 
 function Jamf_get_access_token ()
@@ -757,7 +775,7 @@ function Jamf_write_branding ()
     local httpStatus=""
     local curlStatus=0
 
-    if [[ ! "$endpoint" =~ '^[0-9]+$' ]]; then
+    if [[ ! "$endpoint" =~ ^[0-9]+$ ]]; then
         logMe "ERROR: Invalid branding endpoint ID: ${endpoint}" >&2
         return 1
     fi
@@ -778,8 +796,13 @@ function Jamf_write_branding ()
     }
 
     {
+        if ! Jamf_ensure_valid_token; then
+            logMe "ERROR: Unable to obtain a valid Jamf token before updating branding ID ${endpoint}." >&2
+            return 1
+        fi        
+        
         httpStatus=$(curl -sS -L -o "$responseFile" -w '%{http_code}' --connect-timeout 30 --max-time 120 -H "Content-Type: application/json" -H "Authorization: Bearer ${api_token}" \
-                --request PUT --url "${jamfpro_url%/}/api/v1/self-service/branding/macos/${endpoint}" -H "Accept: application/json" --data-binary "$jsonPayload" )
+            --request PUT --url "${jamfpro_url%/}/api/v1/self-service/branding/macos/${endpoint}" -H "Accept: application/json" --data-binary "$jsonPayload" )
         curlStatus=$?
 
         if (( curlStatus != 0 )); then
@@ -841,6 +864,10 @@ function Jamf_upload_branding_image ()
     }
 
     {
+        if ! Jamf_ensure_valid_token; then
+            logMe "ERROR: Unable to obtain a valid Jamf token before uploading ${imagePath:t}." >&2
+            return 1
+        fi      
         logMe "Uploading branding image: ${imagePath:t}"
 
         # Do not manually specify Content-Type. curl generates the multipart boundary correctly when --form is used.
@@ -877,7 +904,7 @@ function Jamf_upload_branding_image ()
         imageURL=$(printf '%s' "$response" | jq -r '.url // .href // .link // empty')
 
         # If the response URL ends with a numeric path component, use it as the ID.
-        [[ "$imageURL" =~ '/([0-9]+)/?$' ]] && imageID="$match[1]"
+        [[ "$imageURL" =~ /([0-9]+)/?$ ]] && imageID="$match[1]"
 
         if [[ -z "$imageID" ]]; then
             logMe "ERROR: Upload response did not contain a recognizable image ID." >&2
@@ -1073,7 +1100,18 @@ function welcome_read_images ()
         *) remove_temp_images "${imageFiles[@]}"; return 1 ;;
     esac
 
-    selectedIndex=$(printf '%s' "$message" | jq -er '.SelectedIndex') || return 1
+    if ! selectedIndex=$(printf '%s' "$message" | jq -er '.SelectedIndex'); then
+        logMe "ERROR: Unable to parse the selected banner index." >&2
+        remove_temp_images "${imageFiles[@]}"
+        return 1
+    fi
+
+    if (( selectedIndex < 0 || selectedIndex >= ${#imageIDs[@]} )); then
+        logMe "ERROR: Selected banner index is out of range: ${selectedIndex}" >&2
+        remove_temp_images "${imageFiles[@]}"
+        return 1
+    fi
+
     imageNumber="${imageIDs[$(( selectedIndex + 1 ))]}"
 
     if ! imageFile=$(Jamf_read_images "$imageNumber"); then
@@ -1138,7 +1176,7 @@ function welcome_read_branding_text ()
     local brandingHeading
     local brandingSubheading
     local applicationName
-    local ssBrandingId=2
+    local ssBrandingId=""
     local brandingIconName=""
     local brandingHeaderImageName=""
     local message=""
@@ -1146,7 +1184,7 @@ function welcome_read_branding_text ()
     local json=""
     local brandingJSON=""
   
-
+    {
     # We need to determine what is the first branding ID ()
     if ! ssBrandingId=$(Jamf_read_branding); then
         logMe "Problems retrieving current branding info"
@@ -1211,7 +1249,6 @@ function welcome_read_branding_text ()
         0)
             ;;
         2)
-            remove_temp_images "$brandingIconName" "$brandingHeaderImageName"
             return 0
             ;;
         *)
@@ -1235,7 +1272,7 @@ function welcome_read_branding_text ()
     brandingHeading=$(printf '%s' "$message" | jq -r '.brandingHeading // ""')
     brandingSubheading=$(printf '%s' "$message" | jq -r '.brandingSubheading // ""')
     # Validate the JSON file
-    if [[ ! "$brandingIconID" =~ '^[0-9]+$' || ! "$brandingHeaderImageID" =~ '^[0-9]+$' ]]; then
+    if [[ ! "$brandingIconID" =~ ^[0-9]+$ || ! "$brandingHeaderImageID" =~ ^[0-9]+$ ]]; then
         logMe "ERROR: Branding record contains invalid image IDs." >&2
         return 1
     fi
@@ -1268,8 +1305,10 @@ function welcome_read_branding_text ()
         display_failure_message "Unable to update the Self Service branding text."
         return 1
     fi
-    remove_temp_images "$brandingIconName" "$brandingHeaderImageName"
     return 0
+        } always {
+        remove_temp_images "$brandingIconName" "$brandingHeaderImageName"
+    }
 }
 
 ###########################
@@ -1380,7 +1419,7 @@ function welcome_set_images ()
 
         wallpaperID="$REPLY"
 
-        if [[ ! "$wallpaperID" =~ '^[0-9]+$' ]]; then
+        if [[ ! "$wallpaperID" =~ ^[0-9]+$ ]]; then
             logMe "ERROR: Upload did not return a valid numeric Jamf image ID: ${wallpaperID}" >&2
             return 1
         fi
@@ -1392,7 +1431,7 @@ function welcome_set_images ()
         fi
     fi
 
-    if [[ ! "$wallpaperID" =~ '^[0-9]+$' ]]; then
+    if [[ ! "$wallpaperID" =~ ^[0-9]+$ ]]; then
         logMe "ERROR: Invalid selected Jamf image ID: ${wallpaperID}" >&2
         return 1
     fi
@@ -1403,7 +1442,7 @@ function welcome_set_images ()
         return 1
     fi
 
-    if [[ ! "$ssBrandingId" =~ '^[0-9]+$' ]]; then
+    if [[ ! "$ssBrandingId" =~ ^[0-9]+$ ]]; then
         logMe "ERROR: Invalid active branding ID returned: ${ssBrandingId}" >&2
         return 1
     fi
@@ -1429,7 +1468,7 @@ function welcome_set_images ()
     brandingHeading=$(printf '%s' "$json" | jq -r '.homeHeading // ""')
     brandingSubheading=$(printf '%s' "$json" | jq -r '.homeSubheading // ""')
 
-    if [[ ! "$brandingIconID" =~ '^[0-9]+$' ]]; then
+    if [[ ! "$brandingIconID" =~ ^[0-9]+$ ]]; then
         logMe "ERROR: Branding record contains an invalid icon ID: ${brandingIconID}" >&2
         return 1
     fi
@@ -1594,6 +1633,11 @@ function load_in_crossref_banner ()
         BannerName="${BannerName#\"}"
         BannerName="${BannerName%\"}"
 
+        if [[ "$BannerID" != <-> ]]; then
+            logMe "WARNING: Skipping cross-reference row with invalid Jamf ID [${BannerID}] for [${BannerName}]." >&2
+            continue
+        fi
+
         if [[ -z "$BannerID" || -z "$BannerName" ]]; then
             logMe "WARNING: Skipping invalid banner cross-reference row."
             continue
@@ -1660,7 +1704,7 @@ function welcome_crossreference ()
     MainDialogBody+=(
         --message "$message"
         --messagefont name=Arial,size=17
-        --textfield "Banner Cross Reference",value="$DDMCrossRef,editor,required",name=crossref
+        --textfield "Banner Cross Reference",value="$DDMCrossRef",editor,required,name=crossref
         --button1text "Continue"
         --button2text "Back"
         --width 1000
@@ -1676,7 +1720,10 @@ function welcome_crossreference ()
                 return 1
             }
 
-            write_crossref_file "$crossrefData"
+            if ! write_crossref_file "$crossrefData"; then
+                display_failure_message "Unable to save the banner cross-reference file. Review the log for the invalid row."
+                return 1
+            fi
             ;;
 
         2)
@@ -1785,7 +1832,7 @@ function add_crossref_entry ()
     local lookupKey=""
     local crossRefDir="${BANNER_CROSS_REF_FILE:h}"
 
-    if [[ ! "$bannerID" =~ '^[0-9]+$' ]]; then
+    if [[ ! "$bannerID" =~ ^[0-9]+$ ]]; then
         logMe "ERROR: Invalid Jamf image ID for cross-reference: ${bannerID}" >&2
         return 1
     fi
@@ -1877,10 +1924,6 @@ fi
 
 create_infobox_message
 
-if ! Jamf_check_connection; then
-    cleanup_and_exit 1
-fi
-
 if ! Jamf_check_credentials; then
     cleanup_and_exit 1
 fi
@@ -1888,6 +1931,11 @@ fi
 if ! Jamf_get_server; then
     cleanup_and_exit 1
 fi
+
+if ! Jamf_check_connection; then
+    cleanup_and_exit 1
+fi
+
 OVERLAY_ICON=$(Jamf_which_self_service)
 
 create_infobox_message
