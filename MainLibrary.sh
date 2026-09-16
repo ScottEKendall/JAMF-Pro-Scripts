@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 09/03/2026
+# Last updated: 09/16/2026
 #
 # Script Purpose: Main Library containing all of my commonly used functions.
 #
@@ -36,6 +36,7 @@
 # 2.0 - Updated SD Version requirements to 3.1.0
 #       Added ability to set subtitle, color, and padding from defaults file
 # 2.1 - Updates based on MS Copilot review
+# 2.2 - Add JAMF functions for macOS Branding
 
 ######################################################################################################
 #
@@ -1341,12 +1342,16 @@ function Jamf_check_connection ()
 
 function Jamf_get_server ()
 {
-    jamfpro_url=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url) || {
-        logMe "ERROR: Unable to read Jamf Pro URL" >&2
-        return 1
-    }
-    jamfpro_url="${jamfpro_url%/}"
-    logMe "Jamf Pro server is: $jamfpro_url"
+    if [[ -z "$JAMF_SERVER" ]]; then
+        jamfpro_url=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url) || {
+            logMe "ERROR: Unable to read Jamf Pro URL" >&2
+            return 1
+        }
+        logMe "No server passed in, defaulting to: $jamfpro_url"
+    else
+        jamfpro_url="${JAMF_SERVER%/}"
+        logMe "Jamf Pro server is: $jamfpro_url"
+    fi
 }
 
 function Jamf_which_self_service ()
@@ -1354,9 +1359,17 @@ function Jamf_which_self_service ()
     # PURPOSE: Function to see which Self service to use (SS / SS+)
     # RETURN: None
     # EXPECTED: None
-    local retval=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
-    printf '%s\n' "$retval"
+    local appPath=""
+
+    appPath=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>/dev/null)
+
+    [[ -z "$appPath" || ! -e "$appPath" ]] && appPath=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path 2>/dev/null)
+
+    if [[ -n "$appPath" && -e "$appPath" ]]; then
+        printf '%s\n' "$appPath"
+    else
+        printf '%s\n' "/System/Applications/App Store.app"
+    fi
 }
 
 ###########################
@@ -1492,6 +1505,26 @@ function JAMF_check_and_renew_api_token ()
 
           JAMF_get_classic_api_token
      fi
+}
+
+function Jamf_ensure_valid_token ()
+{
+   Jamf_validate_token && return 0
+
+   logMe "Jamf token is invalid or expired. Requesting a new token."
+
+    case "$JAMF_TOKEN" in
+        new)
+            Jamf_get_access_token
+            ;;
+        classic)
+            Jamf_get_classic_api_token
+            ;;
+        *)
+            logMe "ERROR: Unknown Jamf authentication mode: ${JAMF_TOKEN}"
+            return 1
+            ;;
+    esac
 }
 
 function Jamf_invalidate_token ()
@@ -2325,6 +2358,361 @@ function Jamf_retrieve_ddm_keys ()
     printf '%s' "$input_json" | jq -r --arg requested_key "$requested_key" '.statusItems[]? | select(.key == $requested_key)'
 }
 
+###########################
+#
+# JAMF functions (macOS Brandng Info)
+#
+###########################
+
+function Jamf_read_images ()
+{
+    local endpoint="$1"
+    local response_file
+    local http_status
+    local curl_status
+    local api_key="api/v1/branding-images/download"
+
+
+    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}_image_${endpoint}.XXXXXX") || {
+        logMe "ERROR: Unable to create temporary response file" >&2
+        return 1
+    }
+    chmod 644 "$response_file" || {
+        logMe "ERROR: Unable to set readable permissions on ${response_file}." >&2
+        rm -f -- "$response_file"
+        return 1
+    }
+
+    {
+        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: image/*" "${jamfpro_url%/}/${api_key}/${endpoint}")
+        curl_status=$?
+
+        if (( curl_status != 0 )); then
+            logMe "ERROR: curl failed retrieving ${endpoint}, exit code ${curl_status}" >&2
+            rm -f -- "$response_file"
+            return 1
+        fi
+
+        case "$http_status" in
+            200)
+                echo "$response_file"
+                ;;
+
+            401|403|404)
+                logMe "ERROR: Unable to retrieve image ${endpoint}, HTTP ${http_status}." >&2
+                [[ -s "$response_file" ]] && cat "$response_file" >&2
+                rm -f -- "$response_file"
+                return 1
+                ;;
+
+            *)
+                logMe "ERROR: Unexpected image response, HTTP ${http_status}." >&2
+                [[ -s "$response_file" ]] && cat "$response_file" >&2
+                rm -f -- "$response_file"
+                return 1
+                ;;
+        esac
+    }
+}
+
+function Jamf_read_branding ()
+{
+    local responseFile=""
+    local httpStatus=""
+    local curlStatus=0
+    local brandingID=""
+    local api_key="api/v1/self-service/branding/macos?page=0&page-size=100&sort=id%3Aasc"
+
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}_branding_list.XXXXXX") || {
+        logMe "ERROR: Unable to create branding-list response file." >&2
+        return 1
+    }
+
+    chmod 600 "$responseFile" || {
+        rm -f -- "$responseFile"
+        return 1
+    }
+
+    {
+        httpStatus=$(
+            curl -sS -L -o "$responseFile" -w '%{http_code}' --connect-timeout 30 --max-time 120 -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" \
+                --url "${jamfpro_url%/}/${api_key}" )
+        curlStatus=$?
+
+        if (( curlStatus != 0 )); then
+            logMe "ERROR: Unable to retrieve branding records, curl exit ${curlStatus}." >&2
+            return 1
+        fi
+
+        if [[ "$httpStatus" != "200" ]]; then
+            logMe "ERROR: Branding lookup returned HTTP ${httpStatus}." >&2
+            [[ -s "$responseFile" ]] && cat "$responseFile" >&2
+            return 1
+        fi
+
+        if ! jq -e . "$responseFile" >/dev/null 2>&1; then
+            logMe "ERROR: Branding lookup returned invalid JSON." >&2
+            return 1
+        fi
+
+        local resultCount=""
+
+        resultCount=$(jq -er '.results | length' "$responseFile") || {
+            logMe "ERROR: Unable to determine the branding record count." >&2
+            return 1
+        }
+
+        if (( resultCount == 0 )); then
+            logMe "ERROR: No macOS branding records were returned." >&2
+            return 1
+        fi
+
+        if (( resultCount > 1 )); then
+            logMe "ERROR: Multiple macOS branding records were returned; unable to safely determine the active record." >&2
+            jq -r '.results[] | "ID=\(.id) Name=\(.brandingName // "")"' "$responseFile" >&2
+            return 1
+        fi
+        brandingID=$(jq -er '.results[0].id | select(. != null) | tostring | select(length > 0)' "$responseFile") || {
+            logMe "ERROR: No branding record ID was returned." >&2
+            return 1
+        }
+        
+        printf '%s\n' "$brandingID"
+        return 0
+
+    } always {
+        rm -f -- "$responseFile"
+    }
+}
+
+function Jamf_read_branding_details ()
+{
+    local endpoint="$1"
+    local response_file
+    local http_status
+    local curl_status
+    local api_key="api/v1/self-service/branding/macos"
+
+    response_file="/var/tmp/${SCRIPT_NAME}_${endpoint}.XXXX"
+    [[ -e "$response_file" ]] && rm -f -- "$response_file"
+    response_file=$(mktemp "$response_file") || {
+        logMe "ERROR: Unable to create temporary response file" >&2
+        return 1
+    }
+    chmod 600 "$response_file" || {
+    rm -f -- "$response_file"
+    return 1
+    }
+
+    {
+        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url%/}/${api_key}/${endpoint}")
+        curl_status=$?
+
+        if (( curl_status != 0 )); then
+            logMe "ERROR: curl failed retrieving ${endpoint}, exit code ${curl_status}" >&2
+            return 1
+        fi
+
+        case "$http_status" in
+            200)
+                cat "$response_file"
+                ;;
+
+            401)
+                logMe "ERROR: Authentication failed retrieving ${endpoint}, HTTP 401" >&2
+                cat "$response_file" >&2
+                return 1
+                ;;
+
+            403)
+                logMe "ERROR: Insufficient privilege retrieving ${endpoint}, HTTP 403" >&2
+                cat "$response_file" >&2
+                return 1
+                ;;
+
+            404)
+                logMe "ERROR: Resource not found: ${endpoint}, HTTP 404" >&2
+                cat "$response_file" >&2
+                return 1
+                ;;
+
+            *)
+                logMe "ERROR: Unexpected Jamf response for ${endpoint}, HTTP ${http_status}" >&2
+                cat "$response_file" >&2
+                return 1
+                ;;
+        esac
+        } always {
+        rm -f -- "$response_file"
+    }
+}
+
+function Jamf_write_branding ()
+{
+    local endpoint="$1"
+    local jsonPayload="$2"
+    local responseFile=""
+    local httpStatus=""
+    local curlStatus=0
+    local api_key="api/v1/self-service/branding/macos"
+
+    if [[ ! "$endpoint" =~ ^[0-9]+$ ]]; then
+        logMe "ERROR: Invalid branding endpoint ID: ${endpoint}" >&2
+        return 1
+    fi
+
+    if ! printf '%s' "$jsonPayload" | jq -e . >/dev/null 2>&1; then
+        logMe "ERROR: Refusing to send invalid branding JSON." >&2
+        return 1
+    fi
+
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}_branding_write.XXXXXX") || {
+        logMe "ERROR: Unable to create branding response file." >&2
+        return 1
+    }
+
+    chmod 600 "$responseFile" || {
+        rm -f -- "$responseFile"
+        return 1
+    }
+
+    {
+        if ! Jamf_ensure_valid_token; then
+            logMe "ERROR: Unable to obtain a valid Jamf token before updating branding ID ${endpoint}." >&2
+            return 1
+        fi        
+        
+        httpStatus=$(curl -sS -L -o "$responseFile" -w '%{http_code}' --connect-timeout 30 --max-time 120 -H "Content-Type: application/json" -H "Authorization: Bearer ${api_token}" \
+            --request PUT --url "${jamfpro_url%/}/${api_key}/${endpoint}" -H "Accept: application/json" --data-binary "$jsonPayload" )
+        curlStatus=$?
+
+        if (( curlStatus != 0 )); then
+            logMe "ERROR: Branding update failed with curl exit ${curlStatus}." >&2
+            [[ -s "$responseFile" ]] && cat "$responseFile" >&2
+            return 1
+        fi
+
+        case "$httpStatus" in
+            200)
+                logMe "Successfully updated branding ID ${endpoint}."
+                return 0
+                ;;
+            401)
+                logMe "ERROR: Authentication failed updating branding ID ${endpoint}, HTTP 401." >&2
+                ;;
+            403)
+                logMe "ERROR: Insufficient privilege updating branding ID ${endpoint}, HTTP 403." >&2
+                ;;
+            404)
+                logMe "ERROR: Branding ID ${endpoint} was not found, HTTP 404." >&2
+                ;;
+            *)
+                logMe "ERROR: Branding update returned HTTP ${httpStatus}." >&2
+                ;;
+        esac
+
+        [[ -s "$responseFile" ]] && cat "$responseFile" >&2
+        return 1
+
+    } always {
+        rm -f -- "$responseFile"
+    }
+}
+
+function Jamf_upload_branding_image ()
+{
+    local imagePath="${1:-}"
+    local responseFile=""
+    local httpStatus=""
+    local curlStatus=0
+    local response=""
+    local imageURL=""
+    local imageID=""
+    local api_key="api/self-service/branding/images"
+
+    [[ -z "$imagePath" || ! -f "$imagePath" ]] && {logMe "ERROR: Branding image does not exist: ${imagePath}" >&2; return 1; }
+
+    [[ ! -r "$imagePath" ]] && {logMe "ERROR: Branding image is not readable: ${imagePath}" >&2; return 1;}
+
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}_upload.XXXXXX") || {
+        logMe "ERROR: Unable to create upload response file." >&2
+        return 1
+    }
+
+    chmod 600 "$responseFile" || {
+        rm -f -- "$responseFile"
+        logMe "ERROR: Unable to secure upload response file." >&2
+        return 1
+    }
+
+    {
+        if ! Jamf_ensure_valid_token; then
+            logMe "ERROR: Unable to obtain a valid Jamf token before uploading ${imagePath:t}." >&2
+            return 1
+        fi      
+        logMe "Uploading branding image: ${imagePath:t}"
+
+        # Do not manually specify Content-Type. curl generates the multipart boundary correctly when --form is used.
+
+        httpStatus=$(curl -s -S -L --connect-timeout 30 --max-time 300 -o "$responseFile" -w '%{http_code}' \
+            --request POST --url "${jamfpro_url%/}/${apk_key}" -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" --form "file=@${imagePath}" )
+
+        curlStatus=$?
+
+        if (( curlStatus != 0 )); then
+            logMe "ERROR: Image upload failed with curl exit code ${curlStatus}." >&2
+            [[ -s "$responseFile" ]] && cat "$responseFile" >&2
+            return 1
+        fi
+
+        response=$(<"$responseFile")
+
+        # Jamf documents HTTP 201 as a successful image upload.
+        if [[ "$httpStatus" != "201" ]]; then
+            logMe "ERROR: Image upload returned HTTP ${httpStatus}." >&2
+            [[ -n "$response" ]] && logMe "Server response: ${response}" >&2
+            return 1
+        fi
+
+        if [[ -n "$response" ]] &&
+            ! printf '%s' "$response" | jq -e . >/dev/null 2>&1
+        then
+            logMe "ERROR: Upload succeeded, but the response was not valid JSON." >&2
+            logMe "Server response: ${response}" >&2
+            return 1
+        fi
+
+        # The response may contain a URL for the newly uploaded image.
+        imageURL=$(printf '%s' "$response" | jq -r '.url // .href // .link // empty')
+
+        # If the response URL ends with a numeric path component, use it as the ID.
+        [[ "$imageURL" =~ /([0-9]+)/?$ ]] && imageID="$match[1]"
+
+        if [[ -z "$imageID" ]]; then
+            logMe "ERROR: Upload response did not contain a recognizable image ID." >&2
+            logMe "Server response: ${response}" >&2
+            return 1
+        fi
+
+        [[ -n "$imageURL" ]] && logMe "Image URL: $imageURL"
+
+        if [[ -n "$imageID" ]]; then
+            logMe "Image ID: $imageID"
+            REPLY="$imageID"
+        elif [[ -n "$imageURL" ]]; then
+            REPLY="$imageURL"
+        else
+            # Preserve the complete response if its format differs by Jamf version.
+            REPLY="$response"
+            [[ -n "$response" ]] && logMe "API response: $response"
+        fi
+        return 0
+
+    } always {
+        rm -f -- "$responseFile"
+    }
+}
+
 #######################################################################################################
 # 
 # Functions to create textfields, listitems, checkboxes & dropdown lists
@@ -2587,4 +2975,59 @@ function configure_user_tccdb ()
     local dbPath="$HOME/Library/Application Support/com.apple.TCC/TCC.db"
     local sqlQuery="INSERT OR IGNORE INTO access VALUES($values);"
     sqlite3 "$dbPath" "$sqlQuery"
+}
+
+function initialize_default_dialog_options ()
+{
+    # Reset the array each time so options from a previous dialog
+    # cannot carry over into the next dialog.
+    helpmessage="### Self Service Banner Manager
+
+This utility allows you to manage the branding displayed in Jamf Self Service and Self Service+.
+
+### Available Actions
+
+**View / Download Banner Images**
+- Preview banner images currently stored on the Jamf Pro server.
+- Download a banner image to your local banner repository.
+
+**View / Change macOS Branding Text**
+- View the active Self Service branding configuration.
+- Modify sidebar and homepage text.
+- Changes are written directly to the active Jamf branding record.
+
+**Set / Upload Banner Images**
+- Preview local banner images.
+- Assign an existing Jamf image to Self Service.
+- Automatically upload new images when no existing image ID is found.
+- Updates the active branding record to use the selected banner.
+
+**Populate Cross Reference List**
+- Maintain a CSV file that maps banner filenames to Jamf image IDs.
+- Existing mappings prevent duplicate image uploads.
+
+Recommended banner size: **1500 x 320 pixels**
+
+### Tips
+
+- Banner filenames should be unique.
+- Do not use commas in image filenames.
+- Populate the Cross Reference list to avoid uploading duplicate images.
+- Changes take effect immediately after the branding record is updated."
+
+    MainDialogBody=(
+        --bannerimage "$SD_BANNER_IMAGE"
+        --bannertitle "$SD_WINDOW_TITLE"
+        --subtitle "$BANNER_SUBTITLE"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
+        --icon "$SD_ICON_FILE"
+        --overlayicon "$OVERLAY_ICON"
+        --infobox "$SD_INFO_BOX_MSG"
+        --infotext "$jamfpro_url"
+        --helpmessage "$helpmessage"
+        --ontop
+        --moveable
+        --quitkey 0
+        --json
+    )
 }
