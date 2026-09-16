@@ -48,4 +48,5 @@ The script will determine the country code of the local Mac and display the appr
 | 2.2 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 | 2.3 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.4 | Incorporated changes from previous scripts, to make sure script workflow doesn't error out at the worst time.
 
