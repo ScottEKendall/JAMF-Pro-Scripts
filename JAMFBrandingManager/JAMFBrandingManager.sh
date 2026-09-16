@@ -14,6 +14,7 @@
 #       - Modify Self Service branding text
 #       - Upload and assign banner images
 #       - Maintain image ID cross-reference data
+# 1.1   - Moved the API calls into a variable inside each function so easier to locate/edit
 ######################################################################################################
 #
 # Global "Common" variables
@@ -593,6 +594,7 @@ function Jamf_read_images ()
     local response_file
     local http_status
     local curl_status
+    local api_key="api/v1/branding-images/download"
 
 
     response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}_image_${endpoint}.XXXXXX") || {
@@ -606,7 +608,7 @@ function Jamf_read_images ()
     }
 
     {
-        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: image/*" "${jamfpro_url%/}/api/v1/branding-images/download/${endpoint}")
+        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: image/*" "${jamfpro_url%/}/${api_key}/${endpoint}")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -643,6 +645,7 @@ function Jamf_read_branding ()
     local httpStatus=""
     local curlStatus=0
     local brandingID=""
+    local api_key="api/v1/self-service/branding/macos?page=0&page-size=100&sort=id%3Aasc"
 
     responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}_branding_list.XXXXXX") || {
         logMe "ERROR: Unable to create branding-list response file." >&2
@@ -657,7 +660,7 @@ function Jamf_read_branding ()
     {
         httpStatus=$(
             curl -sS -L -o "$responseFile" -w '%{http_code}' --connect-timeout 30 --max-time 120 -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" \
-                --url "${jamfpro_url%/}/api/v1/self-service/branding/macos?page=0&page-size=100&sort=id%3Aasc" )
+                --url "${jamfpro_url%/}/${api_key}" )
         curlStatus=$?
 
         if (( curlStatus != 0 )); then
@@ -712,6 +715,7 @@ function Jamf_read_branding_details ()
     local response_file
     local http_status
     local curl_status
+    local api_key="api/v1/self-service/branding/macos"
 
     response_file="/var/tmp/${SCRIPT_NAME}_${endpoint}.XXXX"
     [[ -e "$response_file" ]] && rm -f -- "$response_file"
@@ -725,7 +729,7 @@ function Jamf_read_branding_details ()
     }
 
     {
-        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url%/}/api/v1/self-service/branding/macos/${endpoint}")
+        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url%/}/${api_key}/${endpoint}")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -774,6 +778,7 @@ function Jamf_write_branding ()
     local responseFile=""
     local httpStatus=""
     local curlStatus=0
+    local api_key="api/v1/self-service/branding/macos"
 
     if [[ ! "$endpoint" =~ ^[0-9]+$ ]]; then
         logMe "ERROR: Invalid branding endpoint ID: ${endpoint}" >&2
@@ -802,7 +807,7 @@ function Jamf_write_branding ()
         fi        
         
         httpStatus=$(curl -sS -L -o "$responseFile" -w '%{http_code}' --connect-timeout 30 --max-time 120 -H "Content-Type: application/json" -H "Authorization: Bearer ${api_token}" \
-            --request PUT --url "${jamfpro_url%/}/api/v1/self-service/branding/macos/${endpoint}" -H "Accept: application/json" --data-binary "$jsonPayload" )
+            --request PUT --url "${jamfpro_url%/}/${api_key}/${endpoint}" -H "Accept: application/json" --data-binary "$jsonPayload" )
         curlStatus=$?
 
         if (( curlStatus != 0 )); then
@@ -847,6 +852,7 @@ function Jamf_upload_branding_image ()
     local response=""
     local imageURL=""
     local imageID=""
+    local api_key="api/self-service/branding/images"
 
     [[ -z "$imagePath" || ! -f "$imagePath" ]] && {logMe "ERROR: Branding image does not exist: ${imagePath}" >&2; return 1; }
 
@@ -873,7 +879,7 @@ function Jamf_upload_branding_image ()
         # Do not manually specify Content-Type. curl generates the multipart boundary correctly when --form is used.
 
         httpStatus=$(curl -s -S -L --connect-timeout 30 --max-time 300 -o "$responseFile" -w '%{http_code}' \
-            --request POST --url "${jamfpro_url%/}/api/self-service/branding/images" -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" --form "file=@${imagePath}" )
+            --request POST --url "${jamfpro_url%/}/${apk_key}" -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" --form "file=@${imagePath}" )
 
         curlStatus=$?
 
