@@ -5,7 +5,7 @@
 # Written by: Scott Kendall
 #
 # Created Date: 01/227/2025
-# Last modified: 04/01/2026
+# Last modified: 09/16/2026
 #
 # Script Purpose: Display a generic SWifDialog notification to JAMF users.  Pass in variables to customize display
 #
@@ -29,6 +29,7 @@
 # 2.2 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 # 2.3 - Updated SD Version requirements to 3.1.0
 #       Added ability to set subtitle, color, and padding from defaults file
+# 2.4 - Incorporated changes from previous scripts, to make sure script workflow doesn't error out at the worst time.
 #
 # Expected Parameters: 
 # #4 - Title
@@ -79,21 +80,14 @@ SD_DIALOG_GREETING="Good $GREET"
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -f "$DEFAULTS_DIR" ]]; then
-    echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
-    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
-    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
-    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
-else
-    SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
-    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
-    BANNER_SUBTITLE=""
-fi
+echo "Setting Default values"
+SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles 2>/dev/null) || SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage 2>/dev/null) || SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding 2>/dev/null) || BANNER_TEXT_PADDING=10
+BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle 2>/dev/null) || BANNER_SUBTITLE=""
+BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor 2>/dev/null) || BANNER_TEXT_COLOR="white"
+
 [[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
-[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
@@ -169,52 +163,143 @@ function logMe ()
 
 function check_swift_dialog_install ()
 {
-    # Check to make sure that Swift Dialog is installed and functioning correctly
-    # Will install process if missing or corrupted
-    #
-    # RETURN: None
+    local SD_VERSION
 
-    logMe "Ensuring that swiftDialog version is installed..."
-    if [[ ! -x "${SW_DIALOG}" ]]; then
-        logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
-        install_swift_dialog      
+    logMe "Ensuring that SwiftDialog is installed..."
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "SwiftDialog is missing. Attempting installation."
+
+        if ! install_swift_dialog || [[ ! -x "$SW_DIALOG" ]]; then
+            logMe "ERROR: SwiftDialog installation failed." >&2
+            return 1
+        fi
     fi
-    SD_VERSION=$( ${SW_DIALOG} --version)  
-    if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
-        logMe "Swift Dialog is outdated - Installing version '${MIN_SD_REQUIRED_VERSION}' from JAMF..."
-        install_swift_dialog
-    else    
-        logMe "Swift Dialog is currently running: ${SD_VERSION}"
+
+    if ! SD_VERSION=$("$SW_DIALOG" --version ); then #2>/dev/null); then
+        logMe "ERROR: Unable to determine SwiftDialog version." >&2
+        return 1
     fi
+
+    if [[ -z "$SD_VERSION" ]]; then
+        logMe "ERROR: SwiftDialog returned an empty version." >&2
+        return 1
+    fi
+
+    if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+        logMe "SwiftDialog ${SD_VERSION} is outdated. Attempting update."
+
+        if ! install_swift_dialog; then
+            logMe "ERROR: SwiftDialog update failed." >&2
+            return 1
+        fi
+
+        if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
+            logMe "ERROR: Unable to read SwiftDialog version after update." >&2
+            return 1
+        fi
+
+        if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+            logMe "ERROR: SwiftDialog remains below the required version." >&2
+            return 1
+        fi
+    fi
+
+    logMe "SwiftDialog version ${SD_VERSION} is available."
+    return 0
 }
 
 function install_swift_dialog ()
 {
-    # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
-    #
-    # RETURN: None
+    if [[ ! -x /usr/local/bin/jamf ]]; then
+        logMe "ERROR: Jamf binary not found. Cannot install Swift Dialog."
+        cleanup_and_exit 1
+    fi
 
-	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
+    /usr/local/bin/jamf policy -event "${DIALOG_INSTALL_POLICY}"
+    local jamf_exit="$?"
+
+    if [[ "$jamf_exit" -ne 0 ]]; then
+        logMe "ERROR: Jamf policy failed while installing Swift Dialog. Exit code: $jamf_exit"
+        cleanup_and_exit 1
+    fi
+
+    if [[ ! -x "${SW_DIALOG}" ]]; then
+        logMe "ERROR: Swift Dialog still missing after install attempt."
+        cleanup_and_exit 1
+    fi
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    if [[ ! -e "$SD_BANNER_IMAGE" ]] && [[ "$SD_BANNER_IMAGE" =~ \.(jpg|png|heic)$ ]]; then
+        if ! /usr/local/bin/jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"
+        then
+            logMe "WARNING: Support-file installation failed." >&2
+        fi
+    fi
     [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -event ${SD_IMAGE_POLICY}
+
+    return 0
 }
 
-function check_logged_in_user ()
-{    
-    # PURPOSE: Make sure there is a logged in user
-    # RETURN: None
-    # EXPECTED: $LOGGED_IN_USER
-    if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
-        logMe "INFO: No user logged in, exiting"
-        cleanup_and_exit 0
-    else
-        logMe "INFO: User $LOGGED_IN_USER is logged in"
+function cleanup_files ()
+{
+    # Perform a clean-up on all of the temp files that were created at run-time
+    (( ZSH_SUBSHELL == 0 )) || return 0
+    [[ "$$" == "$MAIN_PID" ]] || return 0
+    local file
+
+    for file in \
+        "$JSON_DIALOG_BLOB" \
+        "$DIALOG_COMMAND_FILE" \
+        "$TMP_FILE_STORAGE"
+    do
+        [[ -n "$file" && -e "$file" ]] && rm -f -- "$file"
+    done
+
+    [[ -n "$RESULTS_DIR" && -d "$RESULTS_DIR" ]] && rm -rf -- "$RESULTS_DIR"
+    [[ -n "$CSV_LOCK_DIR" && -d "$CSV_LOCK_DIR" ]] && rmdir "$CSV_LOCK_DIR" 2>/dev/null
+    [[ -n "$DIALOG_LOCK_DIR" && -d "$DIALOG_LOCK_DIR" ]] && rmdir "$DIALOG_LOCK_DIR" 2>/dev/null
+}
+
+function cleanup_and_exit ()
+{
+    local exit_code="${1:-0}"
+
+    trap - EXIT
+    cleanup_files
+    exit "$exit_code"
+}
+
+function initialize_user_context ()
+{
+    LOGGED_IN_USER=$(/usr/sbin/scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ {print $3}')
+
+    if [[ -z "$LOGGED_IN_USER" || "$LOGGED_IN_USER" == "loginwindow" ]]; then
+        printf '%s\n' "INFO: No interactive user is logged in."
+        return 1
     fi
+
+    if ! USER_UID=$(id -u "$LOGGED_IN_USER"); then
+        printf '%s\n' "ERROR: Unable to resolve UID for ${LOGGED_IN_USER}." >&2
+        return 1
+    fi
+
+    if ! USER_DIR=$(dscl . -read "/Users/${LOGGED_IN_USER}" NFSHomeDirectory | awk '{ print $2 }'); then
+        printf '%s\n' "ERROR: Unable to resolve home directory for ${LOGGED_IN_USER}." >&2
+        return 1
+    fi
+
+    if [[ -z "$USER_DIR" || ! -d "$USER_DIR" ]]; then
+        printf '%s\n' "ERROR: Invalid home directory for ${LOGGED_IN_USER}: ${USER_DIR}" >&2
+        return 1
+    fi
+
+    Jamf_LOGGED_IN_USER="${Jamf_PARAMETER_USER:-$LOGGED_IN_USER}"
+    SD_FIRST_NAME="${(C)${Jamf_LOGGED_IN_USER%%.*}}"
+
+    return 0
 }
 
 function check_display_sleep ()
@@ -321,13 +406,27 @@ function check_language_support ()
 ####################################################################################################
 autoload 'is-at-least'
 
-check_swift_dialog_install
-check_support_files
+if ! initialize_user_context; then
+    cleanup_and_exit 0
+fi
+
+if ! create_log_directory; then
+    cleanup_and_exit 1
+fi
+
+if ! check_swift_dialog_install; then
+    cleanup_and_exit 1
+fi
+
+if ! check_support_files; then
+    cleanup_and_exit 1
+fi
 # Check and make sure there is a user logged in and system is awake
-check_logged_in_user
+
 if ! check_display_sleep; then    
     exit 1
 fi
+
 create_infobox_message
 DISPLAY_MESSAGE=$(check_language_support)
 logMe "Displaying Message"
