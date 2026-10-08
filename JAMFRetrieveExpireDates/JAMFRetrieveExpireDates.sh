@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 04/22/2026
-# Last updated: 09/21/2026
+# Last updated: 10/08/2026
 #
 # Script Purpose: This script is designed to retrieve the expiration dates of PKI, ADE, VPP & APNS tokens and Configuration Profiles from JAMF Pro 
 #
