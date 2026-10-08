@@ -929,6 +929,26 @@ function Jamf_validate_token ()
     [[ "$http_status" == "200" ]]
 }
 
+function Jamf_ensure_valid_token ()
+{
+   Jamf_validate_token && return 0
+
+   logMe "Jamf token is invalid or expired. Requesting a new token."
+
+    case "$JAMF_TOKEN" in
+        new)
+            Jamf_get_access_token
+            ;;
+        classic)
+            Jamf_get_classic_api_token
+            ;;
+        *)
+            logMe "ERROR: Unknown Jamf authentication mode: ${JAMF_TOKEN}"
+            return 1
+            ;;
+    esac
+}
+
 function Jamf_get_access_token ()
 {
     local response_file
@@ -1549,6 +1569,185 @@ function Jamf_retrieve_ddm_blueprint_invalid_reason ()
     results=$(printf '%s\n' "$value_str" | tr '{}' '\n' | sed -nE 's/.*Error=([^}]+).*/\1/p')
     [[ -n "$results" ]] && DDMBlueprintInvalidReason=("${(@f)results}")
     return 0
+}
+
+function show_blueprint_condition_misses()
+{
+    # PURPOSE:
+    #   Display Blueprint condition activations whose predicates evaluated false.
+    #
+    # USAGE:
+    #   show_blueprint_condition_misses "$json"
+    #   show_blueprint_condition_misses /path/to/ddm-status.json
+    #   curl ... | show_blueprint_condition_misses
+    #
+    # RETURN CODES:
+    #   0 = One or more false condition evaluations found
+    #   1 = No false condition evaluations found
+    #   2 = Invalid input, missing dependency, or parsing failure
+
+    emulate -L zsh
+    setopt pipefail
+
+    local input=""
+    local activation_data=""
+    local parsed_output=""
+    local jq_path=""
+    local perl_path=""
+
+    # Accept:
+    #   1. A JSON file
+    #   2. A JSON string
+    #   3. JSON through stdin
+    if (( $# > 0 )); then
+        if [[ -f "$1" ]]; then
+            input="$(<"$1")"
+        else
+            input="$1"
+        fi
+    elif [[ ! -t 0 ]]; then
+        input="$(cat)"
+    else
+        print -u2 -- "ERROR: No JSON input was provided."
+        return 2
+    fi
+
+    if [[ -z "$input" ]]; then
+        print -u2 -- "ERROR: JSON input is empty."
+        return 2
+    fi
+
+    # The sample pasted into chat contains HTML formatting.
+    # These conversions are harmless against a normal API response.
+    input="${input//'<br>'/$'\n'}"
+    input="${input//'&gt;'/'>'}"
+    input="${input//'&lt;'/'<'}"
+    input="${input//'&quot;'/'"'}"
+    input="${input//'&amp;'/'&'}"
+
+    # Confirm the outer API response is valid JSON.
+    if ! printf '%s' "$input" | "$jq_path" -e . >/dev/null 2>&1; then
+        print -u2 -- "ERROR: The supplied DDM status response is not valid JSON."
+        print -u2 -- "Ensure the value comes directly from the API and does not contain HTML formatting."
+        return 2
+    fi
+
+    # Extract only the activation status string.
+    activation_data="$(printf '%s' "$input" | jq -er 'first(.statusItems[]?| select(.key == "management.declarations.activations")| .value) // empty' 2>/dev/null)"
+
+    if [[ -z "$activation_data" ]]; then
+        print -u2 -- "ERROR: management.declarations.activations was not found or contained no value."
+        return 2
+    fi
+
+    # Parse false Info.Predicate activation records.
+    #
+    # Output fields:
+    #   Blueprint UUID
+    #   Section
+    #   Condition
+    #   Activation
+    #   Predicate
+    parsed_output="$(
+        printf '%s' "$activation_data" |
+            perl -0777 -ne '
+                while (
+                    /
+                        \{
+                            reasons=\[
+                                \{
+                                    details=\{
+                                        Identifier=(Blueprint_[^,]+),
+                                        \s*ServerToken=[^,]+,
+                                        \s*Predicate=(.*?)
+                                    \},
+                                    \s*description=.*?
+                                    evaluated\ to\ false\.
+                                    ,\s*code=Info\.Predicate
+                                \}
+                            \],
+                            \s*active=false,
+                            \s*identifier=(Blueprint_[^,]+),
+                            \s*valid=([^,}]+)
+                        \}
+                    /gsx
+                ) {
+                    my $detail_identifier = $1;
+                    my $predicate         = $2;
+                    my $identifier        = $3;
+
+                    $identifier =~
+                        /^Blueprint_([0-9a-fA-F-]+)_s([0-9]+)_c([0-9]+)_sys_act([0-9]+)$/;
+
+                    my $blueprint_uuid = defined $1 ? $1 : "Unknown";
+                    my $section        = defined $2 ? $2 : "Unknown";
+                    my $condition      = defined $3 ? $3 : "Unknown";
+                    my $activation     = defined $4 ? $4 : "Unknown";
+
+                    $predicate =~ s/\s+/ /g;
+                    $predicate =~ s/^\s+|\s+$//g;
+
+                    print join(
+                        "\t",
+                        $blueprint_uuid,
+                        $section,
+                        $condition,
+                        $activation,
+                        $predicate
+                    ), "\n";
+                }
+            '
+    )"
+
+    if [[ -z "$parsed_output" ]]; then
+        print -- "No Blueprint predicates evaluated to false."
+        return 1
+    fi
+
+    print -- "Blueprint predicates evaluated to false:"
+    print
+    printf '%-38s  %-7s  %-9s  %-10s  %s\n' "BLUEPRINT UUID" "SECTION" "CONDITION" "ACTIVATION" "PREDICATE"
+    printf '%-38s  %-7s  %-9s  %-10s  %s\n' "------------------------------------" "-------" "---------" "----------" "---------"
+
+    while IFS=$'\t' read -r \
+        blueprint_uuid section condition activation predicate
+    do
+        printf '%-38s  %-7s  %-9s  %-10s  %s\n' "$blueprint_uuid" "$section" "$condition" "$activation" "$predicate"
+    done <<< "$parsed_output"
+
+    print
+    print -- "Unique Blueprints that had at least one false predicate:"
+
+    printf '%s\n' "$parsed_output" | cut -f1 | sort -u |
+    while IFS= read -r blueprint_uuid; do
+        print -- "  ${blueprint_uuid}"
+    done
+
+    return 0
+}
+
+function Jamf_blueprint_misses ()
+{
+        ddm_status_json="$(curl --silent \
+        --request GET \
+        --header "Authorization: Bearer ${JAMF_TOKEN}" \
+        --header "Accept: application/json" \
+        "${JAMF_URL}/api/your-ddm-status-endpoint")"
+
+    show_blueprint_condition_misses "$ddm_status_json"
+    result=$?
+
+    case "$result" in
+        0)
+            print -- "At least one Blueprint condition evaluated to false."
+            ;;
+        1)
+            print -- "All reported Blueprint conditions matched."
+            ;;
+        *)
+            print -u2 -- "Unable to evaluate the Blueprint condition results."
+            ;;
+    esac
 }
 
 function Jamf_retrieve_ddm_keys ()
