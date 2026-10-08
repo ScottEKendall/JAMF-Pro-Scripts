@@ -32,6 +32,7 @@
 #     - Significant security, reliability, and performance improvements
 
 ######################################################################################################
+#
 # Global "Common" variables
 #
 ######################################################################################################
@@ -430,7 +431,7 @@ function update_display_list ()
             DIALOG_PROCESS=$! #Grab the process ID of the background process
             ;;
      
-            "add" )
+        "add" )
             local title_text="${2:-}"
             local status_text="${4:-}"
 
@@ -524,6 +525,9 @@ function JAMF_check_credentials ()
 
 function JAMF_check_connection ()
 {
+    # PURPOSE: Function to check connectivity to the Jamf Pro server
+    # RETURN: None
+    # EXPECTED: None
     local http_status=""
     local curl_status=0
 
