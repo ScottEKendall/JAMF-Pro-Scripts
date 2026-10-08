@@ -75,3 +75,16 @@ NEW in v1.3 - Screens of Computer & Mobile Device Enrollments
 ||       Optimized the API calls to reduce the number of calls being made to the server and speed up the retrieval process
 ||       Fixed issue of the jamf_cli for devices calling the incorrect API endpoints
 | 1.3 | Added check for Computer & Device Invitations and retrieval of their expiration dates
+| 2.0 | Major "under the hood" production improvements
+|| Added OAuth and Classic API authentication support
+|| Added support for different JAMF instances (not just primary)
+|| Added automatic token management and renewal
+|| Added enrollment invitation expiration monitoring
+|| Added centralized date parsing and expiration processing
+|| Added comprehensive API validation and error handling
+|| Added secure temporary-file management and cleanup
+|| Enhanced configuration profile certificate scanning
+|| Added operational health monitoring and threshold alerts
+|| Improved SwiftDialog user experience and progress reporting
+|| Expanded logging, diagnostics, and recovery handling
+|| Significant security, reliability, and performance improvements
