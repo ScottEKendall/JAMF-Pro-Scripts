@@ -14,8 +14,6 @@ You can view items such as
 * Device Config Profiles with cert dates
 * Computer & Device Enrollment Invitations (UDE)
 
-You can set custom thresholds for your warnings (Warning & Critical) and also set a warning if your ADE Sync is not working.
-
 New in Version 2.0:
 
 ✅ OAuth Client Credentials and Classic API authentication support
@@ -45,6 +43,10 @@ The goal remains simple: help Jamf administrators identify expiring services, ce
 **Sometimes the most important improvements are the ones users never see.**
 
 Version 2.0 represents a major investment in stability, maintainability, and resilience behind the scenes.
+
+----------
+
+You can set custom thresholds for your warnings (Warning & Critical) and also set a warning if your ADE Sync is not working.
 
 ```
 THRESHOLD_DAYS_WARNING=60
