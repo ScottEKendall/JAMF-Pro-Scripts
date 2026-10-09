@@ -52,7 +52,6 @@ You can set custom thresholds for your warnings (Warning & Critical) and also se
 THRESHOLD_DAYS_WARNING=60
 THRESHOLD_DAYS_CRITICAL=14
 ADE_SYNC_WARNING_THRESHOLD=2
-USE_JAMF_CLI=false 
 ```
 
 ### JAMF API ###
