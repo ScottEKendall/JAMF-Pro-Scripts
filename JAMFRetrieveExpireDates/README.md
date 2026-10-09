@@ -16,6 +16,36 @@ You can view items such as
 
 You can set custom thresholds for your warnings (Warning & Critical) and also set a warning if your ADE Sync is not working.
 
+New in Version 2.0:
+
+✅ OAuth Client Credentials and Classic API authentication support
+
+✅ Support for checking alternate Jamf Pro instances, not just the primary server
+
+✅ Automatic API token management and renewal during long-running scans
+
+✅ Enrollment Invitation expiration monitoring for both computers and mobile devices
+
+✅ Enhanced Configuration Profile certificate scanning
+
+✅ Centralized date parsing and expiration processing
+
+✅ Operational health monitoring and configurable warning thresholds
+
+✅ Improved SwiftDialog experience with better progress reporting and status indicators
+
+✅ Comprehensive API validation, error handling, diagnostics, and recovery logic
+
+✅ Improved security through protected temporary files, cleanup routines, and safer credential handling
+
+✅ Significant reliability, performance, and production-readiness improvements
+
+The goal remains simple: help Jamf administrators identify expiring services, certificates, tokens, configuration profiles, and enrollment assets before they become outages.  
+
+**Sometimes the most important improvements are the ones users never see.**
+
+Version 2.0 represents a major investment in stability, maintainability, and resilience behind the scenes.
+
 ```
 THRESHOLD_DAYS_WARNING=60
 THRESHOLD_DAYS_CRITICAL=14
@@ -24,6 +54,8 @@ USE_JAMF_CLI=false
 ```
 
 ### JAMF API ###
+
+If you are using the JAMF API method for connection, you will need the following roles:
 
 ```
 Read VPP Assignment
