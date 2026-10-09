@@ -56,3 +56,18 @@ Original source: https://gist.github.com/karthikeyan-mac/185bf8319fa9560f300ed26
 ||       Fixed variable names in the defaults file section
 | 2.0 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.1 | Verified compatibility with Jamf Pro 11.30
+||       Updated Recovery Lock workflows to use current Jamf Pro API endpoints
+||       Improved API token handling and validation for both OAuth Client Credentials and Classic API authentication
+||       Added automatic token renewal logic when tokens approach expiration
+||       Improved Jamf Pro connection validation and error handling
+||       Added additional API response validation to prevent unexpected processing failures
+||       Enhanced computer lookup logic to ensure a single unique device match before executing Recovery Lock actions
+||       Improved Recovery Lock password retrieval handling when no password is stored in Jamf Pro
+||       Added validation for Set Recovery Lock operations when no Recovery Lock password is supplied
+||       Improved temporary file security by applying restricted permissions to API response files
+||       Enhanced cleanup routines to properly invalidate and remove API tokens at script completion
+||       Improved logging consistency throughout the workflow
+||       Improved SwiftDialog response validation and error handling
+||       Enhanced support file and banner image detection logic
+||       General code cleanup, optimization, and stability improvements
