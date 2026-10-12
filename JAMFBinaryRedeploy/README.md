@@ -61,5 +61,13 @@ If you want to call this from Self service, you need to set your params so it pa
 ||       Fixed variable names in the defaults file section
 || Put more error trapping around invalid privleges
 || Fixed display issues with Swift Dialog 3.0
-| 2.0 | Updated SD Version requirements to 3.1.0
-||       Added ability to set subtitle, color, and padding from defaults file
+| 2.0 | Updated SwiftDialog minimum version to 3.1.0
+||       Added OAuth client credential and Classic API authentication support
+||       Added API token expiration tracking, renewal, and invalidation
+||       Migrated computer lookup to the Jamf Pro computer inventory API
+||       Added HTTP status, curl status, JSON, and empty-response validation
+||       Added secured temporary files with guaranteed cleanup
+||       Added hostname and serial-number searches
+||       Added manual Jamf binary installation instructions
+||       Added user confirmation, reason capture, and audit logging
+||       Added managed subtitle, banner color, and padding settings

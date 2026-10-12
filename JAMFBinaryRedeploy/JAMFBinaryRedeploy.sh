@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 03/06/2025
-# Last updated: 04/01/2026
+# Last updated: 10/12/2026
 #
 # Script Purpose: Redeploy the JAMF binary on a device
 #   This script is a combination of documentation taken from here:
@@ -16,77 +16,73 @@
 #
 # 1.0 - Initial
 # 1.1 - Remove the MAC_HADWARE_CLASS item as it was misspelled and not used anymore...
-# 1.2 - Now works with JAMF Client/Secret or Username/password authentication
+# 1.2 - Now works with JAMF API Client/Secret or Username/password authentication
 #     - Change variable declare section around for better readability
 # 1.3 - Made API changes for JAMF Pro 11.20 and higher
 # 1.4 - Added function to check JAMF credentials are passed
 #       Fixed function to determine which SS/SS+ is being used
 # 1.5 - Added option for manual enroll with instructions on how to perform
 #       Moved more items into functions from the main script to clean up things
-#       Moved all "exit" commands into the clean_and_exit funtion to make sure temp files are erased
+#       Moved all "exit" commands into the clean_and_exit function to make sure temp files are erased
 # 1.6 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
-#       Put more error trapping around invalid privleges
+#       Put more error trapping around invalid privileges
 #       Fixed display issues with Swift Dialog 3.0
-# 2.0 - Updated SD Version requirements to 3.1.0
-#       Added ability to set subtitle, color, and padding from defaults file
+# 2.0 - Updated SwiftDialog minimum version to 3.1.0
+#       Added OAuth client credential and Classic API authentication support
+#       Added API token expiration tracking, renewal, and invalidation
+#       Migrated computer lookup to the Jamf Pro computer inventory API
+#       Added HTTP status, curl status, JSON, and empty-response validation
+#       Added secured temporary files with guaranteed cleanup
+#       Added hostname and serial-number searches
+#       Added manual Jamf binary installation instructions
+#       Added user confirmation, reason capture, and audit logging
+#       Added managed subtitle, banner color, and padding settings
 ######################################################################################################
 #
-# Gobal "Common" variables
+# Global "Common" variables
 #
 ######################################################################################################
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
+#set -x
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
 SCRIPT_NAME="JAMFBinaryRedeploy"
-LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-
-FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_NAME=$(sw_vers -productName)
-MACOS_VERSION=$(sw_vers -productVersion)
-MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
-MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="3.1.0"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
-# Make some temp files for this app
+HOUR=$(date +%H)
+case $HOUR in
+    0[0-9]|1[0-1]) GREET="morning" ;;
+    1[2-7])        GREET="afternoon" ;;
+    *)             GREET="evening" ;;
+esac
+SD_DIALOG_GREETING="Good $GREET"
 
-JSON_OPTIONS=$(mktemp /var/tmp/${SCRIPT_NAME}.XXXXX)
-TMP_FILE_STORAGE=$(mktemp /var/tmp/${SCRIPT_NAME}.XXXXX)
-/bin/chmod 666 $JSON_OPTIONS
-/bin/chmod 666 $TMP_FILE_STORAGE
-
-SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
 
 ###################################################
 #
-# App Specfic variables (Feel free to change these)
+# App Specific variables (Feel free to change these)
 #
 ###################################################
 
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -f "$DEFAULTS_DIR" ]]; then
-    echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
-    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
-    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
-    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
-else
-    SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
-    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
-    BANNER_SUBTITLE=""
+echo "Setting Default values"
+SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles 2>/dev/null) || SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage 2>/dev/null) || SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding 2>/dev/null) || BANNER_TEXT_PADDING=10
+BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle 2>/dev/null) || BANNER_SUBTITLE=""
+BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor 2>/dev/null) || BANNER_TEXT_COLOR="white"
+SUPPORT_DIR="${SUPPORT_DIR%/}"
+
+if [[ "${SD_BANNER_IMAGE#/SupportFiles/}" != "$SD_BANNER_IMAGE" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE#/}"
+elif [[ "${SD_BANNER_IMAGE:0:1}" != "/" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE}"
 fi
-[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
-[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
@@ -103,26 +99,62 @@ OVERLAY_ICON="warning"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 JQ_FILE_INSTALL_POLICY="install_jq"
-CURRENT_EPOCH=$(date +%s)
 
 ##################################################
 #
 # Passed in variables
 # 
-#################################################
+#################################################               
 
-JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
-CLIENT_ID=${4}                               # user name for JAMF Pro
-CLIENT_SECRET=${5}                             
+JAMF_PARAMETER_USER="${3:-}"
+CLIENT_ID="${4:-}"
+CLIENT_SECRET="${5:-}"
+JAMF_SERVER="${6:-}"
 
-[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF creentials we are using
+# Determine which Jamf API authentication method is being used.
+CLIENT_ID_REGEX='^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$'
+[[ "$CLIENT_ID" =~ ${CLIENT_ID_REGEX} ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" 
 
 ####################################################################################################
 #
 # Functions
 #
 ####################################################################################################
+
+function admin_user ()
+{
+    (( UID == 0 ))
+}
+
+function check_for_sudo ()
+{
+    if ! admin_user; then
+        print -u2 -r -- "ERROR: This script must be run as root."
+        return 1
+    fi
+
+    return 0
+}
+
+function initialize_user_context ()
+{
+    LOGGED_IN_USER=$(/usr/sbin/scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ {print $3}')
+
+
+    if [[ -z "$LOGGED_IN_USER" || "$LOGGED_IN_USER" == "loginwindow" ]]; then
+        printf '%s\n' "INFO: No interactive user is logged in."
+        return 1
+    fi
+
+    if ! USER_UID=$(id -u "$LOGGED_IN_USER"); then
+        printf '%s\n' "ERROR: Unable to resolve UID for ${LOGGED_IN_USER}." >&2
+        return 1
+    fi
+
+    JAMF_LOGGED_IN_USER="${JAMF_PARAMETER_USER:-$LOGGED_IN_USER}"
+    SD_FIRST_NAME="${(C)${JAMF_LOGGED_IN_USER%%.*}}"
+    return 0
+}
 
 function create_log_directory ()
 {
@@ -131,14 +163,22 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
-    LOG_DIR=${LOG_FILE%/*}
-	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
-	/bin/chmod 755 "${LOG_DIR}"
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+    local LOG_DIR="${LOG_FILE%/*}"
 
-	# If the log file does not exist - create it and set the permissions
-	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
-	/bin/chmod 644 "${LOG_FILE}"
+    admin_user || return 0
+
+    if [[ ! -d "$LOG_DIR" ]]; then
+        mkdir -p "$LOG_DIR" || {print -u2 "ERROR: Unable to create log directory: ${LOG_DIR}"; return 1; }
+    fi
+    chmod 755 "$LOG_DIR" || {print -u2 "ERROR: Unable to set permissions on: ${LOG_DIR}"; return 1; }
+    # If the log file does not exist - create it and set the permissions
+    if [[ ! -f "$LOG_FILE" ]]; then
+        touch "$LOG_FILE" || {print -u2 "ERROR: Unable to create log file: ${LOG_FILE}"; return 1;}
+    fi
+
+    chmod 640 "$LOG_FILE" || {print -u2 "ERROR: Unable to secure log file: ${LOG_FILE}"; return 1;}
+    return 0
 }
 
 function logMe () 
@@ -149,55 +189,154 @@ function logMe ()
     #
     # This function logs both to STDOUT/STDERR and a file
     # The log file is set by the $LOG_FILE variable.
+    # if the user is an admin, it will write to the logfile, otherwise it will just echo to the screen
     #
     # RETURN: None
-    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+    if admin_user; then
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | /usr/bin/tee -a "${LOG_FILE}"
+    else
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
+    fi
 }
 
 function check_swift_dialog_install ()
 {
-    # Check to make sure that Swift Dialog is installed and functioning correctly
-    # Will install process if missing or corrupted
-    #
-    # RETURN: None
+    local SD_VERSION
 
-    logMe "Ensuring that swiftDialog version is installed..."
-    if [[ ! -x "${SW_DIALOG}" ]]; then
-        logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
-        install_swift_dialog
-        SD_VERSION=$( ${SW_DIALOG} --version)        
+    logMe "Ensuring that SwiftDialog is installed..."
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "SwiftDialog is missing. Attempting installation."
+
+        if ! install_swift_dialog || [[ ! -x "$SW_DIALOG" ]]; then
+            logMe "ERROR: SwiftDialog installation failed." >&2
+            return 1
+        fi
     fi
 
-    if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
-        logMe "Swift Dialog is outdated - Installing version '${MIN_SD_REQUIRED_VERSION}' from JAMF..."
-        install_swift_dialog
-    else    
-        logMe "Swift Dialog is currently running: ${SD_VERSION}"
+    if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
+        logMe "ERROR: Unable to determine SwiftDialog version." >&2
+        return 1
     fi
+
+    if [[ -z "$SD_VERSION" ]]; then
+        logMe "ERROR: SwiftDialog returned an empty version." >&2
+        return 1
+    fi
+
+    if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+        logMe "SwiftDialog ${SD_VERSION} is outdated. Attempting update."
+
+        if ! install_swift_dialog; then
+            logMe "ERROR: SwiftDialog update failed." >&2
+            return 1
+        fi
+
+        if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
+            logMe "ERROR: Unable to read SwiftDialog version after update." >&2
+            return 1
+        fi
+
+        if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+            logMe "ERROR: SwiftDialog remains below the required version." >&2
+            return 1
+        fi
+    fi
+
+    logMe "SwiftDialog version ${SD_VERSION} is available."
+    return 0
 }
 
 function install_swift_dialog ()
 {
-    # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
-    #
-    # RETURN: None
+    local jamf_exit=0
 
-	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
+    if [[ ! -x /usr/local/bin/jamf ]]; then
+        logMe "ERROR: Jamf binary not found. Cannot install SwiftDialog."
+        return 1
+    fi
+
+    /usr/local/bin/jamf policy -event "$DIALOG_INSTALL_POLICY"
+    jamf_exit=$?
+
+    if (( jamf_exit != 0 )); then
+        logMe "ERROR: Jamf policy failed while installing SwiftDialog. Exit code: ${jamf_exit}"
+        return 1
+    fi
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "ERROR: SwiftDialog remains unavailable after the installation attempt."
+        return 1
+    fi
+
+    return 0
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    if [[ -f "$SD_BANNER_IMAGE" ]]; then
+        logMe "Banner image found: ${SD_BANNER_IMAGE}"
+    else
+        logMe "Banner image not found: ${SD_BANNER_IMAGE}"
+
+        if [[ -x /usr/local/bin/jamf ]]; then
+            logMe "Running support-file installation policy."
+
+            if ! /usr/local/bin/jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"; then
+                logMe "WARNING: Support-file installation policy failed."
+            fi
+        else
+            logMe "WARNING: The local Jamf binary is unavailable. The support-file installation policy cannot be run."
+        fi
+
+        if [[ -f "$SD_BANNER_IMAGE" ]]; then
+            logMe "Banner image successfully installed: ${SD_BANNER_IMAGE}"
+        else
+            logMe "WARNING: Banner image remains unavailable: ${SD_BANNER_IMAGE}"
+        fi
+    fi
+
+    if ! command -v jq >/dev/null 2>&1; then
+        logMe "jq is not installed."
+
+        if [[ ! -x /usr/local/bin/jamf ]]; then
+            logMe "ERROR: The local Jamf binary is unavailable, so jq cannot be installed."
+            return 1
+        fi
+
+        logMe "Running jq installation policy."
+
+        if ! /usr/local/bin/jamf policy -event "$JQ_FILE_INSTALL_POLICY"; then
+            logMe "ERROR: jq installation policy failed."
+            return 1
+        fi
+    fi
+
+    if ! command -v jq >/dev/null 2>&1; then
+        logMe "ERROR: jq remains unavailable after installation."
+        return 1
+    fi
+
+    return 0
 }
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit $1
+    local exit_code="${1:-0}"
+
+    trap - EXIT INT TERM
+
+    if [[ -n "$api_token" ]]; then
+        if ! JAMF_invalidate_token; then
+            logMe "WARNING: Unable to invalidate the Jamf Pro API token."
+        fi
+    fi
+
+    exit "$exit_code"
 }
+
+trap 'cleanup_and_exit 130' INT
+trap 'cleanup_and_exit 143' TERM
 
 ###########################
 #
@@ -205,14 +344,22 @@ function cleanup_and_exit ()
 #
 ###########################
 
+
 function JAMF_which_self_service ()
 {
-    # PURPOSE: Function to see which Self service to use (SS / SS+)
-    # RETURN: None
-    # EXPECTED: None
-    local retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>&1)
-    [[ $retval == *"does not exist"* || -z $retval ]] && retval=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path)
-    echo $retval
+    local app_path=""
+
+    app_path=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>/dev/null)
+
+    if [[ -z "$app_path" ]]; then
+        app_path=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path 2>/dev/null)
+    fi
+
+    if [[ -z "$app_path" || ! -e "$app_path" ]]; then
+        app_path="SF=wrench.and.screwdriver.fill"
+    fi
+
+    print -r -- "$app_path"
 }
 
 function JAMF_check_credentials ()
@@ -221,11 +368,12 @@ function JAMF_check_credentials ()
     # RETURN: None
     # EXPECTED: None
 
-    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
-        logMe "Client/Secret info is not valid"
-        cleanup_and_exit 1
+    if [[ -z "$CLIENT_ID" || -z "$CLIENT_SECRET" ]]; then
+        logMe "ERROR: Jamf API credentials were not provided."
+        return 1
     fi
-    logMe "Valid credentials passed"
+    logMe "Jamf API credentials were provided."
+    return 0
 }
 
 function JAMF_check_connection ()
@@ -233,156 +381,604 @@ function JAMF_check_connection ()
     # PURPOSE: Function to check connectivity to the Jamf Pro server
     # RETURN: None
     # EXPECTED: None
+    local http_status=""
+    local curl_status=0
 
-    if ! /usr/local/bin/jamf -checkjssconnection -retry 5; then
-        logMe "Error: JSS connection not active."
-        cleanup_and_exit 1
+    http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 30 --output /dev/null --write-out '%{http_code}' "${jamfpro_url}/healthCheck.html")
+    curl_status=$?
+
+    if (( curl_status != 0 )); then
+        logMe "ERROR: Unable to connect to ${jamfpro_url}. curl exit code: ${curl_status}" >&2
+        return 1
     fi
-    logMe "JSS connection active!"
+
+    if [[ "$http_status" != "200" ]]; then
+        logMe "ERROR: Jamf Pro connection check returned HTTP ${http_status} for ${jamfpro_url}." >&2
+        return 1
+    fi
+
+    logMe "Jamf Pro connection active: ${jamfpro_url}"
+    return 0
 }
 
 function JAMF_get_server ()
 {
-    # PURPOSE: Retreive your JAMF server URL from the preferences file
-    # RETURN: None
-    # EXPECTED: None
+    if [[ -z "$JAMF_SERVER" ]]; then
+        if ! JAMF_SERVER=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url 2>/dev/null); then
+            logMe "ERROR: Unable to read the Jamf Pro URL."
+            return 1
+        fi
 
-    jamfpro_url=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url)
-    logMe "JAMF Pro server is: $jamfpro_url"
+        logMe "No server passed in, defaulting to: ${JAMF_SERVER}"
+    fi
+
+    JAMF_SERVER="${JAMF_SERVER#"${JAMF_SERVER%%[![:space:]]*}"}"
+    JAMF_SERVER="${JAMF_SERVER%"${JAMF_SERVER##*[![:space:]]}"}"
+
+    if [[ -z "$JAMF_SERVER" ]]; then
+        logMe "ERROR: The Jamf Pro server URL is empty."
+        return 1
+    fi
+
+    case "${JAMF_SERVER%%:*}" in
+        http|https)
+            ;;
+        *)
+            logMe "ERROR: The Jamf Pro server URL is invalid: ${JAMF_SERVER}"
+            return 1
+            ;;
+    esac
+
+    jamfpro_url="${JAMF_SERVER%/}"
+    logMe "Jamf Pro server is: ${jamfpro_url}"
+    return 0
+}
+
+function format_jamf_date ()
+{
+    local raw_date="${1:-}"
+    local output_format="${2:-%m/%d/%Y}"
+
+    [[ "$output_format" == +* ]] || output_format="+${output_format}"
+    local normalized_date=""
+    local parsed_date=""
+
+    [[ -n "$raw_date" && "$raw_date" != "null" ]] || return 1
+
+    normalized_date="$raw_date"
+
+    # Convert a trailing UTC designator to a numeric offset.
+    if [[ "$normalized_date" == *Z ]]; then
+        normalized_date="${normalized_date%Z}+0000"
+    fi
+
+    # Convert timezone offsets such as -04:00 to -0400.
+
+    normalized_date=$(print -r -- "$normalized_date" | /usr/bin/sed -E -e 's/([+-][0-9]{2}):([0-9]{2})$/\1\2/' -e 's/\.([0-9]+)([+-][0-9]{4})$/\2/' -e 's/\.([0-9]+)$//')
+
+    # Remove fractional seconds while preserving any timezone offset.
+    normalized_date="${normalized_date#"${normalized_date%%[![:space:]]*}"}"
+    normalized_date="${normalized_date%"${normalized_date##*[![:space:]]}"}"
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%dT%H:%M:%S%z" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%dT%H:%M:%S" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%d %H:%M:%S%z" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%d %H:%M:%S" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%d" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    return 1
 }
 
 function JAMF_get_classic_api_token ()
 {
-    # PURPOSE: Get a new bearer token for API authentication.  This is used if you are using a JAMF Pro ID & password to obtain the API (Bearer token)
-    # PARMS: None
-    # RETURN: api_token
-    # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
+    local response_file=""
+    local http_status=""
+    local curl_status=0
+    local token=""
+    local expires=""
+    local expiration_epoch=""
 
-     api_token=$(/usr/bin/curl -X POST --silent -u "${CLIENT_ID}:${CLIENT_SECRET}" "${jamfpro_url}/api/v1/auth/token" | plutil -extract token raw -)
-     if [[ "$api_token" == *"Could not extract value"* ]]; then
-         logMe "Error: Unable to obtain API token. Check your credentials and JAMF Pro URL."
-        cleanup_and_exit 1
-     else 
-        logMe "Classic API token successfully obtained."
+    response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.classic-token.XXXXX") || {
+        logMe "ERROR: Unable to create Classic API token response file." >&2
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure Classic API token response file." >&2
+        /bin/rm -f -- "$response_file"
+        return 1
     fi
 
-}
+    {
+        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
+            --request POST --user "${CLIENT_ID}:${CLIENT_SECRET}" --header "Accept: application/json" "${jamfpro_url}/api/v1/auth/token")
+        curl_status=$?
 
-function JAMF_validate_token () 
-{
-     # Verify that API authentication is using a valid token by running an API command
-     # which displays the authorization details associated with the current API user. 
-     # The API call will only return the HTTP status code.
+        if (( curl_status != 0 )); then
+            logMe "ERROR: Classic API token request failed. curl exit code: ${curl_status}" >&2
+            return 1
+        fi
 
-     api_authentication_check=$(/usr/bin/curl --write-out %{http_code} --silent --output /dev/null "${jamfpro_url}/api/v1/auth" --request GET --header "Authorization: Bearer ${api_token}")
+        if [[ "$http_status" != "200" ]]; then
+            logMe "ERROR: Classic API token request returned HTTP ${http_status}." >&2
+
+            if [[ -s "$response_file" ]]; then
+                logMe "ERROR: Response begins with:" >&2
+                /usr/bin/head -c 500 "$response_file" >&2
+                /usr/bin/printf '\n' >&2
+            fi
+
+            return 1
+        fi
+
+        if [[ ! -s "$response_file" ]]; then
+            logMe "ERROR: Classic API token response was empty." >&2
+            return 1
+        fi
+
+        if ! jq -e 'type == "object"' "$response_file" >/dev/null 2>&1; then
+            logMe "ERROR: Classic API token response was not valid JSON." >&2
+            return 1
+        fi
+
+        if ! token=$(jq -er '.token | strings | select(length > 0)' "$response_file"); then
+            logMe "ERROR: Classic API response did not contain a bearer token." >&2
+            return 1
+        fi
+
+        if ! expires=$(jq -er '.expires | strings | select(length > 0)' "$response_file"); then
+            logMe "ERROR: Classic API response did not contain a token expiration date." >&2
+            return 1
+        fi
+
+        if ! expiration_epoch=$(format_jamf_date "$expires" "+%s"); then
+            logMe "ERROR: Unable to parse Classic API token expiration: ${expires}" >&2
+            return 1
+        fi
+
+        if [[ "$expiration_epoch" != <-> ]]; then
+            logMe "ERROR: Classic API token expiration did not convert to a valid epoch value: ${expiration_epoch}" >&2
+            return 1
+        fi
+
+        if (( expiration_epoch <= EPOCHSECONDS )); then
+            logMe "ERROR: Classic API returned a token that is already expired. Expiration: ${expires}" >&2
+            return 1
+        fi
+
+        api_token="$token"
+        api_token_expires_epoch="$expiration_epoch"
+
+        logMe "Classic API bearer token successfully obtained."
+        #logMe "Classic API bearer token expires at ${expires}."
+
+        return 0
+
+    } always {
+        /bin/rm -f -- "$response_file"
+    }
 }
 
 function JAMF_get_access_token ()
 {
-    # PURPOSE: obtain an OAuth bearer token for API authentication.  This is used if you are using  Client ID & Secret credentials)
-    # RETURN: connection stringe (either error code or valid data)
-    # PARMS: None
-    # EXPECTED: CLIENT_ID, CLIENT_SECRET, jamfpro_url
-
-    returnval=$(curl --silent --location --request POST "${jamfpro_url}/api/oauth/token" \
-        --header "Content-Type: application/x-www-form-urlencoded" \
-        --data-urlencode "client_id=${CLIENT_ID}" \
-        --data-urlencode "grant_type=client_credentials" \
-        --data-urlencode "client_secret=${CLIENT_SECRET}")
+    local response_file=""
+    local http_status=""
+    local curl_status=0
+    local token=""
+    local expires_in=0
     
-    if [[ -z "$returnval" ]]; then
-        logMe "Check Jamf URL"
-        cleanup_and_exit 1
-    elif [[ "$returnval" == '{"error":"invalid_client"}' ]]; then
-        logMe "Check the API Client credentials and permissions"
-        cleanup_and_exit 1
-    else
-        logMe "API token successfully obtained."
+    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.token.XXXXX") || {
+        logMe "ERROR: Unable to create OAuth response file" >&2
+        return 1
+    }
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure OAuth token response file."
+        /bin/rm -f -- "$response_file"
+        return 1
     fi
-    
-    api_token=$(echo "$returnval" | plutil -extract access_token raw -)
+
+    {
+        http_status=$(/usr/bin/curl -s -S -L -o "$response_file" -w '%{http_code}' -X POST -H "Content-Type: application/x-www-form-urlencoded" --connect-timeout 15 --max-time 60 \
+            --data-urlencode "client_id=${CLIENT_ID}" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_secret=${CLIENT_SECRET}" "${jamfpro_url}/api/oauth/token")
+
+        curl_status=$?
+
+        if (( curl_status != 0 )); then
+            logMe "ERROR: OAuth token request failed, curl exit ${curl_status}" >&2
+            return 1
+        fi
+
+        if [[ "$http_status" != "200" ]]; then
+            logMe "ERROR: OAuth token request returned HTTP ${http_status}" >&2
+            return 1
+        fi
+
+        if ! jq -e . "$response_file" >/dev/null 2>&1; then
+            logMe "ERROR: OAuth token response was not valid JSON" >&2
+            return 1
+        fi
+
+        if ! token=$(jq -er '.access_token | strings | select(length > 0)' "$response_file"); then
+            logMe "ERROR: OAuth response did not contain an access token" >&2
+            return 1
+        fi
+
+
+        if ! expires_in=$(jq -er '.expires_in | numbers | floor | select(. > 0)' "$response_file"); then
+            logMe "ERROR: OAuth response did not contain a valid expires_in value." >&2
+            return 1
+        fi
+
+        api_token="$token"
+        api_token_expires_epoch=$(( EPOCHSECONDS + expires_in ))
+        logMe "OAuth access token successfully obtained."
+        return 0
+    } always {
+        /bin/rm -f -- "$response_file"
+    }
 }
 
-function JAMF_check_and_renew_api_token ()
+function JAMF_ensure_valid_token ()
 {
-     # Verify that API authentication is using a valid token by running an API command
-     # which displays the authorization details associated with the current API user. 
-     # The API call will only return the HTTP status code.
+    local -i renewal_buffer=60
 
-     JAMF_validate_token
+    if [[ -n "$api_token" ]] &&
+       (( api_token_expires_epoch > 0 )) &&
+       (( EPOCHSECONDS + renewal_buffer < api_token_expires_epoch )); then
+        return 0
+    fi
 
-     # If the api_authentication_check has a value of 200, that means that the current
-     # bearer token is valid and can be used to authenticate an API call.
+    logMe "Jamf API token is missing or nearing expiration. Requesting a new token."
 
-     if [[ ${api_authentication_check} == 200 ]]; then
+    api_token=""
+    api_token_expires_epoch=0
 
-     # If the current bearer token is valid, it is used to connect to the keep-alive endpoint. This will
-     # trigger the issuing of a new bearer token and the invalidation of the previous one.
+    case "$JAMF_TOKEN" in
+        new)
+            if ! JAMF_get_access_token; then
+                logMe "ERROR: Unable to obtain a new OAuth access token." >&2
+                return 1
+            fi
+            ;;
 
-          api_token=$(/usr/bin/curl "${jamfpro_url}/api/v1/auth/keep-alive" --silent --request POST -H "Authorization: Bearer ${api_token}" | plutil -extract token raw -)
+        classic)
+            if ! JAMF_get_classic_api_token; then
+                logMe "ERROR: Unable to obtain a new Classic API bearer token." >&2
+                return 1
+            fi
+            ;;
 
-     else
+        *)
+            logMe "ERROR: Unknown authentication type: ${JAMF_TOKEN}" >&2
+            return 1
+            ;;
+    esac
 
-          # If the current bearer token is not valid, this will trigger the issuing of a new bearer token
-          # using Basic Authentication.
+    if [[ -z "$api_token" ]]; then
+        logMe "ERROR: Token request completed without returning an API token." >&2
+        api_token_expires_epoch=0
+        return 1
+    fi
 
-          JAMF_get_classic_api_token
-     fi
+    if (( api_token_expires_epoch <= EPOCHSECONDS )); then
+        logMe "ERROR: Token request returned an invalid expiration epoch: ${api_token_expires_epoch}" >&2
+        api_token=""
+        api_token_expires_epoch=0
+        return 1
+    fi
+
+    return 0
 }
 
 function JAMF_invalidate_token ()
 {
-    # PURPOSE: invalidate the JAMF Token to the server
-    # RETURN: None
-    # Expected jamfpro_url, ap_token
+    local response_file=""
+    local http_status=""
+    local curl_status=0
 
-    returnval=$(/usr/bin/curl -w "%{http_code}" -H "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth/invalidate-token" -X POST -s -o /dev/null)
+    if [[ -z "$api_token" ]]; then
+        logMe "INFO: No Jamf token is available to invalidate."
+        return 0
+    fi
+    
+    if [[ "$JAMF_TOKEN" == "new" ]]; then
+        api_token=""
+        api_token_expires_epoch=0
+        logMe "OAuth access token cleared from script memory."
+        return 0
+    fi
 
-    if [[ $returnval == 204 ]]; then
-        logMe "Token successfully invalidated"
-    elif [[ $returnval == 401 ]]; then
-        logMe "Token already invalid"
-    else
-        logMe "Unexpected response code: $returnval"
-        cleanup_and_exit 1  # Or handle it in a different way (e.g., retry or log the error)
-    fi    
+        response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.invalidate.XXXXX") || {
+            logMe "ERROR: Unable to create token-invalidation response file."
+            api_token=""
+            api_token_expires_epoch=0
+            return 1
+        }
+
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure token-invalidation response file."
+        api_token=""
+        api_token_expires_epoch=0
+        /bin/rm -f -- "$response_file"
+        return 1
+    fi
+    {
+        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
+                --request POST --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth/invalidate-token")
+        curl_status=$?
+
+        api_token=""
+        api_token_expires_epoch=0
+
+        if (( curl_status != 0 )); then
+            logMe "ERROR: Token invalidation failed. curl exit code: ${curl_status}" >&2
+            return 1
+        fi
+
+        case "$http_status" in
+            204)
+                logMe "Jamf Pro user-account token successfully invalidated."
+                ;;
+
+            401)
+                logMe "Jamf Pro user-account token was already invalid."
+                ;;
+
+            *)
+                logMe "WARNING: Unexpected token invalidation response: HTTP ${http_status}" >&2
+                return 1
+                ;;
+        esac
+        # Request and status handling
+        } always {
+            /bin/rm -f -- "$response_file"
+    }
+    return 0
 }
 
 function JAMF_get_deviceID ()
 {
-    # PURPOSE: uses the serial number or hostname to get the device ID from the JAMF Pro server.
-    # RETURN: the device ID for the device in question.
-    # PARMS: $1 - search identifier to use (serial or Hostname)
-    #        $2 - Device name/serial # to search for
+    # PURPOSE:
+    #   Locate a single computer in Jamf Pro and return the requested ID.
+    #
+    # PARAMETERS:
+    #   $1 = Search type ("Hostname" or "Serial Number")
+    #   $2 = Search value
+    #   $3 = jq filter to return desired field
+    #
+    # RETURNS:
+    #   0 = Success
+    #   1 = General failure
+    #   2 = No matching computer found
+    #   3 = Multiple matching computers found
 
-    [[ "$1" == "Hostname" ]] && type="general.name" || type="hardware.serialNumber"
-    ID=$(/usr/bin/curl -s --fail  -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computers-inventory?section=GENERAL&page=0&page-size=100&sort=general.name%3Aasc&filter=$type=='$2'"| jq -r '.results[].id')
-    echo $ID
+    local search_type="$1"
+    local search_value="$2"
+    local jq_filter="$3"
+
+    local filter_type=""
+    local response_file=""
+    local http_status=""
+    local curl_status=0
+    local result_count=0
+    local device_id=""
+    local error_message=""
+
+
+    case "$search_type" in
+        "Hostname")
+            filter_type="general.name"
+            ;;
+        "Serial Number")
+            filter_type="hardware.serialNumber"
+            ;;
+        *)
+            logMe "ERROR: Unsupported search type: ${search_type}"
+            return 1
+            ;;
+    esac
+
+    JAMF_ensure_valid_token || return 1
+
+    response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.inventory.XXXXX") || {
+        logMe "ERROR: Unable to create inventory response file."
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure inventory response file."
+        /bin/rm -f -- "$response_file"
+        return 1
+    fi
+
+    {
+        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --get --output "$response_file" --write-out '%{http_code}' \
+                --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" --data-urlencode "section=GENERAL" --data-urlencode "page=0" --data-urlencode "page-size=100" \
+                --data-urlencode "sort=general.name:asc" --data-urlencode "filter=${filter_type}==\"${search_value}\"" "${jamfpro_url}/api/v4/computers-inventory")
+
+        curl_status=$?
+
+        if (( curl_status != 0 )); then
+            logMe "ERROR: Computer lookup failed. curl exit code: ${curl_status}"
+            return 1
+        fi
+
+        if [[ "$http_status" != "200" ]]; then
+            logMe "ERROR: Computer lookup returned HTTP ${http_status}"
+
+            if [[ -s "$response_file" ]]; then
+                error_message=$(jq -r '.errors[0].description // .errors[0].message // .message // .error_description // empty' "$response_file" 2>/dev/null)
+                [[ -n "$error_message" ]] && logMe "Jamf error: ${error_message}"
+            fi
+
+            return 1
+        fi
+
+        if [[ ! -s "$response_file" ]]; then
+            logMe "ERROR: Computer lookup returned an empty response."
+            return 1
+        fi
+
+        if ! jq -e 'type == "object" and (.results | type == "array")' "$response_file" >/dev/null 2>&1
+        then
+            logMe "ERROR: Invalid JSON returned from Jamf."
+            return 1
+        fi
+
+        if ! result_count=$(jq -er '.results | length' "$response_file"); then
+            logMe "ERROR: Unable to determine result count."
+            return 1
+        fi
+
+        case "$result_count" in
+            0)
+                logMe "ERROR: No computer matched ${search_type}: ${search_value}"
+                return 2
+                ;;
+            1)
+                ;;
+            *)
+                logMe "ERROR: Multiple computers matched ${search_type}: ${search_value}"
+                return 3
+                ;;
+        esac
+
+        if ! device_id=$(jq -er "$jq_filter" "$response_file"); then
+            logMe "ERROR: Requested identifier not found in Jamf response."
+            return 1
+        fi
+
+        if [[ -z "$device_id" || "$device_id" == "null" ]]; then
+            logMe "ERROR: Jamf returned an empty identifier."
+            return 1
+        fi
+
+        ID="$device_id"
+        return 0
+
+    } always {
+        /bin/rm -f -- "$response_file"
+    }
 }
 
 function JAMF_renew_binary ()
 {
-    # PURPOSE: Redeploy the JAMF binary on the device in question.
-    # RETURN: redeploy_response
-    retval=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "accept: application/json" "${jamfpro_url}"/api/v1/jamf-management-framework/redeploy/"${1}" -X POST )
-    case "${retval}" in
-        *"INVALID"* | *"PRIVILEGE"* ) printf '%s\n' "ERR" ;;
-        *"Client $1 not found"* ) printf '%s\n' "NOT FOUND" ;;  # DDM not active
-        *) printf '%s\n' "${retval}";;
-    esac
+    local jamf_id="${1:-}"
+    local response_file=""
+    local http_status=""
+    local curl_status=0
+    local error_message=""
+
+    REDEPLOY_ERROR=""
+
+    if [[ -z "$jamf_id" ]]; then
+        REDEPLOY_ERROR="No Jamf computer ID was provided for redeployment."
+        logMe "ERROR: ${REDEPLOY_ERROR}"
+        return 1
+    fi
+
+    if ! JAMF_ensure_valid_token; then
+        REDEPLOY_ERROR="Unable to obtain a valid Jamf Pro API token."
+        return 1
+    fi
+
+    response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.redeploy.XXXXX") || {
+        REDEPLOY_ERROR="Unable to create the temporary redeploy response file."
+        logMe "ERROR: ${REDEPLOY_ERROR}"
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$response_file"; then
+        REDEPLOY_ERROR="Unable to secure the temporary redeploy response file."
+        logMe "ERROR: ${REDEPLOY_ERROR}"
+        /bin/rm -f -- "$response_file"
+        return 1
+    fi
+
+    {
+        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
+                --request POST --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/api/v1/jamf-management-framework/redeploy/${jamf_id}")
+        curl_status=$?
+
+        if (( curl_status != 0 )); then
+            REDEPLOY_ERROR="Unable to communicate with Jamf Pro. curl exit code: ${curl_status}."
+            logMe "ERROR: ${REDEPLOY_ERROR}"
+            return 1
+        fi
+
+        case "$http_status" in
+            200|201|202|204)
+                logMe "Jamf binary redeploy request was accepted for computer ID ${jamf_id}."
+                return 0
+                ;;
+
+            401)
+                REDEPLOY_ERROR="Jamf Pro rejected the API token."
+                ;;
+
+            403)
+                REDEPLOY_ERROR="The API account does not have permission to redeploy the Jamf management framework."
+                ;;
+
+            404)
+                REDEPLOY_ERROR="Jamf computer ID ${jamf_id} was not found."
+                ;;
+
+            *)
+                if [[ -s "$response_file" ]]; then
+                    error_message=$(jq -r '.errors[0].description // .errors[0].message // .message // .error_description // empty' "$response_file" 2>/dev/null)
+                fi
+
+                REDEPLOY_ERROR="Jamf Pro returned HTTP ${http_status}."
+
+                if [[ -n "$error_message" ]]; then
+                    REDEPLOY_ERROR="${REDEPLOY_ERROR} ${error_message}"
+                fi
+                ;;
+        esac
+
+        logMe "ERROR: ${REDEPLOY_ERROR}"
+        return 1
+
+    } always {
+        /bin/rm -f -- "$response_file"
+    }
 }
 
 function display_welcome_message ()
 {
+    local -a MainDialogBody
+    local message=""
+    local buttonpress=0
+
      MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --subtitle "${BANNER_SUBTITLE}"
         --icon "${SD_ICON}"
-        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},padding=${BANNER_TEXT_PADDING}"
+        --messagefont "name=Arial,size=17"
         --iconsize 100
-        --message "${SD_DIALOG_GREETING}, ${SD_FIRST_NAME}.  Please enter the serial or hostname of the device you that you want to redploy the JAMF binary on.<br><br>You can also choose to deploy the JAMF binary manually.  Click on 'Manual Method' for steps."
-        --messagefont name=Arial,size=17
+        --message "${SD_DIALOG_GREETING}, ${SD_FIRST_NAME}. Please enter the serial number or hostname of the device on which you want to redeploy the Jamf binary.<br><br>You can also redeploy the Jamf binary manually. Click **Manual Method** for instructions."
         --textfield "Device,required"
         --textfield "Reason,required"
         --infobuttontext "Manual Method"
@@ -394,76 +990,164 @@ function display_welcome_message ()
         --selectvalues "Serial Number, Hostname"
         --selectdefault "Hostname"
         --ontop
-        --height 480
         --json
+        --height 480
         --moveable
      )
 	
-     message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+     message=$("$SW_DIALOG" "${MainDialogBody[@]}" 2>/dev/null )
 
-     buttonpress=$?
+
+    buttonpress=$?
     breakLoop=true
-    [[ $buttonpress = 3 ]] && {breakLoop=false; display_manual_deploy; }
-    [[ $buttonpress = 2 ]] && cleanup_and_exit
+        case "$buttonpress" in
+        0)
+            ;;
+        2)
+            logMe "User canceled the operation."
+            cleanup_and_exit 0
+            ;;
+        3)
+            logMe "User requested manual deployment steps."
+            breakLoop=false
+            if ! display_manual_deploy; then
+                logMe "ERROR: Unable to display manual deployment steps."
+                return 1
+            fi
+            return 0
+            ;;
+        *)
+            logMe "ERROR: SwiftDialog exited with code ${buttonpress}."
+            cleanup_and_exit 1
+            ;;
+    esac
 
-    search_type=$(echo $message | plutil -extract "SelectedOption" 'raw' -)
-    computer_id=$(echo $message | plutil -extract "Device" 'raw' -)
-    reason=$(echo $message | plutil -extract "Reason" 'raw' -)
+    if ! search_type=$(printf '%s' "$message" | jq -er '.Serial.selectedValue'); then
+        logMe "ERROR: Unable to parse the selected search type."
+        cleanup_and_exit 1
+    fi
+
+    if ! computer_id=$(printf '%s' "$message" | jq -er '.Device | strings | select(length > 0)'); then
+        logMe "ERROR: Unable to parse the target device."
+        cleanup_and_exit 1
+    fi
+
+    if ! reason=$(printf '%s' "$message" | jq -er '.Reason'); then
+        logMe "ERROR: Unable to parse the selected reason."
+        cleanup_and_exit 1
+    fi
+    computer_id="${computer_id#"${computer_id%%[![:space:]]*}"}"
+    computer_id="${computer_id%"${computer_id##*[![:space:]]}"}"
+
+    reason="${reason#"${reason%%[![:space:]]*}"}"
+    reason="${reason%"${reason##*[![:space:]]}"}"
+
+    if [[ -z "$computer_id" ]]; then
+        logMe "ERROR: The device search value is empty."
+        cleanup_and_exit 1
+    fi
+
+    if [[ -z "$reason" ]]; then
+        logMe "ERROR: The redeployment reason is empty."
+        cleanup_and_exit 1
+    fi
+
+    return 0
 }
 
 function display_manual_deploy ()
 {
-    displayManualSteps='mkdir -p /usr/local/jamf/bin<br>curl -O '"${jamfpro_url}"'bin/jamf<br>chmod +x jamf<br>mv jamf /usr/local/jamf/bin/<br>/usr/local/jamf/bin/jamf createConf -url '"${jamfpro_url}"'<br>/usr/local/jamf/bin/jamf enroll -prompt<br>/usr/local/jamf/bin/jamf policy'
-    manualSteps=$(echo "$displayManualSteps" | sed 's/<br>/\n/g')
+    local -a MainDialogBody
+    local displayManualSteps=""
+    local manualSteps=""
+    local buttonpress=0
+
+    displayManualSteps=$(
+    cat <<EOF
+mkdir -p /usr/local/jamf/bin
+curl -fL -o /tmp/jamf "${jamfpro_url}/bin/jamf"
+chmod 755 /tmp/jamf
+mv /tmp/jamf /usr/local/jamf/bin/jamf
+/usr/local/jamf/bin/jamf createConf -url "${jamfpro_url}"
+/usr/local/jamf/bin/jamf enroll -prompt
+/usr/local/jamf/bin/jamf policy
+EOF
+)
+    manualSteps="$displayManualSteps"
+    displayManualSteps="${displayManualSteps//$'\n'/<br>}"
+
     MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --subtitle "${BANNER_SUBTITLE}"
         --icon "${SD_ICON}"
-        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},padding=${BANNER_TEXT_PADDING}"
+        --messagefont "name=Arial,size=17"
         --iconsize 100
-        --message "These are the steps that you need to perform on the workstation to manually download the JAMF binary from ther server:<br><br>$displayManualSteps"
-        --messagefont name=Arial,size=17
+        --message "These are the steps that you need to perform on the workstation to manually download the JAMF binary from the Jamf Pro server:<br><br>$displayManualSteps"
         --button1text "Back"
         --button2text "Quit"
         --infobuttontext "Copy to clipboard"
         --quitoninfo
         --ontop
         --height 420
-        --json
         --moveable
      )
 	
-    message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+    "$SW_DIALOG" "${MainDialogBody[@]}" 2>/dev/null
 
     buttonpress=$?
-    [[ $buttonpress = 2 ]] && cleanup_and_exit
-    [[ $buttonpress = 3 ]] && echo $manualSteps | pbcopy
+
+    case "$buttonpress" in
+        0)
+            logMe "User returned from the manual deployment dialog."
+            return 0
+            ;;
+
+        2)
+            logMe "User exited from the manual deployment dialog."
+            cleanup_and_exit 0
+            ;;
+
+        3)
+            print -rn -- "$manualSteps" | /usr/bin/pbcopy
+            logMe "Manual deployment steps copied to the clipboard."
+            return 0
+            ;;
+
+        *)
+            logMe "ERROR: Manual deployment dialog exited with code ${buttonpress}."
+            return 1
+            ;;
+    esac
 
 }
 
 function inventory_not_found ()
 {
+    local -a dialogarray
+
     dialogarray=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --subtitle "${BANNER_SUBTITLE}"
-        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},padding=${BANNER_TEXT_PADDING}"
         --icon "${SD_ICON}" 
-        --overlayicon ${OVERLAY_ICON}
+        --overlayicon "${OVERLAY_ICON}"
         --alignment center
         --message "**Device inventory not found!** <br><br>Please make sure the device name or serial is correct."
         --ontop
         --moveable
      )
 
-    $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
+    "$SW_DIALOG" "${dialogarray[@]}" 2>/dev/null
     cleanup_and_exit 1
 }
 
 function confirm_user_choice ()
 {
-
+    local -a dialogarray
+    local buttonpress=0
     # confirm that the user wants to continue
 
     dialogarray=(
@@ -471,24 +1155,39 @@ function confirm_user_choice ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --subtitle "${BANNER_SUBTITLE}"
         --icon "${SD_ICON}"
-        --overlayicon ${OVERLAY_ICON}
-        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
-        --message "Sending the command to repair the JAMF binary might enforce the enrollment process to run on system $computer_id.  Are you sure you want to continue?"
+        --overlayicon "${OVERLAY_ICON}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},padding=${BANNER_TEXT_PADDING}"
+        --message "Jamf record **${ID}** was found for **${computer_id}**.<br><br>Redeploying the Jamf management framework may cause the device to repeat portions of the enrollment process.<br><br>Are you sure you want to continue?"
         --ontop
         --moveable
         --button1text "Continue"
         --button2text "Cancel"
     )
 
-    $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
+    "$SW_DIALOG" "${dialogarray[@]}" 2>/dev/null
     buttonpress=$?
 
-    [[ $buttonpress = 2 ]] &&cleanup_and_exit 0
+        case "$buttonpress" in
+        0)
+            return 0
+            ;;
+        2)
+            logMe "User canceled the operation."
+            cleanup_and_exit 0
+            ;;
+        *)
+            logMe "ERROR: SwiftDialog exited with code ${buttonpress}."
+            cleanup_and_exit 1
+            ;;
+    esac
+
 }
 
 function show_results () 
 {
-    logMe "Binary redeploy comamnd send to #$ID"
+    local -a dialogarray
+
+    logMe "Jamf binary redeploy command sent to computer ID ${ID}."
 
     # Show the result
 
@@ -497,26 +1196,30 @@ function show_results ()
         --bannertitle "${SD_WINDOW_TITLE}"
         --subtitle "${BANNER_SUBTITLE}"
         --icon "${SD_ICON}"
-        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},padding=${BANNER_TEXT_PADDING}"
+        --messagefont "name=Arial,size=17"
         --overlayicon "SF=checkmark.circle.fill,color=auto,weight=light,bgcolor=none"
-        --message "The command to repair the JAMF binary for $computer_id has been sent.  This process might also enforce the enrollment process to run."
+        --message "The request to redeploy the Jamf binary on **${computer_id}** was accepted.<br><br>This operation may cause the device to repeat portions of the enrollment process."
         --ontop
         --moveable
     )
 
-    $SW_DIALOG "${dialogarray[@]}" 2>/dev/null
+    "$SW_DIALOG" "${dialogarray[@]}" 2>/dev/null
     cleanup_and_exit 0
 
 }
 
 function display_failure_message ()
 {
-     MainDialogBody=(
+     local -a MainDialogBody
+
+    MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --subtitle "${BANNER_SUBTITLE}"
-        --titlefont "shadow=1, color="${BANNER_TEXT_COLOR}", padding=${BANNER_TEXT_PADDING}"
-        --message "**Problems retrieving JAMF Info**<br><br>Error Message: $1"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},padding=${BANNER_TEXT_PADDING}"
+        --messagefont "name=Arial,size=17"
+        --message "**Jamf Binary Redeploy Failed**<br><br>${1}"
         --icon "${SD_ICON}"
         --overlayicon warning
         --iconsize 128
@@ -525,54 +1228,91 @@ function display_failure_message ()
         --moveable
     )
 
-    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
-    buttonpress=$?
-
+    "$SW_DIALOG" "${MainDialogBody[@]}" 2>/dev/null
+    return 0
 }
+
 ########################
 #
 # Start of Main Program
 #
 ########################
 
-declare api_token
-declare api_authentication_check
-declare jamfpro_url
-declare ID
-declare reason
-declare search_type
-declare computer_id
-declare redeploy_response
+typeset -g api_token=""
+typeset -gi api_token_expires_epoch=0
+typeset -g jamfpro_url=""
+typeset -g ID=""
+typeset -g reason=""
+typeset -g search_type=""
+typeset -g computer_id=""
+typeset -g REDEPLOY_ERROR=""
+typeset -gi lookup_status=0
+typeset -g breakLoop=false
 
-autoload 'is-at-least'
+autoload -Uz is-at-least
+zmodload zsh/datetime
 breakLoop=false
 
-create_log_directory
-check_support_files
-check_swift_dialog_install
+check_for_sudo || cleanup_and_exit 1
+create_log_directory || cleanup_and_exit 1
+initialize_user_context || cleanup_and_exit 1
+JAMF_check_credentials || cleanup_and_exit 1
+JAMF_get_server || cleanup_and_exit 1
+check_swift_dialog_install || cleanup_and_exit 1
+check_support_files || cleanup_and_exit 1
 
 SD_ICON=$(JAMF_which_self_service)
-JAMF_check_connection
-JAMF_check_credentials
-JAMF_get_server
+
+if ! JAMF_check_connection; then
+    display_failure_message "Unable to connect to the Jamf Pro server. Review the script log for details."
+    cleanup_and_exit 1
+fi
+
 while true; do
-    display_welcome_message
+    if ! display_welcome_message; then
+        logMe "ERROR: Unable to display the welcome dialog."
+        cleanup_and_exit 1
+    fi
     if [[ $breakLoop == true ]]; then
         break
     fi
 done
-[[ $JAMF_TOKEN == "new" ]] && JAMF_get_access_token || JAMF_get_classic_api_token
-ID=$(JAMF_get_deviceID "${search_type}" ${computer_id})
-logMe "Device ID #$ID"
-# If not found, then throw an error
-[[ -z "${ID}" ]] && inventory_not_found
-# Confirm they want to contine and do the redeploy command
+JAMF_ensure_valid_token || cleanup_and_exit 1
+
+ID=""
+
+JAMF_get_deviceID "$search_type" "$computer_id" '.results[0].id'
+lookup_status=$?
+
+case "$lookup_status" in
+    0)
+        logMe "Device ID #${ID}"
+        ;;
+
+    2)
+        inventory_not_found
+        ;;
+
+    3)
+        display_failure_message "Multiple Jamf records matched ${search_type}: ${computer_id}"
+        cleanup_and_exit 1
+        ;;
+
+    *)
+        display_failure_message "Unable to retrieve the Jamf record for ${computer_id}. Review the script log for details."
+        cleanup_and_exit 1
+        ;;
+esac
+
+# Confirm they want to continue and do the redeploy command
+
 confirm_user_choice
-results=$(JAMF_renew_binary $ID)
-if [[ $results == *"ERR"* ]]; then
-    display_failure_message "Invalid Privilege to redeploy binary.  Please check the API credentials and permissions for the account you are using to run this script."
-    cleanup_and_exit 1
-else
+
+logMe "Redeploy requested by ${JAMF_LOGGED_IN_USER} for ${computer_id}; reason: ${reason}"
+
+if JAMF_renew_binary "$ID"; then
     show_results
-    cleanup_and_exit 0
+else
+    display_failure_message "${REDEPLOY_ERROR:-The Jamf binary redeploy request failed. Review the script log for details.}"
+    cleanup_and_exit 1
 fi
