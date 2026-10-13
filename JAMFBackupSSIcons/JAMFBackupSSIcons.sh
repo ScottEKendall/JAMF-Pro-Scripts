@@ -594,7 +594,7 @@ function update_display_list ()
     case "$action" in
 
         create|show)
-            "$SW_DIALOG" --progress --jsonfile "$JSON_DIALOG_BLOB" --commandfile --infotext "${jamfpro_url}" "$DIALOG_COMMAND_FILE" &
+            "$SW_DIALOG" --progress --infotext "${jamfpro_url}" --jsonfile "$JSON_DIALOG_BLOB" --commandfile "$DIALOG_COMMAND_FILE" &
             DIALOG_PROCESS=$!
 
             if ! wait_for_dialog_ready; then
