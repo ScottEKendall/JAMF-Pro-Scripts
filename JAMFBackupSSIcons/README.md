@@ -43,5 +43,17 @@ If you are using the Modern JAMF API credentials, you need to set:
 ||       Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 ||       Optimized "Common" section for better performance
 ||       Added section to use the defaults file if found to set the banner image and spacing
-| 2.0 | Updated SD Version requirements to 3.1.0
+| 2.0 |  Fixed display issues with Swift Dialog 3.0
+||       Changed JAMF 'policy -trigger' to 'JAMF policy -event'
+||       Optimized "Common" section for better performance
+||       Added section to use the defaults file if found to set the banner image and spacing
+| 2.1 |  Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.2 | Improved SwiftDialog status update reliability
+||       Added dialog startup readiness validation
+||       Implemented serialized command-file writes for concurrent workers
+||       Fixed policy-list/display index alignment issues
+||      Added Self Service icon URI validation
+||       Improved API token renewal handling for long-running exports
+||       Improved temporary file and lock cleanup
+||       Enhanced large-environment stability and performance
