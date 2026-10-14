@@ -57,3 +57,5 @@ If you are using the Modern JAMF API credentials, you need to set:
 ||       Improved API token renewal handling for long-running exports
 ||       Improved temporary file and lock cleanup
 ||       Enhanced large-environment stability and performance
+| 2.3 | changed wording on the home screen and create a help message to explain what the script does
+||       Code cleanup and optimization

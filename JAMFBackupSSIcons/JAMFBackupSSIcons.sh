@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 05/21/2025
-# Last updated: 10/13/2026
+# Last updated: 10/14/2026
 #
 # Script Purpose: Backup JAMF Self service icons to a local folder
 #
@@ -33,6 +33,8 @@
 #       Improved API token renewal handling for long-running exports
 #       Improved temporary file and lock cleanup
 #       Enhanced large-environment stability and performance
+# 2.3 - changed wording on the home screen and create a help message to explain what the script does
+#       Code cleanup and optimization
 
 ######################################################################################################
 #
@@ -107,10 +109,10 @@ JQ_FILE_INSTALL_POLICY="install_jq"
 # 
 #################################################               
 
-JAMF_PARAMETER_USER="${3:-}"
-CLIENT_ID="${4:-}"
-CLIENT_SECRET="${5:-}"
-JAMF_SERVER="${6:-}"
+JAMF_PARAMETER_USER="${3:-}"    #If run from JAMF, this will be the logged in user. If run from terminal, this will be empty (and will use the logged in user)
+CLIENT_ID="${4:-}"              #Client ID for JAMF API authentication (if using Client ID/Secret)
+CLIENT_SECRET="${5:-}"          #Client Secret for JAMF API authentication (if using Client ID/Secret)
+JAMF_SERVER="${6:-}"            #Override the JAMF server URL if needed (if not passed, will use the defaults file or the local JAMF binary to determine the server URL)
 
 # Determine which Jamf API authentication method is being used.
 CLIENT_ID_REGEX='^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$'
@@ -341,16 +343,13 @@ trap 'cleanup_and_exit 143' TERM
 
 function make_temp_files ()
 {
-    JSON_DIALOG_BLOB=$(
-        /usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX"
-    ) || {
+    JSON_DIALOG_BLOB=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX") || {
         logMe "ERROR: Unable to create SwiftDialog JSON file."
         return 1
     }
 
     DIALOG_COMMAND_FILE=$(
-        /usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX"
-    ) || {
+        /usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX") || {
         logMe "ERROR: Unable to create SwiftDialog command file."
         /bin/rm -f -- "$JSON_DIALOG_BLOB"
         JSON_DIALOG_BLOB=""
@@ -375,6 +374,7 @@ function make_temp_files ()
 
     return 0
 }
+
 function initialize_user_context ()
 {
     LOGGED_IN_USER=$(/usr/sbin/scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ {print $3}')
@@ -399,8 +399,8 @@ function initialize_user_context ()
         return 1
     fi
 
-    Jamf_LOGGED_IN_USER="${Jamf_PARAMETER_USER:-$LOGGED_IN_USER}"
-    SD_FIRST_NAME="${(C)${Jamf_LOGGED_IN_USER%%.*}}"
+    JAMF_LOGGED_IN_USER="${JAMF_PARAMETER_USER:-$LOGGED_IN_USER}"
+    SD_FIRST_NAME="${(C)${JAMF_LOGGED_IN_USER%%.*}}"
     return 0
 }
 
@@ -412,14 +412,8 @@ function create_display_list ()
 
     dialog_message="The following Self Service Policy icons will be backed up to:<br>${ssStoragePath}"
 
-    if ! /usr/bin/jq -n \
-        --arg icon "$SD_ICON_FILE" \
-        --arg message "$dialog_message" \
-        --arg bannerimage "$SD_BANNER_IMAGE" \
-        --arg bannertitle "$SD_WINDOW_TITLE" \
-        --arg subtitle "$BANNER_SUBTITLE" \
-        --arg titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}" \
-        --argjson policies "$PolicyList" \
+    if ! /usr/bin/jq -n --arg icon "$SD_ICON_FILE" --arg message "$dialog_message" --arg bannerimage "$SD_BANNER_IMAGE" --arg bannertitle "$SD_WINDOW_TITLE" --arg subtitle "$BANNER_SUBTITLE" \
+        --arg titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}" --argjson policies "$PolicyList" \
         '
         {
             icon: $icon,
@@ -458,31 +452,18 @@ function create_display_list ()
         return 1
     fi
 
-    if ! /usr/bin/jq -e '
-        type == "object" and
-        (.listitem | type == "array") and
-        (.listitem | length > 0)
-    ' "$JSON_DIALOG_BLOB" >/dev/null 2>&1; then
+    if ! /usr/bin/jq -e 'type == "object" and (.listitem | type == "array") and (.listitem | length > 0)' "$JSON_DIALOG_BLOB" >/dev/null 2>&1; then
         logMe "ERROR: Generated SwiftDialog configuration is invalid or contains no list items."
         return 1
     fi
 
-    if ! dialog_item_count=$(
-        /usr/bin/jq -er '.listitem | length' "$JSON_DIALOG_BLOB"
-    ); then
+    if ! dialog_item_count=$(/usr/bin/jq -er '.listitem | length' "$JSON_DIALOG_BLOB"); then
         logMe "ERROR: Unable to determine the SwiftDialog list-item count."
         return 1
     fi
 
     if ! policy_id_count=$(
-        /usr/bin/jq -er '
-            [
-                .policies[]
-                | select(.id | type == "number")
-            ]
-            | length
-        ' <<< "$PolicyList"
-    ); then
+        /usr/bin/jq -er '[.policies[]| select(.id | type == "number")] | length' <<< "$PolicyList"); then
         logMe "ERROR: Unable to determine the valid policy count."
         return 1
     fi
@@ -591,7 +572,7 @@ function update_display_list ()
     local progress_value="${5:-}"
     local dialog_command=""
 
-    case "$action" in
+    case "${action:l}" in
 
         create|show)
             "$SW_DIALOG" --progress --infotext "${jamfpro_url}" --jsonfile "$JSON_DIALOG_BLOB" --commandfile "$DIALOG_COMMAND_FILE" &
@@ -641,7 +622,6 @@ function update_display_list ()
 
         progress)
             [[ -n "$progress_value" ]] && write_dialog_command "progress: ${progress_value}"
-            
             [[ -n "$status_value" ]] && write_dialog_command "progresstext: ${status_value}"
             ;;
 
@@ -663,17 +643,10 @@ function update_display_list ()
 function JAMF_which_self_service ()
 {
     local app_path=""
-
     app_path=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>/dev/null)
 
-    if [[ -z "$app_path" ]]; then
-        app_path=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path 2>/dev/null)
-    fi
-
-    if [[ -z "$app_path" || ! -e "$app_path" ]]; then
-        app_path="SF=wrench.and.screwdriver.fill"
-    fi
-
+    [[ -z "$app_path" ]] &&app_path=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path 2>/dev/null)
+    [[ -z "$app_path" || ! -e "$app_path" ]] && app_path="SF=wrench.and.screwdriver.fill"
     print -r -- "$app_path"
 }
 
@@ -685,7 +658,8 @@ function JAMF_check_connection ()
     local http_status=""
     local curl_status=0
 
-    http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 30 --output /dev/null --write-out '%{http_code}' "${jamfpro_url}/healthCheck.html")
+    http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 30 --output /dev/null --write-out '%{http_code}' \
+        "${jamfpro_url}/healthCheck.html")
     curl_status=$?
 
     if (( curl_status != 0 )); then
@@ -752,7 +726,8 @@ function JAMF_get_classic_api_token ()
 
     {
         http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
-            --request POST --user "${CLIENT_ID}:${CLIENT_SECRET}" --header "Accept: application/json" "${jamfpro_url}/api/v1/auth/token")
+            --request POST --user "${CLIENT_ID}:${CLIENT_SECRET}" --header "Accept: application/json" \
+            "${jamfpro_url}/api/v1/auth/token")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -811,8 +786,6 @@ function JAMF_get_classic_api_token ()
         api_token_expires_epoch="$expiration_epoch"
 
         logMe "Classic API bearer token successfully obtained."
-        #logMe "Classic API bearer token expires at ${expires}."
-
         return 0
 
     } always {
@@ -840,7 +813,8 @@ function JAMF_get_access_token ()
 
     {
         http_status=$(/usr/bin/curl -s -S -L -o "$response_file" -w '%{http_code}' -X POST -H "Content-Type: application/x-www-form-urlencoded" --connect-timeout 15 --max-time 60 \
-            --data-urlencode "client_id=${CLIENT_ID}" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_secret=${CLIENT_SECRET}" "${jamfpro_url}/api/oauth/token")
+            --data-urlencode "client_id=${CLIENT_ID}" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_secret=${CLIENT_SECRET}" \
+            "${jamfpro_url}/api/oauth/token")
 
         curl_status=$?
 
@@ -964,7 +938,8 @@ function JAMF_invalidate_token ()
     fi
     {
         http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
-                --request POST --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth/invalidate-token")
+                --request POST --header "Authorization: Bearer ${api_token}" \
+                "${jamfpro_url}/api/v1/auth/invalidate-token")
         curl_status=$?
 
         api_token=""
@@ -1025,7 +1000,8 @@ function JAMF_get_policy_list ()
 
     {
         http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --get --output "$response_file" --write-out '%{http_code}' \
-                --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/policies")
+                --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" \
+                "${jamfpro_url}/JSSResource/policies")
 
         curl_status=$?
 
@@ -1062,148 +1038,6 @@ function JAMF_get_policy_list ()
     } always {
         /bin/rm -f -- "$response_file"
     }
-}
-
-function format_jamf_date ()
-{
-    local raw_date="${1:-}"
-    local output_format="${2:-%m/%d/%Y}"
-
-    [[ "$output_format" == +* ]] || output_format="+${output_format}"
-    local normalized_date=""
-    local parsed_date=""
-
-    [[ -n "$raw_date" && "$raw_date" != "null" ]] || return 1
-
-    normalized_date="$raw_date"
-
-    # Convert a trailing UTC designator to a numeric offset.
-    if [[ "$normalized_date" == *Z ]]; then
-        normalized_date="${normalized_date%Z}+0000"
-    fi
-
-    # Convert timezone offsets such as -04:00 to -0400.
-    if [[ "$normalized_date" =~ '([+-][0-9]{2}):([0-9]{2})$' ]]; then
-        normalized_date="${normalized_date[1,-4]}${normalized_date[-2,-1]}"
-    fi
-
-    # Remove fractional seconds while preserving any timezone offset.
-    normalized_date=$(print -r -- "$normalized_date" | /usr/bin/sed -E 's/\.([0-9]+)([+-][0-9]{4})$/\2/; s/\.([0-9]+)$//')
-    normalized_date="${normalized_date#"${normalized_date%%[![:space:]]*}"}"
-    normalized_date="${normalized_date%"${normalized_date##*[![:space:]]}"}"
-
-    if parsed_date=$(/bin/date -j -f "%Y-%m-%dT%H:%M:%S%z" "$normalized_date" "$output_format" 2>/dev/null); then
-        print -r -- "$parsed_date"
-        return 0
-    fi
-
-    if parsed_date=$(/bin/date -j -f "%Y-%m-%dT%H:%M:%S" "$normalized_date" "$output_format" 2>/dev/null); then
-        print -r -- "$parsed_date"
-        return 0
-    fi
-
-    if parsed_date=$(/bin/date -j -f "%Y-%m-%d %H:%M:%S%z" "$normalized_date" "$output_format" 2>/dev/null); then
-        print -r -- "$parsed_date"
-        return 0
-    fi
-
-    if parsed_date=$(/bin/date -j -f "%Y-%m-%d %H:%M:%S" "$normalized_date" "$output_format" 2>/dev/null); then
-        print -r -- "$parsed_date"
-        return 0
-    fi
-
-    if parsed_date=$(/bin/date -j -f "%Y-%m-%d" "$normalized_date" "$output_format" 2>/dev/null); then
-        print -r -- "$parsed_date"
-        return 0
-    fi
-
-    return 1
-}
-
-function display_failure_message ()
-{
-     MainDialogBody=(
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
-        --message "**Problems retrieving JAMF Info**<br><br>Error Message: $1"
-        --icon "${SD_ICON_FILE}"
-        --overlayicon warning
-        --iconsize 128
-        --messagefont name=Arial,size=17
-        --button1text "OK"
-        --ontop
-        --moveable
-    )
-
-    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
-    buttonpress=$?
-
-}
-
-###############################################
-#
-# Application Specific functions
-#
-###############################################
-
-function welcomemsg ()
-{
-    message="This utility will extract available Self Service policy icons from Jamf Pro and save them to the folder you select below."
-
-	MainDialogBody=(
-        --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-        --titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}"
-        --ontop
-        --icon "${SD_ICON_FILE}"
-        --overlayicon "${OVERLAY_ICON}"
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --subtitle "${BANNER_SUBTITLE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --infobox "${SD_INFO_BOX_MSG}"
-        --helpmessage ""
-        --width 800
-        --height 480
-        --ignorednd
-        --quitkey 0
-        --button1text "OK"
-        --button2text "Cancel"
-        --infotext "${jamfpro_url}"
-        --textfield "Select a storage location",fileselect,filetype=folder,required
-    )
-	
-			
-	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" --json 2>/dev/null)
-    returnCode=$?
-    case "$returnCode" in
-        0)
-            ;;
-        2)
-            cleanup_and_exit 0
-            ;;
-        *)
-            logMe "ERROR: Welcome dialog exited with code ${returnCode}."
-            cleanup_and_exit 1
-            ;;
-    esac
-
-    if ! ssStoragePath=$(/usr/bin/jq -er '."Select a storage location" | strings | select(length > 0)' <<< "$temp"); then
-        logMe "ERROR: A valid storage location was not selected."
-        display_failure_message "A valid storage location was not selected."
-        cleanup_and_exit 1
-    fi
-
-    if [[ ! -d "$ssStoragePath" ]]; then
-        logMe "ERROR: Selected storage location is not a directory: ${ssStoragePath}"
-        display_failure_message "The selected storage location is not valid."
-        cleanup_and_exit 1
-    fi
-
-    if [[ ! -w "$ssStoragePath" ]]; then
-        logMe "ERROR: Selected storage location is not writable: ${ssStoragePath}"
-        display_failure_message "The selected storage location is not writable."
-        cleanup_and_exit 1
-    fi
 }
 
 function JAMF_extract_policy_icons ()
@@ -1339,9 +1173,7 @@ function JAMF_retrieve_policy_details ()
         return 1
     fi
 
-    response_file=$(
-        /usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.policy.${policy_id}.XXXXX"
-    ) || {
+    response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.policy.${policy_id}.XXXXX") || {
         logMe "ERROR: Unable to create response file for policy ${policy_id}."
         return 1
     }
@@ -1354,7 +1186,8 @@ function JAMF_retrieve_policy_details ()
 
     {
         http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
-                --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/policies/id/${policy_id}")
+                --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" \
+                "${jamfpro_url}/JSSResource/policies/id/${policy_id}")
 
         curl_status=$?
 
@@ -1384,6 +1217,154 @@ function JAMF_retrieve_policy_details ()
     } always {
         /bin/rm -f -- "$response_file"
     }
+}
+
+function format_jamf_date ()
+{
+    local raw_date="${1:-}"
+    local output_format="${2:-%m/%d/%Y}"
+
+    [[ "$output_format" == +* ]] || output_format="+${output_format}"
+    local normalized_date=""
+    local parsed_date=""
+
+    [[ -n "$raw_date" && "$raw_date" != "null" ]] || return 1
+
+    normalized_date="$raw_date"
+
+    # Convert a trailing UTC designator to a numeric offset.
+    if [[ "$normalized_date" == *Z ]]; then
+        normalized_date="${normalized_date%Z}+0000"
+    fi
+
+    # Convert timezone offsets such as -04:00 to -0400.
+    if [[ "$normalized_date" =~ '([+-][0-9]{2}):([0-9]{2})$' ]]; then
+        normalized_date="${normalized_date[1,-4]}${normalized_date[-2,-1]}"
+    fi
+
+    # Remove fractional seconds while preserving any timezone offset.
+    normalized_date=$(print -r -- "$normalized_date" | /usr/bin/sed -E 's/\.([0-9]+)([+-][0-9]{4})$/\2/; s/\.([0-9]+)$//')
+    normalized_date="${normalized_date#"${normalized_date%%[![:space:]]*}"}"
+    normalized_date="${normalized_date%"${normalized_date##*[![:space:]]}"}"
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%dT%H:%M:%S%z" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%dT%H:%M:%S" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%d %H:%M:%S%z" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%d %H:%M:%S" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%d" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    return 1
+}
+
+###############################################
+#
+# Application Specific functions
+#
+###############################################
+
+function display_failure_message ()
+{
+    local errorMessage="${1:-An unknown error occurred.}"
+    local buttonpress=0
+    local -a MainDialogBody
+
+    MainDialogBody=(
+        --bannerimage "$SD_BANNER_IMAGE"
+        --bannertitle "$SD_WINDOW_TITLE"
+        --subtitle "$BANNER_SUBTITLE"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},padding=${BANNER_TEXT_PADDING}"
+        --messagefont "name=Arial,size=17"
+        --message "**Unable to Complete the Request**<br><br>${errorMessage}"
+        --icon "$SD_ICON_FILE"
+        --overlayicon warning
+        --iconsize 128
+        --button1text "OK"
+        --ontop
+        --moveable
+    )
+
+    "$SW_DIALOG" "${MainDialogBody[@]}" 2>/dev/null
+    buttonpress=$?
+
+    return "$buttonpress"
+}
+
+function welcomemsg ()
+{
+    message="This utility will extract available Self Service policy icons from Jamf Pro and save them to the folder you select below.<br><br>The icons will be saved as a 256x256 PNG file."
+
+	MainDialogBody=(
+        --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
+        --titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}"
+        --ontop
+        --icon "${SD_ICON_FILE}"
+        --overlayicon "${OVERLAY_ICON}"
+        --bannerimage "${SD_BANNER_IMAGE}"
+        --subtitle "${BANNER_SUBTITLE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
+        --infobox "${SD_INFO_BOX_MSG}"
+        --helpmessage "All icons regards if the policy is active or not will be downloaded. <br>If a policy does not have an icon, it will be skipped.<br><br>Choosen server: ${jamfpro_url}"
+        --width 800
+        --height 480
+        --ignorednd
+        --quitkey 0
+        --button1text "OK"
+        --button2text "Cancel"
+        --infotext "${jamfpro_url}"
+        --textfield "Select a storage location",fileselect,filetype=folder,required
+    )
+	
+			
+	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" --json 2>/dev/null)
+    returnCode=$?
+    case "$returnCode" in
+        0)
+            ;;
+        2)
+            cleanup_and_exit 0
+            ;;
+        *)
+            logMe "ERROR: Welcome dialog exited with code ${returnCode}."
+            cleanup_and_exit 1
+            ;;
+    esac
+
+    if ! ssStoragePath=$(/usr/bin/jq -er '."Select a storage location" | strings | select(length > 0)' <<< "$temp"); then
+        logMe "ERROR: A valid storage location was not selected."
+        display_failure_message "A valid storage location was not selected."
+        cleanup_and_exit 1
+    fi
+
+    if [[ ! -d "$ssStoragePath" ]]; then
+        logMe "ERROR: Selected storage location is not a directory: ${ssStoragePath}"
+        display_failure_message "The selected storage location is not valid."
+        cleanup_and_exit 1
+    fi
+
+    if [[ ! -w "$ssStoragePath" ]]; then
+        logMe "ERROR: Selected storage location is not writable: ${ssStoragePath}"
+        display_failure_message "The selected storage location is not writable."
+        cleanup_and_exit 1
+    fi
 }
 
 function make_apfs_safe ()
@@ -1482,9 +1463,7 @@ for (( policy_array_index = 1; policy_array_index <= ${#PolicyIDs[@]}; policy_ar
     # Zsh arrays begin at 1, but SwiftDialog list indexes begin at 0.
     dialog_list_index=$(( policy_array_index - 1 ))
 
-    JAMF_extract_policy_icons \
-        "$item" \
-        "$dialog_list_index" &
+    JAMF_extract_policy_icons "$item" "$dialog_list_index" &
 
     worker_pids+=("$!")
 
