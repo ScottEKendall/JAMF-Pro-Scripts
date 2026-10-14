@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 10/08/2026
+# Last updated: 10/13/2026
 #
 # Script Purpose: Main Library containing all of my commonly used functions.
 #
@@ -38,6 +38,7 @@
 # 2.1 - Updates based on MS Copilot review
 # 2.2 - Add JAMF functions for macOS Branding
 # 2.3 - updated with JAMF functions with more hardening
+# 2.4 - Added more JAMF functions for API calls
 
 
 ######################################################################################################
@@ -47,22 +48,16 @@
 ######################################################################################################
 #set -x 
 SCRIPT_NAME=""
-export PATH=/usr/bin:/bin:/usr/sbin:/sbin
-MAIN_PID=$$
+export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
 
-FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_NAME=$(sw_vers -productName)
-MACOS_VERSION=$(sw_vers -productVersion)
+FREE_DISK_SPACE=$(/bin/df -g / | awk 'NR == 2 { print $4 }')
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
-MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
+MAC_CPU=$(/usr/sbin/sysctl -n machdep.cpu.brand_string)
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="3.1.0"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 HOUR=$(date +%H)
 case $HOUR in
@@ -72,6 +67,7 @@ case $HOUR in
 esac
 SD_DIALOG_GREETING="Good $GREET"
 
+ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 ###################################################
 #
@@ -88,11 +84,50 @@ BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding 2>/dev/null) |
 BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle 2>/dev/null) || BANNER_SUBTITLE=""
 BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor 2>/dev/null) || BANNER_TEXT_COLOR="white"
 
-[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+SUPPORT_DIR="${SUPPORT_DIR%/}"
+
+if [[ "${SD_BANNER_IMAGE#/SupportFiles/}" != "$SD_BANNER_IMAGE" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE#/}"
+elif [[ "${SD_BANNER_IMAGE:0:1}" != "/" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE}"
+fi
 
 # Log files location
 
 LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
+
+# Display items (banner / icon)
+
+SD_WINDOW_TITLE="Backup Self Service Icons"
+SD_ICON_FILE="${ICON_FILES}ToolbarCustomizeIcon.icns"
+OVERLAY_ICON=""
+
+# Trigger installs for Images & icons
+
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+JQ_FILE_INSTALL_POLICY="install_jq"
+
+##################################################
+#
+# Passed in variables
+# 
+#################################################               
+
+JAMF_PARAMETER_USER="${3:-}"    #If run from JAMF, this will be the logged in user. If run from terminal, this will be empty (and will use the logged in user)
+CLIENT_ID="${4:-}"              #Client ID for JAMF API authentication (if using Client ID/Secret)
+CLIENT_SECRET="${5:-}"          #Client Secret for JAMF API authentication (if using Client ID/Secret)
+JAMF_SERVER="${6:-}"            #Override the JAMF server URL if needed (if not passed, will use the defaults file or the local JAMF binary to determine the server URL)
+
+# Determine which Jamf API authentication method is being used.
+CLIENT_ID_REGEX='^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$'
+[[ "$CLIENT_ID" =~ ${CLIENT_ID_REGEX} ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" 
+
+####################################################################################################
+#
+# Functions
+#
+####################################################################################################
 
 # Display items (banner / icon)
 
@@ -107,17 +142,11 @@ JQ_INSTALL_POLICY="install_jq"
 APP_EXTENSIONS=("com.microsoft.CompanyPortalMac.ssoextension"
                 "com.microsoft.CompanyPortalMac.Mac-Autofill-Extension")
 
-##################################################
+####################################################################################################
 #
-# Passed in variables
-# 
-#################################################
-
-JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)${JAMF_LOGGED_IN_USER%%.*}}"
-CLIENT_ID=${4}                               # user name for JAMF Pro
-CLIENT_SECRET=${5}
-[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF credentials we are using 
+# Functions
+#
+####################################################################################################
 
 ####################################################################################################
 #
@@ -127,7 +156,17 @@ CLIENT_SECRET=${5}
 
 function admin_user ()
 {
-    [[ $UID -eq 0 ]] && return 0 || return 1
+    (( UID == 0 ))
+}
+
+function check_for_sudo ()
+{
+    if ! admin_user; then
+        print -u2 -r -- "ERROR: This script must be run as root."
+        return 1
+    fi
+
+    return 0
 }
 
 function create_log_directory ()
@@ -167,7 +206,7 @@ function logMe ()
     #
     # RETURN: None
     if admin_user; then
-        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | /usr/bin/tee -a "${LOG_FILE}"
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | /usr/bin/tee -a "${LOG_FILE}" >&2
     else
         echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
     fi
@@ -188,7 +227,7 @@ function check_swift_dialog_install ()
         fi
     fi
 
-    if ! SD_VERSION=$("$SW_DIALOG" --version ); then #2>/dev/null); then
+    if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
         logMe "ERROR: Unable to determine SwiftDialog version." >&2
         return 1
     fi
@@ -223,43 +262,143 @@ function check_swift_dialog_install ()
 
 function install_swift_dialog ()
 {
+    local jamf_exit=0
+
     if [[ ! -x /usr/local/bin/jamf ]]; then
-        logMe "ERROR: Jamf binary not found. Cannot install Swift Dialog."
-        cleanup_and_exit 1
+        logMe "ERROR: Jamf binary not found. Cannot install SwiftDialog."
+        return 1
     fi
 
-    /usr/local/bin/jamf policy -event "${DIALOG_INSTALL_POLICY}"
-    local jamf_exit="$?"
+    /usr/local/bin/jamf policy -event "$DIALOG_INSTALL_POLICY"
+    jamf_exit=$?
 
-    if [[ "$jamf_exit" -ne 0 ]]; then
-        logMe "ERROR: Jamf policy failed while installing Swift Dialog. Exit code: $jamf_exit"
-        cleanup_and_exit 1
+    if (( jamf_exit != 0 )); then
+        logMe "ERROR: Jamf policy failed while installing SwiftDialog. Exit code: ${jamf_exit}"
+        return 1
     fi
 
-    if [[ ! -x "${SW_DIALOG}" ]]; then
-        logMe "ERROR: Swift Dialog still missing after install attempt."
-        cleanup_and_exit 1
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "ERROR: SwiftDialog remains unavailable after the installation attempt."
+        return 1
     fi
+
+    return 0
 }
 
 function check_support_files ()
 {
-    if [[ ! -e "$SD_BANNER_IMAGE" ]] && [[ "$SD_BANNER_IMAGE" =~ \.(jpg|png|heic)$ ]]; then
-        if ! /usr/local/bin/jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"
-        then
-            logMe "WARNING: Support-file installation failed." >&2
+    if [[ -f "$SD_BANNER_IMAGE" ]]; then
+        logMe "Banner image found: ${SD_BANNER_IMAGE}"
+    else
+        logMe "Banner image not found: ${SD_BANNER_IMAGE}"
+
+        if [[ -x /usr/local/bin/jamf ]]; then
+            logMe "Running support-file installation policy."
+
+            if ! /usr/local/bin/jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"; then
+                logMe "WARNING: Support-file installation policy failed."
+            fi
+        else
+            logMe "WARNING: The local Jamf binary is unavailable. The support-file installation policy cannot be run."
+        fi
+
+        if [[ -f "$SD_BANNER_IMAGE" ]]; then
+            logMe "Banner image successfully installed: ${SD_BANNER_IMAGE}"
+        else
+            logMe "WARNING: Banner image remains unavailable: ${SD_BANNER_IMAGE}"
         fi
     fi
 
     if ! command -v jq >/dev/null 2>&1; then
-        if ! /usr/local/bin/jamf policy -event "$JQ_INSTALL_POLICY"; then
-            logMe "ERROR: jq installation policy failed." >&2
+        logMe "jq is not installed."
+
+        if [[ ! -x /usr/local/bin/jamf ]]; then
+            logMe "ERROR: The local Jamf binary is unavailable, so jq cannot be installed."
+            return 1
+        fi
+
+        logMe "Running jq installation policy."
+
+        if ! /usr/local/bin/jamf policy -event "$JQ_FILE_INSTALL_POLICY"; then
+            logMe "ERROR: jq installation policy failed."
             return 1
         fi
     fi
 
     if ! command -v jq >/dev/null 2>&1; then
-        logMe "ERROR: jq remains unavailable after installation." >&2
+        logMe "ERROR: jq remains unavailable after installation."
+        return 1
+    fi
+
+    return 0
+}
+
+function create_infobox_message()
+{
+	################################
+	#
+	# Swift Dialog InfoBox message construct
+	#
+	################################
+
+	SD_INFO_BOX_MSG="## System Info ##<br>"
+	SD_INFO_BOX_MSG+="${MAC_CPU}<br>"
+	SD_INFO_BOX_MSG+="{serialnumber}<br>"
+	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
+	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
+}
+
+function cleanup_and_exit ()
+{
+    local exit_code="${1:-0}"
+
+    trap - INT TERM
+
+    if [[ -n "${api_token:-}" ]]; then
+        if ! JAMF_invalidate_token; then
+            logMe "WARNING: Unable to invalidate the Jamf Pro API token."
+        fi
+    fi
+
+    [[ -n "${JSON_DIALOG_BLOB:-}" ]] && /bin/rm -f -- "$JSON_DIALOG_BLOB"
+    [[ -n "${DIALOG_COMMAND_FILE:-}" ]] && /bin/rm -f -- "$DIALOG_COMMAND_FILE"
+    [[ -n "${DIALOG_COMMAND_FILE:-}" ]] && /bin/rm -rf -- "${DIALOG_COMMAND_FILE}.lock"
+
+    exit "$exit_code"
+}
+
+trap 'cleanup_and_exit 130' INT
+trap 'cleanup_and_exit 143' TERM
+
+function make_temp_files ()
+{
+    JSON_DIALOG_BLOB=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX") || {
+        logMe "ERROR: Unable to create SwiftDialog JSON file."
+        return 1
+    }
+
+    DIALOG_COMMAND_FILE=$(
+        /usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX") || {
+        logMe "ERROR: Unable to create SwiftDialog command file."
+        /bin/rm -f -- "$JSON_DIALOG_BLOB"
+        JSON_DIALOG_BLOB=""
+        return 1
+    }
+
+    if ! /usr/sbin/chown "$USER_UID" \
+        "$JSON_DIALOG_BLOB" \
+        "$DIALOG_COMMAND_FILE"; then
+
+        logMe "ERROR: Unable to set temporary dialog-file ownership."
+        return 1
+    fi
+
+    if ! /bin/chmod 600 \
+        "$JSON_DIALOG_BLOB" \
+        "$DIALOG_COMMAND_FILE"; then
+
+        logMe "ERROR: Unable to secure temporary dialog files."
         return 1
     fi
 
@@ -290,12 +429,8 @@ function initialize_user_context ()
         return 1
     fi
 
-    Jamf_LOGGED_IN_USER="${Jamf_PARAMETER_USER:-$LOGGED_IN_USER}"
-    SD_FIRST_NAME="${(C)${Jamf_LOGGED_IN_USER%%.*}}"
-
-    CSV_PATH="${USER_DIR}/Desktop/DDM Data Dump for "
-    DDM_CROSS_REF_FILE="${USER_DIR}/Documents/DDMCrossRef.csv"
-
+    JAMF_LOGGED_IN_USER="${JAMF_PARAMETER_USER:-$LOGGED_IN_USER}"
+    SD_FIRST_NAME="${(C)${JAMF_LOGGED_IN_USER%%.*}}"
     return 0
 }
 
@@ -388,38 +523,6 @@ function cleanup_files ()
     [[ -n "$DIALOG_LOCK_DIR" && -d "$DIALOG_LOCK_DIR" ]] && rmdir "$DIALOG_LOCK_DIR" 2>/dev/null
 }
 
-function cleanup_and_exit ()
-{
-    local exit_code="${1:-0}"
-
-    trap - EXIT
-    cleanup_files
-    exit "$exit_code"
-}
-
-trap 'cleanup_and_exit 130' INT
-trap 'cleanup_and_exit 143' TERM
-trap 'cleanup_files' EXIT
-
-function check_for_sudo ()
-{
-	# Ensures that script is run as ROOT
-    if ! admin_user; then
-    	MainDialogBody=(
-        --message "In order for this script to function properly, it must be run as an admin user!"
-		--ontop
-		--icon computer
-		--overlayicon "$STOP_ICON"
-		--bannerimage "${SD_BANNER_IMAGE}"
-		--bannertitle "${SD_WINDOW_TITLE}"
-        --titlefont shadow=1
-		--button1text "OK"
-    )
-    	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-		cleanup_and_exit 1
-	fi
-}
-
 function make_temp_files ()
 {
     
@@ -447,9 +550,6 @@ function make_temp_files ()
     logMe "ERROR: Unable to secure results counter directory" >&2
     return 1
     }
-
-    CSV_LOCK_DIR="/var/tmp/${SCRIPT_NAME}.${MAIN_PID}.csv.lock"
-    DIALOG_LOCK_DIR="/var/tmp/${SCRIPT_NAME}.${MAIN_PID}.dialog.lock"
 
     if ! /usr/sbin/chown "$USER_UID" \
         "$JSON_DIALOG_BLOB" \
@@ -482,37 +582,61 @@ function make_temp_files ()
 
 function welcomemsg ()
 {
-    message=""
+    message="This utility will extract available Self Service policy icons from Jamf Pro and save them to the folder you select below."
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
-        --titlefont shadow=1
+        --titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}"
         --ontop
         --icon "${SD_ICON_FILE}"
         --overlayicon "${OVERLAY_ICON}"
         --bannerimage "${SD_BANNER_IMAGE}"
+        --subtitle "${BANNER_SUBTITLE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
-        --helpmessage ""
-        --width 920
+        --helpmessage "All icons regards if the policy is active or not will be downloaded. <br>If a policy does not have an icon, it will be skipped."
+        --width 800
+        --height 480
         --ignorednd
         --quitkey 0
         --button1text "OK"
-        --button2text "Create Ticket"
+        --button2text "Cancel"
+        --infotext "${jamfpro_url}"
+        --textfield "Select a storage location",fileselect,filetype=folder,required
     )
-
-    # Example of appending items to the display array
-    #    [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 520 --image "${SD_IMAGE_TO_DISPLAY}")
-
-	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
+	
+			
+	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" --json 2>/dev/null)
     returnCode=$?
+    case "$returnCode" in
+        0)
+            ;;
+        2)
+            cleanup_and_exit 0
+            ;;
+        *)
+            logMe "ERROR: Welcome dialog exited with code ${returnCode}."
+            cleanup_and_exit 1
+            ;;
+    esac
 
-    [[ "$returnCode" == "2" ]] && {logMe "Cancel..."; break; }
+    if ! ssStoragePath=$(/usr/bin/jq -er '."Select a storage location" | strings | select(length > 0)' <<< "$temp"); then
+        logMe "ERROR: A valid storage location was not selected."
+        display_failure_message "A valid storage location was not selected."
+        cleanup_and_exit 1
+    fi
 
-    # Examples of how to extra data from returned string
-    search_type=$(echo $temp | plutil -extract "SelectedOption" 'raw' -)
-    computer_id=$(echo $temp | plutil -extract "Device" 'raw' -)
-    reason=$(echo $temp | plutil -extract "Reason" 'raw' -)
+    if [[ ! -d "$ssStoragePath" ]]; then
+        logMe "ERROR: Selected storage location is not a directory: ${ssStoragePath}"
+        display_failure_message "The selected storage location is not valid."
+        cleanup_and_exit 1
+    fi
+
+    if [[ ! -w "$ssStoragePath" ]]; then
+        logMe "ERROR: Selected storage location is not writable: ${ssStoragePath}"
+        display_failure_message "The selected storage location is not writable."
+        cleanup_and_exit 1
+    fi
 }
 
 function check_focus_status ()
@@ -521,7 +645,7 @@ function check_focus_status ()
     # RETURN: in focus mode (Off/On)
     # EXPECTED: FOCUS_FILE is the location of FocusMode settings
     # PARAMETERS: None
-
+    FOCUS_FILE="$USER_DIR/Library/DoNotDisturb/DB/Assertions.json"
     local results="off"
     if [[ -f "$FOCUS_FILE" ]] && grep -q '"storeAssertionRecords"' "$FOCUS_FILE" 2>/dev/null; then
         results="on"
@@ -630,12 +754,12 @@ function display_failure_message ()
         --bannerimage "$SD_BANNER_IMAGE"
         --bannertitle "$SD_WINDOW_TITLE"
         --subtitle "$BANNER_SUBTITLE"
-        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
+        --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},padding=${BANNER_TEXT_PADDING}"
+        --messagefont "name=Arial,size=17"
         --message "**Unable to Complete the Request**<br><br>${errorMessage}"
         --icon "$SD_ICON_FILE"
         --overlayicon warning
         --iconsize 128
-        --messagefont "name=Arial,size=17"
         --button1text "OK"
         --ontop
         --moveable
@@ -647,14 +771,104 @@ function display_failure_message ()
     return "$buttonpress"
 }
 
+function write_dialog_command ()
+{
+    local dialog_command="${1:-}"
+    local lock_directory="${DIALOG_COMMAND_FILE}.lock"
+    local -i lock_attempts=0
+    local -i write_status=0
+
+    [[ -n "$dialog_command" ]] || return 0
+
+    while ! /bin/mkdir "$lock_directory" 2>/dev/null; do
+        /bin/sleep 0.02
+        (( lock_attempts++ ))
+
+        if (( lock_attempts >= 500 )); then
+            logMe "ERROR: Timed out waiting for the SwiftDialog command-file lock."
+            return 1
+        fi
+    done
+
+    print -r -- "$dialog_command" >> "$DIALOG_COMMAND_FILE"
+    write_status=$?
+
+    /bin/rmdir "$lock_directory" 2>/dev/null
+
+    return "$write_status"
+}
+
+function wait_for_dialog_ready ()
+{
+    local -i attempts=0
+    local -i maximum_attempts=20
+
+    while (( attempts < maximum_attempts )); do
+        if [[ -n "${DIALOG_PROCESS:-}" ]] &&
+           /bin/kill -0 "$DIALOG_PROCESS" 2>/dev/null; then
+            break
+        fi
+
+        /bin/sleep 0.1
+        (( attempts++ ))
+    done
+
+    if (( attempts >= maximum_attempts )); then
+        logMe "ERROR: SwiftDialog failed to start."
+        return 1
+    fi
+
+    # The process may exist before the large list has finished loading.
+    /bin/sleep 2
+
+    if ! /bin/kill -0 "$DIALOG_PROCESS" 2>/dev/null; then
+        logMe "ERROR: SwiftDialog exited during list initialization."
+        return 1
+    fi
+
+    if ! write_dialog_command "progresstext: Preparing policy list..."; then
+        logMe "ERROR: Unable to initialize the SwiftDialog command file."
+        return 1
+    fi
+
+    /bin/sleep 0.25
+    return 0
+}
+
+function make_apfs_safe ()
+{
+    local value="${1:-}"
+
+    value="${value//$'\r'/}"
+    value="${value//$'\n'/ }"
+    value="${value//$'\t'/ }"
+    value="${value//:/_}"
+    value="${value//\//-}"
+    value="${value//\\/-}"
+    value="${value//|/-}"
+
+    while [[ "$value" == *"  "* ]]; do
+        value="${value//  / }"
+    done
+
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+
+    while [[ "$value" == .* ]]; do
+        value="${value#.}"
+    done
+
+    [[ -n "$value" ]] || value="Unnamed"
+
+    print -r -- "$value"
+}
 ####################################################################################################
 #
 # Main Script
 #
 ####################################################################################################
 autoload -Uz is-at-least
-
-check_for_sudo
+zmodload zsh/datetime
 
 check_for_sudo || cleanup_and_exit 1
 create_log_directory || cleanup_and_exit 1
@@ -662,23 +876,11 @@ initialize_user_context || cleanup_and_exit 1
 check_swift_dialog_install || cleanup_and_exit 1
 check_support_files || cleanup_and_exit 1
 JAMF_get_server || cleanup_and_exit 1
+Jamf_check_connection || cleanup_and_exit 1
 JAMF_check_credentials || cleanup_and_exit 1
 make_temp_files || cleanup_and_exit 1
-
-[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with Jamf credentials we are using
 create_infobox_message
 
-if ! Jamf_check_connection; then
-    cleanup_and_exit 1
-fi
-
-if ! Jamf_check_credentials; then
-    cleanup_and_exit 1
-fi
-
-if ! Jamf_get_server; then
-    cleanup_and_exit 1
-fi
 OVERLAY_ICON=$(Jamf_which_self_service)
 
 welcomemsg
@@ -686,50 +888,39 @@ exit 0
 
 function update_display_list ()
 {
-    # setopt -s nocasematch
-    # This function updates the Swift Dialog list display with easy to implement parameter passing...
-    # The Swift Dialog native structure is very strict with the command structure...this routine makes
-    # it easier to implement
+    # PURPOSE:
+    #   Start, update, or close the SwiftDialog progress display.
     #
-    # Param list
+    # PARAMETERS:
+    #   $1 = Action: create, show, update, change, progress,
+    #        buttonenable, or destroy
+    #   $2 = Zero-based list-item index for update/change
+    #   $3 = List-item status text for update/change
+    #   $4 = List-item status for update/change, or progress text
+    #        for the progress action
+    #   $5 = Progress value for the progress action
     #
-    # $1 - Action to be done ("Create", "Add", "Change", "Clear", "Info", "Show", "Done", "Update")
-    # ${2} - Affected item (2nd field in JSON Blob listitem entry)
-    # ${3} - Icon status "wait, success, fail, error, pending or progress"
-    # ${4} - Status Text
-    # $5 - Progress Text (shown below progress bar)
-    # $6 - Progress amount
-            # increment - increments the progress by one
-            # reset - resets the progress bar to 0
-            # complete - maxes out the progress bar
-            # If an integer value is sent, this will move the progress bar to that value of steps
-    # the GLOB :l converts any incoming parameter into lowercase
+    # RETURNS:
+    #   0 = Success
+    #   1 = Failure
 
-    
-    case "${1:l}" in
+    local action="${1:l}"
+    local list_index="${2:-}"
+    local status_text="${3:-}"
+    local status_value="${4:-}"
+    local progress_value="${5:-}"
+    local dialog_command=""
+    case "${action:l}" in
  
-        "create" )
-            # Remove commands from any previous progress dialog.
-            if ! : > "$DIALOG_COMMAND_FILE"; then
-                logMe "ERROR: Unable to reset SwiftDialog command file" >&2
-                return 1
-            fi
-
-            DIALOG_PROCESS=""
-            if ! jq -e . "$JSON_DIALOG_BLOB" >/dev/null 2>&1; then
-                logMe "ERROR: Constructed SwiftDialog JSON is invalid" >&2
-                return 1
-            fi
-            "$SW_DIALOG" --progress --jsonfile "$JSON_DIALOG_BLOB" --commandfile "$DIALOG_COMMAND_FILE" &
-
+        "create" | "show" )
+            "$SW_DIALOG" --progress --infotext "${jamfpro_url}" --jsonfile "$JSON_DIALOG_BLOB" --commandfile "$DIALOG_COMMAND_FILE" &
             DIALOG_PROCESS=$!
 
-            if [[ -z "$DIALOG_PROCESS" ]]; then
-                logMe "ERROR: Unable to capture the SwiftDialog process ID" >&2
+            if ! wait_for_dialog_ready; then
                 return 1
             fi
 
-            return 0
+            logMe "SwiftDialog started and initialized with PID ${DIALOG_PROCESS}."
             ;;
      
         "add" )
@@ -740,31 +931,31 @@ function update_display_list ()
             # $3 Icon status "wait, success, fail, error, pending or progress"
             # $4 Optional status text
   
-            dialog_cmd "listitem: add, title: ${2}, status: ${3}, statustext: ${4}" 
+            write_dialog_command "listitem: add, title: ${2}, status: ${3}, statustext: ${4}" 
             ;;
 
         "buttonaction" )
 
             # Change button 1 action
-            dialog_cmd 'button1action: "'${2}'"'
+            write_dialog_command 'button1action: "'${2}'"'
             ;;
   
         "buttonchange" )
 
             # change text of button 1
-            dialog_cmd "button1text: ${2}"
+            write_dialog_command "button1text: ${2}"
             ;;
 
         "buttondisable" )
 
             # disable button 1
-            dialog_cmd "button1: disable"
+            write_dialog_command "button1: disable"
             ;;
 
         "buttonenable" )
 
             # Enable button 1
-            dialog_cmd "button1: enable"
+            write_dialog_command "button1: enable"
             ;;
 
         "update" | "change" )
@@ -773,83 +964,103 @@ function update_display_list ()
             # Increment the progress bar by ${2} amount
             #
 
-            # change the list item status and increment the progress bar
+            case "$status_value" in
+                wait|success|fail|error|pending|progress)
+                    ;;
+                *)
+                    logMe "ERROR: Invalid SwiftDialog status: ${status_value:-empty}"
+                    return 1
+                *;;
+            esac
+            if [[ -z "$list_index" || "$list_index" != <-> ]]; then
+                logMe "ERROR: Invalid SwiftDialog list index: ${list_index:-empty}"
+                return 1
+            fi
 
-            dialog_cmd "listitem: title: ${3}, status: ${5}, statustext: ${4}"
-            [[ -n "$6" ]] && dialog_cmd "progress: ${6}"
+            status_text="${status_text//$'\r'/}"
+            status_text="${status_text//$'\n'/<br>}"
+
+            dialog_command="listitem: index: ${list_index}, status: ${status_value}, statustext: ${status_text}"
+
+            #logMe "SwiftDialog command: ${dialog_command}"
+
+            if ! write_dialog_command "$dialog_command"; then
+                logMe "ERROR: Unable to write SwiftDialog update for index ${list_index}."
+                return 1
+            fi
             ;;
 
   
         "clear" )
   
             # Clear the list and show an optional message  
-            dialog_cmd "list: clear"
-            dialog_cmd "message: ${2}"
+            write_dialog_command "list: clear"
+            write_dialog_command "message: ${2}"
             ;;
   
         "delete" )
   
             # Delete item from list  
-            dialog_cmd "listitem: delete, title: ${2}"
+            write_dialog_command "listitem: delete, title: ${2}"
             ;;
  
         "destroy" )
      
             # Kill the progress bar and clean up
-            dialog_cmd "quit:"
+            write_dialog_command "quit:"
             ;;
  
         "done" )
           
             # Complete the progress bar and clean up  
-            dialog_cmd "progress: complete"
-            dialog_cmd "progresstext: $5"
+            write_dialog_command "progress: complete"
+            write_dialog_command "progresstext: $5"
             ;;
           
         "icon" )
   
             # set / clear the icon, pass <nil> if you want to clear the icon  
-            [[ -z ${2} ]] && dialog_cmd "icon: none" || dialog_cmd "icon: ${2}"
+            [[ -z ${2} ]] && write_dialog_command "icon: none" || write_dialog_command "icon: ${2}"
             ;;
   
   
         "image" )
   
             # Display an image and show an optional message  
-            dialog_cmd "image: ${2}"
-            [[ -n ${3} ]] && dialog_cmd "progresstext: $5"
+            write_dialog_command "image: ${2}"
+            [[ -n ${3} ]] && write_dialog_command "progresstext: $5"
             ;;
   
         "infobox" )
   
             # Show text message  
-            dialog_cmd "infobox: ${2}"
+            write_dialog_command "infobox: ${2}"
             ;;
 
         "infotext" )
   
             # Show text message  
-            dialog_cmd "infotext: ${2}"
+            write_dialog_command "infotext: ${2}"
             ;;
   
         "show" )
   
             # Activate the dialog box
-            dialog_cmd "activate:"
+            write_dialog_command "activate:"
             ;;
   
         "title" )
   
             # Set / Clear the title, pass <nil> to clear the title
-            [[ -z ${2} ]] && dialog_cmd "title: none:" || dialog_cmd "title: ${2}"
+            [[ -z ${2} ]] && write_dialog_command "title: none:" || write_dialog_command "title: ${2}"
             ;;
   
         "progress" )
   
             # Increment the progress bar by static amount ($6)
             # Display the progress bar text ($5)
-            dialog_cmd "progress: ${6}"
-            dialog_cmd "progresstext: ${5}"
+            [[ -n "$progress_value" ]] && write_dialog_command "progress: ${progress_value}"
+            [[ -n "$status_value" ]] && write_dialog_command "progresstext: ${status_value}"
             ;;
   
     esac
@@ -1332,11 +1543,11 @@ function JAMF_check_credentials ()
     # RETURN: None
     # EXPECTED: None
 
-    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
-        logMe "Client/Secret info is not valid"
+    if [[ -z "$CLIENT_ID" || -z "$CLIENT_SECRET" ]]; then
+        logMe "ERROR: Jamf API credentials were not provided."
         return 1
     fi
-    logMe "Valid credentials passed"
+    logMe "Jamf API credentials were provided."
     return 0
 }
 
@@ -1348,7 +1559,8 @@ function JAMF_check_connection ()
     local http_status=""
     local curl_status=0
 
-    http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 30 --output /dev/null --write-out '%{http_code}' "${jamfpro_url}/healthCheck.html")
+    http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 30 --output /dev/null --write-out '%{http_code}' \
+        "${jamfpro_url}/healthCheck.html")
     curl_status=$?
 
     if (( curl_status != 0 )); then
@@ -1365,36 +1577,28 @@ function JAMF_check_connection ()
     return 0
 }
 
-function Jamf_get_server ()
+function JAMF_get_server ()
 {
     if [[ -z "$JAMF_SERVER" ]]; then
-        jamfpro_url=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url) || {
+        JAMF_SERVER=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url) || {
             logMe "ERROR: Unable to read Jamf Pro URL" >&2
             return 1
         }
-        logMe "No server passed in, defaulting to: $jamfpro_url"
-    else
-        jamfpro_url="${JAMF_SERVER%/}"
-        logMe "Jamf Pro server is: $jamfpro_url"
+        logMe "No server passed in, defaulting to: $JAMF_SERVER"
+        
     fi
+    jamfpro_url="${JAMF_SERVER%/}"
+    logMe "Jamf Pro server is: $jamfpro_url"
 }
 
-function Jamf_which_self_service ()
+function JAMF_which_self_service ()
 {
-    # PURPOSE: Function to see which Self service to use (SS / SS+)
-    # RETURN: None
-    # EXPECTED: None
-    local appPath=""
+    local app_path=""
+    app_path=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>/dev/null)
 
-    appPath=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_app_path 2>/dev/null)
-
-    [[ -z "$appPath" || ! -e "$appPath" ]] && appPath=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path 2>/dev/null)
-
-    if [[ -n "$appPath" && -e "$appPath" ]]; then
-        printf '%s\n' "$appPath"
-    else
-        printf '%s\n' "/System/Applications/App Store.app"
-    fi
+    [[ -z "$app_path" ]] &&app_path=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist self_service_plus_path 2>/dev/null)
+    [[ -z "$app_path" || ! -e "$app_path" ]] && app_path="SF=wrench.and.screwdriver.fill"
+    print -r -- "$app_path"
 }
 
 function format_jamf_date ()
@@ -1492,7 +1696,8 @@ function JAMF_get_classic_api_token ()
 
     {
         http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
-            --request POST --user "${CLIENT_ID}:${CLIENT_SECRET}" --header "Accept: application/json" "${jamfpro_url}/api/v1/auth/token")
+            --request POST --user "${CLIENT_ID}:${CLIENT_SECRET}" --header "Accept: application/json" \
+            "${jamfpro_url}/api/v1/auth/token")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1551,8 +1756,6 @@ function JAMF_get_classic_api_token ()
         api_token_expires_epoch="$expiration_epoch"
 
         logMe "Classic API bearer token successfully obtained."
-        #logMe "Classic API bearer token expires at ${expires}."
-
         return 0
 
     } always {
@@ -1560,21 +1763,28 @@ function JAMF_get_classic_api_token ()
     }
 }
 
-function Jamf_get_access_token ()
+function JAMF_get_access_token ()
 {
-    local response_file
-    local http_status
-    local curl_status
-    local token
-
+    local response_file=""
+    local http_status=""
+    local curl_status=0
+    local token=""
+    local expires_in=0
+    
     response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.token.XXXXX") || {
         logMe "ERROR: Unable to create OAuth response file" >&2
         return 1
     }
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure OAuth token response file."
+        /bin/rm -f -- "$response_file"
+        return 1
+    fi
 
     {
-        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -X POST -H "Content-Type: application/x-www-form-urlencoded" \
-            --data-urlencode "client_id=${CLIENT_ID}" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_secret=${CLIENT_SECRET}" "${jamfpro_url}/api/oauth/token")
+        http_status=$(/usr/bin/curl -s -S -L -o "$response_file" -w '%{http_code}' -X POST -H "Content-Type: application/x-www-form-urlencoded" --connect-timeout 15 --max-time 60 \
+            --data-urlencode "client_id=${CLIENT_ID}" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_secret=${CLIENT_SECRET}" \
+            "${jamfpro_url}/api/oauth/token")
 
         curl_status=$?
 
@@ -1598,17 +1808,23 @@ function Jamf_get_access_token ()
             return 1
         fi
 
+        if ! expires_in=$(jq -er '.expires_in | numbers | floor | select(. > 0)' "$response_file"); then
+            logMe "ERROR: OAuth response did not contain a valid expires_in value." >&2
+            return 1
+        fi
+
         api_token="$token"
+        api_token_expires_epoch=$(( EPOCHSECONDS + expires_in ))
         logMe "OAuth access token successfully obtained."
         return 0
     } always {
-        rm -f -- "$response_file"
+        /bin/rm -f -- "$response_file"
     }
 }
 
 function JAMF_ensure_valid_token ()
 {
-    local -i renewal_buffer=60
+    local -i renewal_buffer=300
 
     if [[ -n "$api_token" ]] &&
        (( api_token_expires_epoch > 0 )) &&
@@ -1660,9 +1876,9 @@ function JAMF_ensure_valid_token ()
 
 function JAMF_invalidate_token ()
 {
-    local response_file
-    local http_status
-    local curl_status
+    local response_file=""
+    local http_status=""
+    local curl_status=0
 
     if [[ -z "$api_token" ]]; then
         logMe "INFO: No Jamf token is available to invalidate."
@@ -1677,14 +1893,23 @@ function JAMF_invalidate_token ()
     fi
 
     response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.invalidate.XXXXX") || {
-        logMe "ERROR: Unable to create token-invalidation response file." >&2
+        logMe "ERROR: Unable to create token-invalidation response file."
+        api_token=""
+        api_token_expires_epoch=0
         return 1
     }
 
-    /bin/chmod 600 "$response_file"
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure token-invalidation response file."
+        api_token=""
+        api_token_expires_epoch=0
+        /bin/rm -f -- "$response_file"
+        return 1
+    fi
     {
         http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
-                --request POST --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth/invalidate-token")
+                --request POST --header "Authorization: Bearer ${api_token}" \
+                "${jamfpro_url}/api/v1/auth/invalidate-token")
         curl_status=$?
 
         api_token=""
@@ -1692,7 +1917,6 @@ function JAMF_invalidate_token ()
 
         if (( curl_status != 0 )); then
             logMe "ERROR: Token invalidation failed. curl exit code: ${curl_status}" >&2
-            /bin/rm -f -- "$response_file"
             return 1
         fi
 
@@ -1707,7 +1931,6 @@ function JAMF_invalidate_token ()
 
             *)
                 logMe "WARNING: Unexpected token invalidation response: HTTP ${http_status}" >&2
-                /bin/rm -f -- "$response_file"
                 return 1
                 ;;
         esac
@@ -1893,15 +2116,149 @@ function Jamf_get_bulk_inventory_record ()
     cat "$TMP_FILE_STORAGE"
 }
 
-function Jamf_get_policy_list ()
+function JAMF_get_policy_list ()
 {
-    # PURPOSE: Get the list of policies from JAMF Pro
-    # RETURN: XML contents of command
-    # EXPECTED: api_token, jamfpro_url
-    # PARMS: None
+    # PURPOSE:
+    #   Retrieve the Jamf Pro policy list as JSON and store it in
+    #   the global PolicyList variable.
+    #
+    # RETURNS:
+    #   0 = Success
+    #   1 = General failure
 
-    echo $(curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/xml" "${jamfpro_url}/JSSResource/policies")
+    local response_file=""
+    local http_status=""
+    local curl_status=0
 
+    JAMF_ensure_valid_token || return 1
+
+    response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.policies.XXXXX") || {
+        logMe "ERROR: Unable to create policy response file."
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure policy response file."
+        /bin/rm -f -- "$response_file"
+        return 1
+    fi
+
+    {
+        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --get --output "$response_file" --write-out '%{http_code}' \
+                --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" \
+                "${jamfpro_url}/JSSResource/policies")
+
+        curl_status=$?
+
+        if (( curl_status != 0 )); then
+            logMe "ERROR: Policy lookup failed. curl exit code: ${curl_status}"
+            return 1
+        fi
+
+        if [[ "$http_status" != "200" ]]; then
+            logMe "ERROR: Policy lookup returned HTTP ${http_status}."
+
+            if [[ -s "$response_file" ]]; then
+                /usr/bin/head -c 500 "$response_file" >&2
+                /usr/bin/printf '\n' >&2
+            fi
+
+            return 1
+        fi
+
+        if [[ ! -s "$response_file" ]]; then
+            logMe "ERROR: Policy lookup returned an empty response."
+            return 1
+        fi
+
+        if ! /usr/bin/jq -e 'type == "object" and (.policies | type == "array")' "$response_file" >/dev/null 2>&1; then
+            logMe "ERROR: Policy lookup did not return the expected JSON structure."
+            return 1
+        fi
+
+        PolicyList=$(<"$response_file")
+
+        return 0
+
+    } always {
+        /bin/rm -f -- "$response_file"
+    }
+}
+
+function JAMF_retrieve_policy_details ()
+{
+    # PURPOSE:
+    #   Retrieve one Jamf Pro policy as JSON.
+    #
+    # PARAMETERS:
+    #   $1 = Jamf Pro policy ID
+    #
+    # OUTPUT:
+    #   Policy JSON is written to stdout on success.
+    #
+    # RETURNS:
+    #   0 = Success
+    #   1 = Failure
+
+    local policy_id="${1:-}"
+    local response_file=""
+    local http_status=""
+    local curl_status=0
+
+    if [[ -z "$policy_id" || "$policy_id" != <-> ]]; then
+        logMe "ERROR: Invalid policy ID passed to JAMF_retrieve_policy_details: ${policy_id:-empty}"
+        return 1
+    fi
+
+    if [[ -z "$api_token" ]]; then
+        logMe "ERROR: No Jamf API token is available for policy ${policy_id}."
+        return 1
+    fi
+
+    response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.policy.${policy_id}.XXXXX") || {
+        logMe "ERROR: Unable to create response file for policy ${policy_id}."
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure response file for policy ${policy_id}."
+        /bin/rm -f -- "$response_file"
+        return 1
+    fi
+
+    {
+        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
+                --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" \
+                "${jamfpro_url}/JSSResource/policies/id/${policy_id}")
+
+        curl_status=$?
+
+        if (( curl_status != 0 )); then
+            logMe "ERROR: Policy ${policy_id} lookup failed. curl exit code: ${curl_status}"
+            return 1
+        fi
+
+        if [[ "$http_status" != "200" ]]; then
+            logMe "ERROR: Policy ${policy_id} lookup returned HTTP ${http_status}."
+            return 1
+        fi
+
+        if [[ ! -s "$response_file" ]]; then
+            logMe "ERROR: Policy ${policy_id} lookup returned an empty response."
+            return 1
+        fi
+
+        if ! /usr/bin/jq -e 'type == "object" and(.policy | type == "object")' "$response_file" >/dev/null 2>&1; then
+            logMe "ERROR: Policy ${policy_id} did not return the expected JSON structure."
+            return 1
+        fi
+
+        /bin/cat "$response_file"
+        return 0
+
+    } always {
+        /bin/rm -f -- "$response_file"
+    }
 }
 
 function Jamf_clear_failed_mdm_commands()
@@ -2069,126 +2426,128 @@ function Jamf_retrieve_data_blob ()
         }
 }
 
-function Jamf_get_deviceID ()
+function JAMF_get_deviceID ()
 {
+    # PURPOSE:
+    #   Locate a single computer in Jamf Pro and return the requested ID.
+    #
+    # PARAMETERS:
+    #   $1 = Search type ("Hostname" or "Serial Number")
+    #   $2 = Search value
+    #   $3 = jq filter to return desired field
+    #
+    # RETURNS:
+    #   0 = Success
+    #   1 = General failure
+    #   2 = No matching computer found
+    #   3 = Multiple matching computers found
+
     local search_type="$1"
     local search_value="$2"
     local jq_filter="$3"
-    local type
-    local response_file
-    local http_status
-    local curl_status
-    local total
-    local id
+
+    local filter_type=""
+    local response_file=""
+    local http_status=""
+    local curl_status=0
+    local result_count=0
+    local device_id=""
+    local error_message=""
+
 
     case "$search_type" in
-        "Hostname")         type="general.name" ;;
-        "Serial Number")    type="hardware.serialNumber" ;;
+        "Hostname")
+            filter_type="general.name"
+            ;;
+        "Serial Number")
+            filter_type="hardware.serialNumber"
+            ;;
         *)
-            display_failure_message "Unsupported search type: ${search_type}"
-            logMe "ERROR: Unsupported device search type: ${search_type}" >&2
+            logMe "ERROR: Unsupported search type: ${search_type}"
             return 1
             ;;
     esac
 
-    if [[ -z "$search_value" ]]; then
-        display_failure_message "A device name or serial number was not provided."
+    JAMF_ensure_valid_token || return 1
+
+    response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.inventory.XXXXX") || {
+        logMe "ERROR: Unable to create inventory response file."
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure inventory response file."
+        /bin/rm -f -- "$response_file"
         return 1
     fi
 
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.device.XXXXX") || {
-        logMe "ERROR: Unable to create device lookup response file" >&2
-        return 1
-        }
-
     {
-        local escaped_search_value
-
-        escaped_search_value="${search_value//\\/\\\\}"
-        escaped_search_value="${escaped_search_value//\'/\\\'}"
-
-        http_status=$(curl -sS -L -o "$response_file" -w '%{http_code}' --get -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" \
-            --data-urlencode "section=GENERAL" --data-urlencode "filter=${type}=='${escaped_search_value}'" "${jamfpro_url%/}/api/v3/computers-inventory")
+        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --get --output "$response_file" --write-out '%{http_code}' \
+                --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" --data-urlencode "section=GENERAL" --data-urlencode "page=0" --data-urlencode "page-size=100" \
+                --data-urlencode "sort=general.name:asc" --data-urlencode "filter=${filter_type}==\"${search_value}\"" "${jamfpro_url}/api/v4/computers-inventory")
 
         curl_status=$?
 
         if (( curl_status != 0 )); then
-            logMe "ERROR: Device lookup failed, curl exit ${curl_status}" >&2
-            display_failure_message "Failed to contact Jamf Pro."
+            logMe "ERROR: Computer lookup failed. curl exit code: ${curl_status}"
             return 1
         fi
 
-        case "$http_status" in
-            200)
-                ;;
+        if [[ "$http_status" != "200" ]]; then
+            logMe "ERROR: Computer lookup returned HTTP ${http_status}"
 
-            400)
-                logMe "ERROR: Jamf rejected the device lookup filter, HTTP 400" >&2
-                cat "$response_file" >&2
-                display_failure_message "Jamf rejected the device search criteria."
-                return 1
-                ;;
+            if [[ -s "$response_file" ]]; then
+                error_message=$(jq -r '.errors[0].description // .errors[0].message // .message // .error_description // empty' "$response_file" 2>/dev/null)
+                [[ -n "$error_message" ]] && logMe "Jamf error: ${error_message}"
+            fi
 
-            401)
-                logMe "ERROR: Device lookup authentication failed, HTTP 401" >&2
-                display_failure_message "Jamf authentication failed."
-                return 1
-                ;;
+            return 1
+        fi
 
-            403)
-                logMe "ERROR: Insufficient privilege for device lookup, HTTP 403" >&2
-                display_failure_message "The API client cannot read computer inventory."
-                return 1
-                ;;
+        if [[ ! -s "$response_file" ]]; then
+            logMe "ERROR: Computer lookup returned an empty response."
+            return 1
+        fi
 
+        if ! jq -e 'type == "object" and (.results | type == "array")' "$response_file" >/dev/null 2>&1
+        then
+            logMe "ERROR: Invalid JSON returned from Jamf."
+            return 1
+        fi
+
+        if ! result_count=$(jq -er '.results | length' "$response_file"); then
+            logMe "ERROR: Unable to determine result count."
+            return 1
+        fi
+
+        case "$result_count" in
+            0)
+                logMe "ERROR: No computer matched ${search_type}: ${search_value}"
+                return 2
+                ;;
+            1)
+                ;;
             *)
-                logMe "ERROR: Device lookup returned HTTP ${http_status}" >&2
-                cat "$response_file" >&2
-                display_failure_message "Jamf returned HTTP ${http_status}."
-                return 1
+                logMe "ERROR: Multiple computers matched ${search_type}: ${search_value}"
+                return 3
                 ;;
         esac
 
-        if ! jq -e '(.totalCount | numbers) and (.results | arrays)' "$response_file" >/dev/null 2>&1; then
-            logMe "ERROR: Invalid device lookup JSON structure" >&2
-            display_failure_message "Jamf returned an invalid inventory response."
+        if ! device_id=$(jq -er "$jq_filter" "$response_file"); then
+            logMe "ERROR: Requested identifier not found in Jamf response."
             return 1
         fi
 
-        if ! total=$(jq -er '.totalCount' "$response_file"); then
-            logMe "ERROR: Unable to read totalCount from device lookup" >&2
-            display_failure_message "Unable to parse the Jamf inventory response."
+        if [[ -z "$device_id" || "$device_id" == "null" ]]; then
+            logMe "ERROR: Jamf returned an empty identifier."
             return 1
         fi
 
-        if (( total == 0 )); then
-            logMe "INFO: No inventory record found for ${search_value}"
-            display_failure_message "Inventory record '${search_value}' was not found."
-            return 1
-        fi
-
-        if (( total > 1 )); then
-            logMe "ERROR: Multiple inventory records matched ${search_value}" >&2
-            display_failure_message "More than one inventory record matched '${search_value}'."
-            return 1
-        fi
-
-        if ! id=$(jq -er "$jq_filter // empty" "$response_file"); then
-            logMe "ERROR: Matching device did not contain a management ID" >&2
-            display_failure_message "The matching inventory record did not contain a management ID."
-            return 1
-        fi
-
-        if [[ -z "$id" || "$id" == "null" ]]; then
-            logMe "ERROR: Empty management ID returned for ${search_value}" >&2
-            display_failure_message "The matching inventory record did not contain a management ID."
-            return 1
-        fi
-
-        printf '%s\n' "$id"
+        ID="$device_id"
         return 0
 
-    } always {rm -f -- "$response_file"
+    } always {
+        /bin/rm -f -- "$response_file"
     }
 }
 
@@ -4202,11 +4561,180 @@ function Jamf_upload_branding_image ()
     }
 }
 
+###########################
+#
+# JAMF functions (Binary Redeploy)
+#
+###########################
+
+function JAMF_renew_binary ()
+{
+    local jamf_id="${1:-}"
+    local response_file=""
+    local http_status=""
+    local curl_status=0
+    local error_message=""
+
+    REDEPLOY_ERROR=""
+
+    if [[ -z "$jamf_id" ]]; then
+        REDEPLOY_ERROR="No Jamf computer ID was provided for redeployment."
+        logMe "ERROR: ${REDEPLOY_ERROR}"
+        return 1
+    fi
+
+    if ! JAMF_ensure_valid_token; then
+        REDEPLOY_ERROR="Unable to obtain a valid Jamf Pro API token."
+        return 1
+    fi
+
+    response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.redeploy.XXXXX") || {
+        REDEPLOY_ERROR="Unable to create the temporary redeploy response file."
+        logMe "ERROR: ${REDEPLOY_ERROR}"
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$response_file"; then
+        REDEPLOY_ERROR="Unable to secure the temporary redeploy response file."
+        logMe "ERROR: ${REDEPLOY_ERROR}"
+        /bin/rm -f -- "$response_file"
+        return 1
+    fi
+
+    {
+        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
+                --request POST --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/api/v1/jamf-management-framework/redeploy/${jamf_id}")
+        curl_status=$?
+
+        if (( curl_status != 0 )); then
+            REDEPLOY_ERROR="Unable to communicate with Jamf Pro. curl exit code: ${curl_status}."
+            logMe "ERROR: ${REDEPLOY_ERROR}"
+            return 1
+        fi
+
+        case "$http_status" in
+            200|201|202|204)
+                logMe "Jamf binary redeploy request was accepted for computer ID ${jamf_id}."
+                return 0
+                ;;
+
+            401)
+                REDEPLOY_ERROR="Jamf Pro rejected the API token."
+                ;;
+
+            403)
+                REDEPLOY_ERROR="The API account does not have permission to redeploy the Jamf management framework."
+                ;;
+
+            404)
+                REDEPLOY_ERROR="Jamf computer ID ${jamf_id} was not found."
+                ;;
+
+            *)
+                if [[ -s "$response_file" ]]; then
+                    error_message=$(jq -r '.errors[0].description // .errors[0].message // .message // .error_description // empty' "$response_file" 2>/dev/null)
+                fi
+
+                REDEPLOY_ERROR="Jamf Pro returned HTTP ${http_status}."
+
+                if [[ -n "$error_message" ]]; then
+                    REDEPLOY_ERROR="${REDEPLOY_ERROR} ${error_message}"
+                fi
+                ;;
+        esac
+
+        logMe "ERROR: ${REDEPLOY_ERROR}"
+        return 1
+
+    } always {
+        /bin/rm -f -- "$response_file"
+    }
+}
+
 #######################################################################################################
 # 
 # Functions to create textfields, listitems, checkboxes & dropdown lists
 #
 #######################################################################################################
+
+function create_display_list ()
+{
+    local dialog_message=""
+    local -i dialog_item_count=0
+    local -i policy_id_count=0
+
+    dialog_message="The following Self Service Policy icons will be backed up to:<br>${ssStoragePath}"
+
+    if ! /usr/bin/jq -n --arg icon "$SD_ICON_FILE" --arg message "$dialog_message" --arg bannerimage "$SD_BANNER_IMAGE" --arg bannertitle "$SD_WINDOW_TITLE" --arg subtitle "$BANNER_SUBTITLE" \
+        --arg titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}" --argjson policies "$PolicyList" \
+        '
+        {
+            icon: $icon,
+            message: $message,
+            bannerimage: $bannerimage,
+            bannertitle: $bannertitle,
+            subtitle: $subtitle,
+            titlefont: $titlefont,
+            button1text: "OK",
+            moveable: true,
+            height: 800,
+            quitkey: "0",
+            messageposition: "top",
+            button1disabled: true,
+            listitem: (
+                $policies.policies
+                | map(
+                    select(.id | type == "number")
+                    | {
+                        title: (
+                            (.name // ("Policy " + (.id | tostring)))
+                            + " [ID: "
+                            + (.id | tostring)
+                            + "]"
+                        ),
+                        icon: "",
+                        status: "pending",
+                        statustext: "Pending..."
+                    }
+                )
+            )
+        }
+        ' > "$JSON_DIALOG_BLOB"
+    then
+        logMe "ERROR: Unable to construct SwiftDialog JSON."
+        return 1
+    fi
+
+    if ! /usr/bin/jq -e 'type == "object" and (.listitem | type == "array") and (.listitem | length > 0)' "$JSON_DIALOG_BLOB" >/dev/null 2>&1; then
+        logMe "ERROR: Generated SwiftDialog configuration is invalid or contains no list items."
+        return 1
+    fi
+
+    if ! dialog_item_count=$(/usr/bin/jq -er '.listitem | length' "$JSON_DIALOG_BLOB"); then
+        logMe "ERROR: Unable to determine the SwiftDialog list-item count."
+        return 1
+    fi
+
+    if ! policy_id_count=$(
+        /usr/bin/jq -er '[.policies[]| select(.id | type == "number")] | length' <<< "$PolicyList"); then
+        logMe "ERROR: Unable to determine the valid policy count."
+        return 1
+    fi
+
+    if (( dialog_item_count != policy_id_count )); then
+        logMe "ERROR: SwiftDialog item count ${dialog_item_count} does not match policy count ${policy_id_count}."
+        return 1
+    fi
+
+    logMe "Created ${dialog_item_count} SwiftDialog policy list items."
+
+    if ! update_display_list "Create"; then
+        logMe "ERROR: Unable to initialize the SwiftDialog display."
+        return 1
+    fi
+
+    return 0
+}
 
 function construct_dialog_header_settings ()
 {
@@ -4509,6 +5037,7 @@ Recommended banner size: **1500 x 320 pixels**
         --bannertitle "$SD_WINDOW_TITLE"
         --subtitle "$BANNER_SUBTITLE"
         --titlefont "shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
+        --messagefont "name=Arial,size=17"
         --icon "$SD_ICON_FILE"
         --overlayicon "$OVERLAY_ICON"
         --infobox "$SD_INFO_BOX_MSG"
