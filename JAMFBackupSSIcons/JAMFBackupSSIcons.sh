@@ -412,7 +412,7 @@ function create_display_list ()
 
     dialog_message="The following Self Service Policy icons will be backed up to:<br>${ssStoragePath}"
 
-    if ! /usr/bin/jq -n --arg icon "$SD_ICON_FILE" --arg message "$dialog_message" --arg bannerimage "$SD_BANNER_IMAGE" --arg bannertitle "$SD_WINDOW_TITLE" --arg subtitle "$BANNER_SUBTITLE" \
+    if ! jq -n --arg icon "$SD_ICON_FILE" --arg message "$dialog_message" --arg bannerimage "$SD_BANNER_IMAGE" --arg bannertitle "$SD_WINDOW_TITLE" --arg subtitle "$BANNER_SUBTITLE" \
         --arg titlefont "shadow=1, color=${BANNER_TEXT_COLOR}, offset=${BANNER_TEXT_PADDING}" --argjson policies "$PolicyList" \
         '
         {
@@ -452,18 +452,18 @@ function create_display_list ()
         return 1
     fi
 
-    if ! /usr/bin/jq -e 'type == "object" and (.listitem | type == "array") and (.listitem | length > 0)' "$JSON_DIALOG_BLOB" >/dev/null 2>&1; then
+    if ! jq -e 'type == "object" and (.listitem | type == "array") and (.listitem | length > 0)' "$JSON_DIALOG_BLOB" >/dev/null 2>&1; then
         logMe "ERROR: Generated SwiftDialog configuration is invalid or contains no list items."
         return 1
     fi
 
-    if ! dialog_item_count=$(/usr/bin/jq -er '.listitem | length' "$JSON_DIALOG_BLOB"); then
+    if ! dialog_item_count=$(jq -er '.listitem | length' "$JSON_DIALOG_BLOB"); then
         logMe "ERROR: Unable to determine the SwiftDialog list-item count."
         return 1
     fi
 
     if ! policy_id_count=$(
-        /usr/bin/jq -er '[.policies[]| select(.id | type == "number")] | length' <<< "$PolicyList"); then
+        jq -er '[.policies[]| select(.id | type == "number")] | length' <<< "$PolicyList"); then
         logMe "ERROR: Unable to determine the valid policy count."
         return 1
     fi
@@ -752,17 +752,17 @@ function JAMF_get_classic_api_token ()
             return 1
         fi
 
-        if ! /usr/bin/jq -e 'type == "object"' "$response_file" >/dev/null 2>&1; then
+        if ! jq -e 'type == "object"' "$response_file" >/dev/null 2>&1; then
             logMe "ERROR: Classic API token response was not valid JSON." >&2
             return 1
         fi
 
-        if ! token=$(/usr/bin/jq -er '.token | strings | select(length > 0)' "$response_file"); then
+        if ! token=$(jq -er '.token | strings | select(length > 0)' "$response_file"); then
             logMe "ERROR: Classic API response did not contain a bearer token." >&2
             return 1
         fi
 
-        if ! expires=$(/usr/bin/jq -er '.expires | strings | select(length > 0)' "$response_file"); then
+        if ! expires=$(jq -er '.expires | strings | select(length > 0)' "$response_file"); then
             logMe "ERROR: Classic API response did not contain a token expiration date." >&2
             return 1
         fi
@@ -1026,7 +1026,7 @@ function JAMF_get_policy_list ()
             return 1
         fi
 
-        if ! /usr/bin/jq -e 'type == "object" and (.policies | type == "array")' "$response_file" >/dev/null 2>&1; then
+        if ! jq -e 'type == "object" and (.policies | type == "array")' "$response_file" >/dev/null 2>&1; then
             logMe "ERROR: Policy lookup did not return the expected JSON structure."
             return 1
         fi
@@ -1073,11 +1073,11 @@ function JAMF_extract_policy_icons ()
         return 1
     fi
 
-    PolicyName=$(/usr/bin/jq -r '.policy.general.name // empty' <<< "$policyJSON")
-    ss_icon=$(/usr/bin/jq -r '.policy.self_service.self_service_icon.id // empty' <<< "$policyJSON")
-    ss_iconName=$(/usr/bin/jq -r '.policy.self_service.self_service_icon.filename // empty' <<< "$policyJSON")
-    ss_iconURI=$(/usr/bin/jq -r '.policy.self_service.self_service_icon.uri // empty' <<< "$policyJSON")
-    ss_policy_check=$(/usr/bin/jq -r '.policy.self_service.use_for_self_service // false' <<< "$policyJSON")
+    PolicyName=$(jq -r '.policy.general.name // empty' <<< "$policyJSON")
+    ss_icon=$(jq -r '.policy.self_service.self_service_icon.id // empty' <<< "$policyJSON")
+    ss_iconName=$(jq -r '.policy.self_service.self_service_icon.filename // empty' <<< "$policyJSON")
+    ss_iconURI=$(jq -r '.policy.self_service.self_service_icon.uri // empty' <<< "$policyJSON")
+    ss_policy_check=$(jq -r '.policy.self_service.use_for_self_service // false' <<< "$policyJSON")
 
     [[ -n "$PolicyName" ]] || PolicyName="Policy ${policy_id}"
 
@@ -1206,7 +1206,7 @@ function JAMF_retrieve_policy_details ()
             return 1
         fi
 
-        if ! /usr/bin/jq -e 'type == "object" and(.policy | type == "object")' "$response_file" >/dev/null 2>&1; then
+        if ! jq -e 'type == "object" and(.policy | type == "object")' "$response_file" >/dev/null 2>&1; then
             logMe "ERROR: Policy ${policy_id} did not return the expected JSON structure."
             return 1
         fi
@@ -1348,7 +1348,7 @@ function welcomemsg ()
             ;;
     esac
 
-    if ! ssStoragePath=$(/usr/bin/jq -er '."Select a storage location" | strings | select(length > 0)' <<< "$temp"); then
+    if ! ssStoragePath=$(jq -er '."Select a storage location" | strings | select(length > 0)' <<< "$temp"); then
         logMe "ERROR: A valid storage location was not selected."
         display_failure_message "A valid storage location was not selected."
         cleanup_and_exit 1
@@ -1435,7 +1435,7 @@ JAMF_get_policy_list || {
 
 create_display_list || cleanup_and_exit 1
 
-PolicyIDs=("${(@f)$(/usr/bin/jq -r '.policies[]| select(.id | type == "number") | (.id | floor)' <<< "$PolicyList")}")
+PolicyIDs=("${(@f)$(jq -r '.policies[]| select(.id | type == "number") | (.id | floor)' <<< "$PolicyList")}")
 if (( ${#PolicyIDs[@]} == 0 )); then
     logMe "WARNING: No policy IDs were returned by Jamf Pro."
     display_failure_message "No Jamf Pro policies were returned."
