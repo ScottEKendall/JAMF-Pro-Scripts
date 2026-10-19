@@ -83,4 +83,21 @@ If you are using the Modern JAMF API credentials, you need to set:
 ||       Fixed variable names in the defaults file section
 | 2.3 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
-| 2.3 | Had to add MAC_HOSTNAME=$(scutil --get HostName) to the global variables section to get the hostname for comparison in the list item creation function.  This is because the "HostName" variable was not being passed into the create_listitem_message_body function correctly and was always evaluating as blank, which caused the script to never recognize a match and display all items as "Not Found"
+| 2.4 | Had to add MAC_HOSTNAME=$(scutil --get HostName) to the global variables section to get the hostname for comparison in the list item creation function.  This is because the "HostName" variable was not being passed into the create_listitem_message_body function correctly and was always evaluating as blank, which caused the script to never recognize a match and display all items as "Not Found"
+| 3.0 | Added ability to remove a computer from all static groups
+||       Added support for API pagination
+||       Added modern inventory retrieval framework
+||       Added reusable curl argument framework
+||       Added API token lifecycle management
+||       Added enhanced parameter validation
+||       Added expanded usage documentation
+||       Optimized static group discovery
+||       Optimized inventory retrieval
+||       Rewrote JAMF API functions to use temp files and always cleanup blocks
+||       Improved HTTP response handling
+||       Improved API failure handling
+||       Improved logging consistency
+||       Improved support for large Jamf environments
+||       Fixed inventory retrieval limitations
+||       Fixed static group enumeration limitations
+||       Fixed multiple edge cases involving token validation and API responses
