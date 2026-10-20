@@ -35,3 +35,20 @@ Original source: https://gist.github.com/karthikeyan-mac/4c46121ddd95b43465bd1b5
 | 1.7 | Fixed incorrect variable name in retreival of the JAMF credentials
 ||       Fixed issue of not finding Self Service Plus path
 ||       Adjusted window height after fixing icon issue
+| 1.8 | Hardened JAMF API operations and improved failed-command reporting
+||       Added support for passing a Jamf Pro server URL as Parameter 6.
+||       Added validation and sanitization of the Jamf Pro server URL before use.
+||       Hardened device lookup error handling and now exits immediately on lookup failure.
+||       Improved failed MDM command reporting with human-readable command summaries.
+||       Added display of command status, issued date, and failed date information.
+||       Added fallback handling for missing or blank command attributes.
+||       Improved SwiftDialog formatting and readability for failed-command results.
+||       Increased failed-command dialog width for improved display of long command names.
+||       Replaced raw API JSON display with support-friendly formatted output.
+||       Added validation of failed-command JSON structure before processing.
+||       Added explicit propagation of failed-command retrieval errors to script exit status.
+||       Removed reliance on global failed-command variables and improved function scoping.
+||       Improved parameter validation and error reporting throughout JAMF API workflows.
+||       Standardized logging output and cleaned up script diagnostics.
+||       Updated server detection logic to support either passed-in or locally configured URLs.
+||       General code cleanup and production hardening.
