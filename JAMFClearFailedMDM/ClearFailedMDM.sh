@@ -1147,6 +1147,7 @@ function JAMF_clear_failed_mdm_commands ()
 
 function JAMF_build_curl_args ()
 {
+    
     # PURPOSE:
     #   Build the shared curl arguments for authenticated Jamf API requests.
     #
@@ -1169,6 +1170,63 @@ function JAMF_build_curl_args ()
     [[ -n "$response_file" ]] && CURL_ARGS+=(--output "$response_file")
     return 0
 }
+
+function format_jamf_date ()
+{
+    local raw_date="${1:-}"
+    local output_format="${2:-%m/%d/%Y}"
+
+    [[ "$output_format" == +* ]] || output_format="+${output_format}"
+    local normalized_date=""
+    local parsed_date=""
+
+    [[ -n "$raw_date" && "$raw_date" != "null" ]] || return 1
+
+    normalized_date="$raw_date"
+
+    # Convert a trailing UTC designator to a numeric offset.
+    if [[ "$normalized_date" == *Z ]]; then
+        normalized_date="${normalized_date%Z}+0000"
+    fi
+
+    # Convert timezone offsets such as -04:00 to -0400.
+    if [[ "$normalized_date" =~ '([+-][0-9]{2}):([0-9]{2})$' ]]; then
+        normalized_date="${normalized_date[1,-4]}${normalized_date[-2,-1]}"
+    fi
+
+    # Remove fractional seconds while preserving any timezone offset.
+    normalized_date=$(print -r -- "$normalized_date" | /usr/bin/sed -E 's/\.([0-9]+)([+-][0-9]{4})$/\2/; s/\.([0-9]+)$//')
+    normalized_date="${normalized_date#"${normalized_date%%[![:space:]]*}"}"
+    normalized_date="${normalized_date%"${normalized_date##*[![:space:]]}"}"
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%dT%H:%M:%S%z" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%dT%H:%M:%S" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%d %H:%M:%S%z" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%d %H:%M:%S" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    if parsed_date=$(/bin/date -j -f "%Y-%m-%d" "$normalized_date" "$output_format" 2>/dev/null); then
+        print -r -- "$parsed_date"
+        return 0
+    fi
+
+    return 1
+}
+
 ###########################
 #
 # App Specific Functions
