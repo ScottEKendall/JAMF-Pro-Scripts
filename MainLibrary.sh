@@ -148,12 +148,6 @@ APP_EXTENSIONS=("com.microsoft.CompanyPortalMac.ssoextension"
 #
 ####################################################################################################
 
-####################################################################################################
-#
-# Functions
-#
-####################################################################################################
-
 function admin_user ()
 {
     (( UID == 0 ))
@@ -1523,18 +1517,62 @@ function create_photo_dir ()
 ###########################
 
 
+function JAMF_build_curl_args ()
+{
+    # PURPOSE:
+    #   Build the shared curl arguments for authenticated Jamf API requests.
+    #
+    # PARAMETERS:
+    #   $1 = Optional response-file path
+    #
+    # RETURN:
+    #   CURL_ARGS global array
+
+    local response_file="${1:-}"
+
+    CURL_ARGS=(
+        --silent
+        --show-error
+        --location
+        --connect-timeout 15
+        --max-time 60
+    )
+
+    [[ -n "$response_file" ]] && CURL_ARGS+=(--output "$response_file")
+    return 0
+}
+
 function JAMF_get_server ()
 {
     if [[ -z "$JAMF_SERVER" ]]; then
-        JAMF_SERVER=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url) || {
-            logMe "ERROR: Unable to read Jamf Pro URL" >&2
+        if ! JAMF_SERVER=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url 2>/dev/null); then
+            logMe "ERROR: Unable to read the Jamf Pro URL."
             return 1
-        }
-        logMe "No server passed in, defaulting to: $JAMF_SERVER"
-        
+        fi
+
+        logMe "No server passed in, defaulting to: ${JAMF_SERVER}"
     fi
+
+    JAMF_SERVER="${JAMF_SERVER#"${JAMF_SERVER%%[![:space:]]*}"}"
+    JAMF_SERVER="${JAMF_SERVER%"${JAMF_SERVER##*[![:space:]]}"}"
+
+    if [[ -z "$JAMF_SERVER" ]]; then
+        logMe "ERROR: The Jamf Pro server URL is empty."
+        return 1
+    fi
+
+    case "${JAMF_SERVER%%:*}" in
+        http|https)
+            ;;
+        *)
+            logMe "ERROR: The Jamf Pro server URL is invalid: ${JAMF_SERVER}"
+            return 1
+            ;;
+    esac
+
     jamfpro_url="${JAMF_SERVER%/}"
-    logMe "Jamf Pro server is: $jamfpro_url"
+    logMe "Jamf Pro server is: ${jamfpro_url}"
+    return 0
 }
 
 function JAMF_check_credentials ()
@@ -1556,20 +1594,28 @@ function JAMF_check_connection ()
     # PURPOSE: Function to check connectivity to the Jamf Pro server
     # RETURN: None
     # EXPECTED: None
-    local http_status=""
-    local curl_status=0
+    local http_code=""
+    local curlExitCode=0
+    local -a curlArgs
 
-    http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 30 --output /dev/null --write-out '%{http_code}' \
-        "${jamfpro_url}/healthCheck.html")
-    curl_status=$?
 
-    if (( curl_status != 0 )); then
-        logMe "ERROR: Unable to connect to ${jamfpro_url}. curl exit code: ${curl_status}" >&2
+    JAMF_build_curl_args
+    curlArgs=("${CURL_ARGS[@]}")
+    curlArgs+=(
+        --write-out "%{http_code}"
+        --output /dev/null
+    )
+
+    http_code=$(curl "${curlArgs[@]}" "${jamfpro_url}/healthCheck.html")
+    curlExitCode=$?
+
+    if (( curlExitCode != 0 )); then
+        logMe "ERROR: Unable to connect to ${jamfpro_url}. curl exit code: ${curlExitCode}" >&2
         return 1
     fi
 
-    if [[ "$http_status" != "200" ]]; then
-        logMe "ERROR: Jamf Pro connection check returned HTTP ${http_status} for ${jamfpro_url}." >&2
+    if [[ "$http_code" != "200" ]]; then
+        logMe "ERROR: Jamf Pro connection check returned HTTP ${http_code} for ${jamfpro_url}." >&2
         return 1
     fi
 
@@ -1963,56 +2009,602 @@ function Jamf_retrieve_data_details ()
     xmlBlob=$(/usr/bin/curl -s --header "Authorization: Bearer ${api_token}" -H "Accept: application/$format" "${jamfpro_url}${1}")
 }
 
-function Jamf_get_inventory_record ()
+function JAMF_retrieve_paginated_results ()
 {
-    # PURPOSE: Uses the JAMF 
-    # RETURN: the device ID (UDID) for the device in question.
-    # PARMS:  $1 - Section of inventory record to retrieve (GENERAL, DISK_ENCRYPTION, PURCHASING, APPLICATIONS, STORAGE, USER_AND_LOCATION, CONFIGURATION_PROFILES, PRINTERS, 
-    #                                                      SERVICES, HARDWARE, LOCAL_USER_ACCOUNTS, CERTIFICATES, ATTACHMENTS, PLUGINS, PACKAGE_RECEIPTS, FONTS, SECURITY, OPERATING_SYSTEM,
-    #                                                      LICENSED_SOFTWARE, IBEACONS, SOFTWARE_UPDATES, EXTENSION_ATTRIBUTES, CONTENT_CACHING, GROUP_MEMBERSHIPS)
-    #        $2 - Filter condition to use for search
+    # PURPOSE:
+    #   Retrieve every page from a paginated Jamf Pro API endpoint and
+    #   combine all page results into one JSON object.
+    #
+    # PARAMETERS:
+    #   $1 = API endpoint without query parameters
+    #   $2 = Page size, optional; defaults to 100
+    #   $3 = Sort expression, optional
+    #   $4 = Filter expression, optional
+    #
+    # RETURN:
+    #   JSON object containing:
+    #       {
+    #           "totalCount": <combined result count>,
+    #           "results": [...]
+    #       }
+    #
+    # EXAMPLE:
+    #   JAMF_retrieve_paginated_results \
+    #       "api/v3/computer-groups/static-groups" \
+    #       100 \
+    #       "id:asc"
 
-    local response_file
-    local http_status
-    local curl_status
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.response.XXXXX") || return 1
+    local endpoint="${1:-}"
+    local pageSize="${2:-100}"
+    local sortExpression="${3:-}"
+    local filterExpression="${4:-}"
+
+    local responseFile=""
+    local aggregateFile=""
+    local mergedFile=""
+    local httpCode=""
+    local curlExitCode=0
+    local returnedCount=0
+    local totalCount=0
+    local aggregateCount=0
+    local -i page=0
+    local -a curlArgs
+
+    if [[ -z "$endpoint" ]]; then
+        logMe "ERROR: JAMF_retrieve_paginated_results called without an API endpoint."
+        return 1
+    fi
+
+    if [[ "$pageSize" != <-> ]] || (( pageSize <= 0 )); then
+        logMe "ERROR: Invalid pagination page size: ${pageSize:-<empty>}"
+        return 1
+    fi
+
+    if ! JAMF_ensure_valid_token; then
+        logMe "ERROR: Failed to validate the Jamf Pro API token."
+        return 1
+    fi
+
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.page-response.XXXXX") || {
+        logMe "ERROR: Unable to create paginated response file."
+        return 1
+    }
+
+    aggregateFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.page-aggregate.XXXXX") || {
+        logMe "ERROR: Unable to create pagination aggregate file."
+        /bin/rm -f -- "$responseFile"
+        return 1
+    }
+
+    mergedFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.page-merged.XXXXX") || {
+        logMe "ERROR: Unable to create pagination merge file."
+        /bin/rm -f -- "$responseFile" "$aggregateFile"
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$responseFile" "$aggregateFile" "$mergedFile"; then
+        logMe "ERROR: Unable to secure pagination temporary files."
+        /bin/rm -f -- "$responseFile" "$aggregateFile" "$mergedFile"
+        return 1
+    fi
+
     {
-        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" \
-            --data-urlencode "section=$1" --data-urlencode "filter=$2" --get "${jamfpro_url}/api/v4/computers-inventory")
-        curl_status=$?
-
-        if (( curl_status != 0 )); then
-            logMe "ERROR: curl failed retrieving computer inventory, exit code ${curl_status}" >&2
+        if ! printf '%s\n' '{"results":[]}' > "$aggregateFile"; then
+            logMe "ERROR: Unable to initialize pagination aggregate data."
             return 1
         fi
 
-        case "$http_status" in
+        while true; do
+            : > "$responseFile"
+
+            if ! JAMF_ensure_valid_token; then
+                logMe "ERROR: Unable to ensure a valid token before retrieving page ${page}."
+                return 1
+            fi
+
+            JAMF_build_curl_args "$responseFile"
+            curlArgs=("${CURL_ARGS[@]}")
+            curlArgs+=(
+                --write-out "%{http_code}"
+                --get
+                --header "Accept: application/json"
+                --header "Authorization: Bearer ${api_token}"
+                --data-urlencode "page=${page}"
+                --data-urlencode "page-size=${pageSize}"
+            )
+
+            [[ -n "$sortExpression" ]] && curlArgs+=(--data-urlencode "sort=${sortExpression}")
+            [[ -n "$filterExpression" ]] && curlArgs+=(--data-urlencode "filter=${filterExpression}")
+
+            logMe "Retrieving page ${page} from '${endpoint}'."
+
+            httpCode=$(curl "${curlArgs[@]}" "${jamfpro_url}/${endpoint}")
+
+            curlExitCode=$?
+
+            if (( curlExitCode != 0 )); then
+                logMe "ERROR: curl failed while retrieving page ${page} from '${endpoint}'. curl exit code: ${curlExitCode}."
+
+                if [[ -s "$responseFile" ]]; then
+                    logMe "ERROR: Response begins with:"
+                    head -c 1000 "$responseFile" >&2
+                    printf '\n' >&2
+                fi
+
+                return 1
+            fi
+
+            case "$httpCode" in
+                200)
+                    ;;
+
+                400)
+                    logMe "ERROR: Invalid pagination request for '${endpoint}' on page ${page}."
+                    return 1
+                    ;;
+
+                401)
+                    logMe "ERROR: Unauthorized while retrieving page ${page} from '${endpoint}' (HTTP 401)."
+                    return 1
+                    ;;
+
+                403)
+                    logMe "ERROR: Insufficient privileges while retrieving page ${page} from '${endpoint}' (HTTP 403)."
+                    return 1
+                    ;;
+
+                404)
+                    logMe "ERROR: Endpoint '${endpoint}' was not found (HTTP 404)."
+                    return 1
+                    ;;
+
+                *)
+                    logMe "ERROR: Unexpected HTTP ${httpCode} while retrieving page ${page} from '${endpoint}'."
+
+                    if [[ -s "$responseFile" ]]; then
+                        logMe "ERROR: Response begins with:"
+                        head -c 1000 "$responseFile" >&2
+                        printf '\n' >&2
+                    else
+                        logMe "ERROR: Response body was empty."
+                    fi
+
+                    return 1
+                    ;;
+            esac
+
+            if [[ ! -s "$responseFile" ]]; then
+                logMe "ERROR: Jamf Pro returned an empty response for page ${page} from '${endpoint}'."
+                return 1
+            fi
+
+            if ! jq -e 'type == "object" and (.results | type == "array")' "$responseFile" >/dev/null 2>&1; then
+
+                logMe "ERROR: Page ${page} from '${endpoint}' did not contain a valid results array."
+                return 1
+            fi
+
+            if ! returnedCount=$(jq -er '.results | length' "$responseFile"); then
+                logMe "ERROR: Unable to determine the result count for page ${page}."
+                return 1
+            fi
+
+            if [[ "$returnedCount" != <-> ]]; then
+                logMe "ERROR: Page ${page} returned an invalid result count: ${returnedCount}"
+                return 1
+            fi
+
+            if ! totalCount=$(jq -er '
+                if (.totalCount | type) == "number" then
+                    .totalCount
+                else
+                    0
+                end' "$responseFile"); then
+
+                logMe "ERROR: Unable to determine the total result count for '${endpoint}'."
+                return 1
+            fi
+
+            if ! jq -s '{results:
+                        (
+                            (.[0].results // []) +
+                            (.[1].results // [])
+                        )
+                }' "$aggregateFile" "$responseFile" > "$mergedFile"; then
+
+                logMe "ERROR: Unable to merge page ${page} into the pagination aggregate."
+                return 1
+            fi
+
+            if ! /bin/mv -f -- "$mergedFile" "$aggregateFile"; then
+                logMe "ERROR: Unable to replace pagination aggregate data."
+                return 1
+            fi
+
+            if ! aggregateCount=$(jq -er '.results | length' "$aggregateFile"); then
+                logMe "ERROR: Unable to determine the accumulated pagination result count."
+                return 1
+            fi
+
+            logMe "Page ${page} returned ${returnedCount} result(s); ${aggregateCount} accumulated."
+
+            if (( returnedCount == 0 )); then
+                break
+            fi
+
+            if (( totalCount > 0 && aggregateCount >= totalCount )); then
+                break
+            fi
+
+            if (( returnedCount < pageSize )); then
+                break
+            fi
+
+            (( page++ ))
+        done
+
+        if ! jq --argjson totalCount "$aggregateCount" '.totalCount = $totalCount' "$aggregateFile"; then
+
+            logMe "ERROR: Unable to construct the completed paginated response."
+            return 1
+        fi
+
+        logMe "Pagination completed for '${endpoint}'. Retrieved ${aggregateCount} total result(s)."
+        return 0
+
+    } always {
+        /bin/rm -f -- \
+            "$responseFile" \
+            "$aggregateFile" \
+            "$mergedFile"
+    }
+}
+
+function JAMF_get_paginated_inventory_records ()
+{
+    # PURPOSE:
+    #   Retrieve every page of matching computer inventory records.
+    #
+    # PARAMETERS:
+    #   $1 = Inventory section
+    #   $2 = Optional Jamf API filter
+    #   $3 = Optional page size; defaults to 100
+    #
+    # RETURN:
+    #   Combined JSON object containing all matching results.
+
+    local inventorySection="${1:-}"
+    local filterCondition="${2:-}"
+    local pageSize="${3:-100}"
+
+    local responseFile=""
+    local aggregateFile=""
+    local mergedFile=""
+    local httpCode=""
+    local curlExitCode=0
+    local returnedCount=0
+    local totalCount=0
+    local aggregateCount=0
+    local -i page=0
+    local -a curlArgs
+
+    if [[ -z "$inventorySection" ]]; then
+        logMe "ERROR: JAMF_get_paginated_inventory_records called without an inventory section."
+        return 1
+    fi
+
+    if [[ "$pageSize" != <-> ]] || (( pageSize <= 0 )); then
+        logMe "ERROR: Invalid inventory page size: ${pageSize:-<empty>}"
+        return 1
+    fi
+
+    if ! JAMF_ensure_valid_token; then
+        logMe "ERROR: Failed to validate the Jamf Pro API token."
+        return 1
+    fi
+
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.inventory-page.XXXXX") || {
+        logMe "ERROR: Unable to create inventory page response file."
+        return 1
+    }
+
+    aggregateFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.inventory-aggregate.XXXXX") || {
+        logMe "ERROR: Unable to create inventory aggregate file."
+        /bin/rm -f -- "$responseFile"
+        return 1
+    }
+
+    mergedFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.inventory-merged.XXXXX") || {
+        logMe "ERROR: Unable to create inventory merge file."
+        /bin/rm -f -- "$responseFile" "$aggregateFile"
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$responseFile" "$aggregateFile" "$mergedFile"; then
+
+        logMe "ERROR: Unable to secure inventory pagination files."
+        /bin/rm -f -- "$responseFile" "$aggregateFile" "$mergedFile"
+        return 1
+    fi
+
+    {
+        if ! printf '%s\n' '{"results":[]}' > "$aggregateFile"; then
+            logMe "ERROR: Unable to initialize inventory aggregate data."
+            return 1
+        fi
+
+        while true; do
+            : > "$responseFile"
+
+            if ! JAMF_ensure_valid_token; then
+                logMe "ERROR: Unable to ensure a valid token before inventory page ${page}."
+                return 1
+            fi
+
+            JAMF_build_curl_args "$responseFile"
+            curlArgs=("${CURL_ARGS[@]}")
+            curlArgs+=(
+                --write-out "%{http_code}"
+                --get
+                --header "Authorization: Bearer ${api_token}"
+                --header "Accept: application/json"
+                --data-urlencode "section=${inventorySection}"
+                --data-urlencode "page=${page}"
+                --data-urlencode "page-size=${pageSize}"
+                --data-urlencode "sort=general.name:asc"
+            )
+
+            [[ -n "$filterCondition" ]] && curlArgs+=(--data-urlencode "filter=${filterCondition}")
+            
+            logMe "Retrieving inventory page ${page} for section '${inventorySection}'."
+
+            httpCode=$(curl "${curlArgs[@]}" "${jamfpro_url}/api/v4/computers-inventory")
+
+            curlExitCode=$?
+
+            if (( curlExitCode != 0 )); then
+                logMe "ERROR: curl failed while retrieving inventory page ${page}. curl exit code: ${curlExitCode}."
+                return 1
+            fi
+
+            case "$httpCode" in
+                200)
+                    ;;
+
+                400)
+                    logMe "ERROR: Invalid inventory request. Section='${inventorySection}', filter='${filterCondition}', page=${page}."
+                    return 1
+                    ;;
+
+                401)
+                    logMe "ERROR: Unauthorized while retrieving inventory page ${page} (HTTP 401)."
+                    return 1
+                    ;;
+
+                403)
+                    logMe "ERROR: Insufficient privileges while retrieving inventory page ${page} (HTTP 403)."
+                    return 1
+                    ;;
+
+                404)
+                    logMe "ERROR: Computer inventory endpoint was not found (HTTP 404)."
+                    return 1
+                    ;;
+
+                *)
+                    logMe "ERROR: Unexpected HTTP ${httpCode} while retrieving inventory page ${page}."
+
+                    if [[ -s "$responseFile" ]]; then
+                        logMe "ERROR: Response begins with:"
+                        head -c 1000 "$responseFile" >&2
+                        printf '\n' >&2
+                    else
+                        logMe "ERROR: Response body was empty."
+                    fi
+
+                    return 1
+                    ;;
+            esac
+
+            if ! jq -e 'type == "object" and (.results | type == "array")' "$responseFile" >/dev/null 2>&1; then
+
+                logMe "ERROR: Inventory page ${page} returned an unexpected JSON structure."
+                return 1
+            fi
+
+            if ! returnedCount=$(jq -er '.results | length' "$responseFile"); then
+                logMe "ERROR: Unable to determine the inventory result count for page ${page}."
+                return 1
+            fi
+
+            if ! totalCount=$(jq -er 'if (.totalCount | type) == "number" then
+                    .totalCount
+                else
+                    0
+                end' "$responseFile"); then
+
+                logMe "ERROR: Unable to determine the inventory total count."
+                return 1
+            fi
+
+            if ! jq -s '{
+                    results:
+                        (
+                            (.[0].results // []) +
+                            (.[1].results // [])
+                        )
+                }' "$aggregateFile" "$responseFile" > "$mergedFile"; then
+
+                logMe "ERROR: Unable to merge inventory page ${page}."
+                return 1
+            fi
+
+            if ! /bin/mv -f -- "$mergedFile" "$aggregateFile"; then
+                logMe "ERROR: Unable to replace inventory aggregate data."
+                return 1
+            fi
+
+            if ! aggregateCount=$(jq -er '.results | length' "$aggregateFile"); then
+                logMe "ERROR: Unable to determine the accumulated inventory count."
+                return 1
+            fi
+
+            logMe "Inventory page ${page} returned ${returnedCount} result(s); ${aggregateCount} accumulated."
+
+            if (( returnedCount == 0 )); then
+                break
+            fi
+
+            if (( totalCount > 0 && aggregateCount >= totalCount )); then
+                break
+            fi
+
+            if (( returnedCount < pageSize )); then
+                break
+            fi
+
+            (( page++ ))
+        done
+
+        if ! jq --argjson totalCount "$aggregateCount" '.totalCount = $totalCount' "$aggregateFile"; then
+
+            logMe "ERROR: Unable to construct the completed inventory response."
+            return 1
+        fi
+
+        logMe "Inventory pagination completed. Retrieved ${aggregateCount} total result(s)."
+        return 0
+
+    } always {
+        /bin/rm -f -- \
+            "$responseFile" \
+            "$aggregateFile" \
+            "$mergedFile"
+    }
+}
+
+function JAMF_get_inventory_record ()
+{
+    # PURPOSE: Retrieve inventory data from Jamf Pro
+    # RETURN: Inventory record in JSON format
+    # PARAMETERS:
+    #   $1 = Inventory section
+    #   $2 = Optional filter condition
+
+    local inventorySection="${1:-}"
+    local filterCondition="${2:-}"
+
+    local responseFile=""
+    local responseBody=""
+    local http_code=""
+    local curlExitCode=0
+    local -a curlArgs
+
+    if [[ -z "$inventorySection" ]]; then
+        logMe "ERROR: JAMF_get_inventory_record called without an inventory section."
+        return 1
+    fi
+
+    if ! JAMF_ensure_valid_token; then
+        logMe "ERROR: Failed to validate the Jamf Pro API token."
+        return 1
+    fi
+
+    responseFile=$(
+        mktemp "/var/tmp/${SCRIPT_NAME}.inventory.XXXXX"
+    ) || {
+        logMe "ERROR: Failed to create temporary inventory response file."
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$responseFile"; then
+        logMe "ERROR: Failed to secure temporary inventory response file."
+        /bin/rm -f -- "$responseFile"
+        return 1
+    fi
+
+    {
+
+        JAMF_build_curl_args "$responseFile"
+        curlArgs=("${CURL_ARGS[@]}")
+        curlArgs+=(
+            --write-out "%{http_code}"
+            --header "Authorization: Bearer ${api_token}"
+            --header "Accept: application/json"
+            --get
+            --data-urlencode "section=${inventorySection}"
+        )
+
+        [[ -n "$filterCondition" ]] && curlArgs+=(--data-urlencode "filter=${filterCondition}")
+
+        http_code=$(curl "${curlArgs[@]}" "${jamfpro_url}/api/v4/computers-inventory")
+        curlExitCode=$?
+
+        if (( curlExitCode != 0 )); then
+            logMe "ERROR: curl failed while retrieving inventory section '${inventorySection}'. curl exit code: ${curlExitCode}."
+
+            if [[ -s "$responseFile" ]]; then
+                logMe "ERROR: Response begins with:"
+                head -c 1000 "$responseFile" >&2
+                printf '\n' >&2
+            fi
+
+            return 1
+        fi
+
+        case "$http_code" in
             200)
-                cat "$response_file"
                 ;;
+
+            400)
+                logMe "ERROR: Invalid inventory request. Section='${inventorySection}', filter='${filterCondition}'."
+                return 1
+                ;;
+
             401)
-                logMe "ERROR: Jamf authentication failed retrieving DDM data, HTTP 401" >&2
-                cat "$response_file" >&2
+                logMe "ERROR: Unauthorized while retrieving inventory section '${inventorySection}' (HTTP 401)."
                 return 1
                 ;;
+
             403)
-                logMe "ERROR: Insufficient privilege to retrieve DDM data, HTTP 403" >&2
-                cat "$response_file" >&2
+                logMe "ERROR: Insufficient privileges while retrieving inventory section '${inventorySection}' (HTTP 403)."
                 return 1
                 ;;
+
             404)
-                printf 'Client %s not found. Is DDM enabled on that Mac?\n' "$1"
+                logMe "ERROR: Inventory endpoint was not found while retrieving section '${inventorySection}' (HTTP 404)."
                 return 1
                 ;;
+
             *)
-                logMe "ERROR: Unexpected Jamf response, HTTP ${http_status}" >&2
-                cat "$response_file" >&2
+                logMe "ERROR: Unexpected HTTP response ${http_code} while retrieving inventory section '${inventorySection}'."
+
+                if [[ -s "$responseFile" ]]; then
+                    logMe "ERROR: Response begins with:"
+                    head -c 1000 "$responseFile" >&2
+                    printf '\n' >&2
+                fi
+
                 return 1
                 ;;
         esac
-            } always {
-           rm -f "$response_file"
-        }
+
+        if [[ ! -s "$responseFile" ]]; then
+            logMe "ERROR: Jamf Pro returned an empty inventory response."
+            return 1
+        fi
+
+        if ! jq -e 'type == "object"' "$responseFile" >/dev/null 2>&1; then
+            logMe "ERROR: Jamf Pro inventory response was not valid JSON."
+            return 1
+        fi
+
+        responseBody="$(<"$responseFile")"
+        printf '%s' "$responseBody"
+
+    } always {
+        [[ -n "$responseFile" && -f "$responseFile" ]] && /bin/rm -f -- "$responseFile"
+    }
 }
 
 function Jamf_get_inventory_record_byID ()
@@ -2332,24 +2924,369 @@ function Jamf_view_recovery_lock ()
     echo $retval
 }
 
-function Jamf_retrieve_static_group_id ()
+function JAMF_retrieve_static_group_id ()
 {
     # PURPOSE: Retrieve the ID of a static group
-    # RETURN: ID # of static group
+    # RETURN: ID of static group
     # EXPECTED: jamfpro_url, api_token
-    # PARAMETERS: $1 = JAMF Static group name
-    declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}api/v2/computer-groups/static-groups?page=0&page-size=100&sort=id%3Aasc&filter=name%3D%3D%22"${1}%22)
-    echo $tmp | jq -r '.results[].id'
+    # PARAMETERS: $1 = Static group name
+
+    local groupName="${1:-}"
+    local responseFile
+    local http_code
+    local curlExitCode
+    local groupID
+    local resultCount=0
+    local -a curlArgs
+
+    [[ -z "$groupName" ]] && {
+        logMe "ERROR: JAMF_retrieve_static_group_id called without a group name."
+        return 1
+    }
+
+        if ! JAMF_ensure_valid_token; then
+            logMe "ERROR: Failed to validate Jamf API token."
+            return 1
+        fi
+
+        responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.group-id.XXXXX") || {
+            logMe "ERROR: Failed to create static-group response file."
+            return 1
+        }
+        if ! /bin/chmod 600 "$responseFile"; then
+            logMe "ERROR: Failed to secure static-group response file."
+            /bin/rm -f -- "$responseFile"
+            return 1
+        fi
+
+    {
+        logMe "Looking up static group ID for '${groupName}'."
+
+        JAMF_build_curl_args "$responseFile"
+        curlArgs=("${CURL_ARGS[@]}")
+        curlArgs+=(
+            --write-out "%{http_code}"
+            --get
+            --header "Accept: application/json"
+            --header "Authorization: Bearer ${api_token}"
+            --data-urlencode "page=0" 
+            --data-urlencode "page-size=100" 
+            --data-urlencode "sort=id:asc" 
+            --data-urlencode "filter=name==\"${groupName}\""
+            )
+
+        http_code=$(curl "${curlArgs[@]}" "${jamfpro_url}/api/v3/computer-groups/static-groups")
+
+        curlExitCode=$?
+
+        if (( curlExitCode != 0 )); then
+            logMe "ERROR: curl failed while searching for static group '${groupName}' (curl exit code: ${curlExitCode})."
+            return 1
+        fi
+
+        case "$http_code" in
+            200)
+                ;;
+            401)
+                logMe "ERROR: Unauthorized while retrieving static group '${groupName}' (HTTP 401)."
+                return 1
+                ;;
+            403)
+                logMe "ERROR: Insufficient privileges while retrieving static group '${groupName}' (HTTP 403)."
+                return 1
+                ;;
+            404)
+                logMe "WARNING: Static group '${groupName}' was not found (HTTP 404)."
+                return 2
+                ;;
+            *)
+                logMe "ERROR: Unexpected HTTP response (${http_code}) while retrieving static group '${groupName}'."
+
+                if [[ -s "$responseFile" ]]; then
+                    logMe "Response body follows:"
+                    while IFS= read -r line; do
+                        logMe "    ${line}"
+                    done < "$responseFile"
+                else
+                    logMe "Response body was empty."
+                fi
+
+                return 1
+                ;;
+        esac
+
+        if ! resultCount=$(jq -er '.results | length' "$responseFile"); then
+            logMe "ERROR: Unable to determine static group search result count."
+            return 1
+        fi
+
+        case "$resultCount" in
+            0)
+                logMe "WARNING: No static group found matching '${groupName}'."
+                return 2
+                ;;
+
+            1)
+                if ! groupID=$(jq -er '.results[0].id' "$responseFile"); then
+                    logMe "ERROR: Static group response did not contain a valid ID."
+                    return 1
+                fi
+                ;;
+
+            *)
+                logMe "ERROR: Multiple static groups matched '${groupName}'."
+                return 1
+                ;;
+        esac
+
+        logMe "Found static group '${groupName}' with ID ${groupID}."
+
+        printf "%s" "$groupID"
+
+    } always {
+        [[ -n "$responseFile" && -f "$responseFile" ]] && \
+            /bin/rm -f "$responseFile"
+    }
 }
 
-function Jamf_retrieve_static_group_members ()
+function JAMF_retrieve_static_group_members ()
 {
     # PURPOSE: Retrieve the members of a static group
-    # RETURN: array of members
+    # RETURN: Raw JSON response containing group membership
     # EXPECTED: jamfpro_url, api_token
-    # PARAMETERS: $1 = JAMF Static group ID
-    declare tmp=$(/usr/bin/curl -s -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url}/JSSResource/computergroups/id/${1}")
-    echo $tmp #| jq -r '.computer_group.computers[].name'
+    # PARAMETERS: $1 = JAMF Static Group ID
+
+    local groupID="${1:-}"
+    local responseFile
+    local http_code
+    local curlExitCode
+    local retval
+    local -a curlArgs
+
+    [[ -z "$groupID" ]] && {
+        logMe "ERROR: JAMF_retrieve_static_group_members called without a group ID."
+        return 1
+    }
+
+    JAMF_ensure_valid_token || {
+        logMe "ERROR: Failed to validate Jamf API token."
+        return 1
+    }
+
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.retrieve_members.XXXXX") || {
+        logMe "ERROR: Failed to create retrieve_members response file."
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$responseFile"; then
+        logMe "ERROR: Failed to secure temporary API response file."
+        /bin/rm -f -- "$responseFile"
+        return 1
+    fi
+    {
+        #logMe "Retrieving static group members for group ID ${groupID}."
+
+        JAMF_build_curl_args "$responseFile"
+        curlArgs=("${CURL_ARGS[@]}")
+        curlArgs+=(
+            --write-out "%{http_code}"
+            --header "Accept: application/json"
+            --header "Authorization: Bearer ${api_token}"
+            )
+
+        http_code=$(curl "${curlArgs[@]}" "${jamfpro_url}/JSSResource/computergroups/id/${groupID}")
+
+        curlExitCode=$?
+
+        if (( curlExitCode != 0 )); then
+            logMe "ERROR: curl failed while retrieving static group ${groupID} (curl exit code: ${curlExitCode})."
+            return 1
+        fi
+
+        case "$http_code" in
+            200)
+                #logMe "Successfully retrieved static group ${groupID}."
+                ;;
+            401)
+                logMe "ERROR: Unauthorized access while retrieving static group ${groupID} (HTTP 401)."
+                return 1
+                ;;
+            403)
+                logMe "ERROR: Insufficient privileges while retrieving static group ${groupID} (HTTP 403)."
+                return 1
+                ;;
+            404)
+                logMe "WARNING: Static group ${groupID} was not found (HTTP 404)."
+                return 2
+                ;;
+            *)
+                logMe "ERROR: Unexpected HTTP response (${http_code}) while retrieving static group ${groupID}."
+
+                if [[ -s "$responseFile" ]]; then
+                    logMe "Response body follows:"
+                    while IFS= read -r line; do
+                        logMe "    ${line}"
+                    done < "$responseFile"
+                else
+                    logMe "Response body was empty."
+                fi
+
+                return 1
+                ;;
+        esac
+
+        if ! jq -e 'type == "object" and (.computer_group | type == "object")' "$responseFile" >/dev/null 2>&1; then
+            logMe "ERROR: Unexpected response structure returned for static group ${groupID}."
+            return 1
+        fi
+
+        retval="$(<"$responseFile")"
+
+        [[ -z "$retval" ]] && {
+            logMe "ERROR: Empty response returned for static group ${groupID}."
+            return 1
+        }
+
+        printf "%s" "$retval"
+
+    } always {
+        [[ -n "$responseFile" && -f "$responseFile" ]] && /bin/rm -f "$responseFile"
+    }
+}
+
+function JAMF_static_group_action_by_name ()
+{
+    # PURPOSE: Add or remove a computer from a static group by computer name
+    # RETURN : Status message
+    # EXPECTED: jamfpro_url, api_token
+    # PARAMETERS:
+    #   $1 = Static Group ID
+    #   $2 = Computer name
+    #   $3 = Action (Add|Remove)
+
+    local groupID="${1:-}"
+    local computerName="${2:-}"
+    local action="${3:-}"
+
+    local escapedComputerName=""
+
+    local apiData
+    local responseFile
+    local responseBody
+    local curlExitCode
+    local http_code
+    local retval
+    local -a curlArgs
+    local -i returnCode=0
+
+
+    if ! JAMF_ensure_valid_token; then
+        logMe "ERROR: Failed to validate Jamf API token."
+        return 1
+    fi
+
+    if [[ "$groupID" != <-> ]]; then
+        logMe "ERROR: Invalid static group ID: ${groupID:-<empty>}"
+        return 1
+    fi
+
+    if [[ -z "$computerName" ]]; then
+        logMe "ERROR: Computer name was not provided."
+        return 1
+    fi
+
+    if ! escapedComputerName=$(xml_escape "$computerName"); then
+        logMe "ERROR: Unable to XML-escape computer name '${computerName}'."
+        return 1
+    fi
+
+    case "${action:l}" in
+        add)
+            apiData="<computer_group><computer_additions><computer><name>${escapedComputerName}</name></computer></computer_additions></computer_group>"
+            ;;
+
+        remove)
+            apiData="<computer_group><computer_deletions><computer><name>${escapedComputerName}</name></computer></computer_deletions></computer_group>"
+            ;;
+
+        *)
+            retval="Invalid static group action: ${action}"
+            logMe "ERROR: ${retval}"
+            printf '%s' "$retval"
+            return 1
+            ;;
+    esac
+
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.group-action.XXXXX") || {
+        logMe "ERROR: Failed to create static-group action response file."
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$responseFile"; then
+        logMe "ERROR: Failed to secure static-group action response file."
+        /bin/rm -f -- "$responseFile"
+        return 1
+    fi
+
+    {
+
+
+        JAMF_build_curl_args "$responseFile"
+        curlArgs=("${CURL_ARGS[@]}")
+        curlArgs+=(
+            --write-out "%{http_code}"
+            --header "Authorization: Bearer ${api_token}" 
+            --header "Content-Type: application/xml" 
+            --header "Accept: application/xml"
+            --data "$apiData"
+            --request PUT
+            )
+
+        http_code=$(curl "${curlArgs[@]}" "${jamfpro_url}/JSSResource/computergroups/id/${groupID}")
+
+        curlExitCode=$?
+
+        responseBody=$(/bin/cat "$responseFile" 2>/dev/null)
+
+        if (( curlExitCode != 0 )); then
+            retval="CURL error ${curlExitCode} occurred while attempting to ${action:l} computer '${computerName}' in static group ${groupID}."
+            logMe "$retval" 1>&2
+
+            [[ -n "$responseBody" ]] && logMe "API response body: $responseBody" 1>&2
+
+            printf "%s" "$retval"
+            return 1
+        fi
+
+        case "$http_code" in
+            200|201|204)
+                retval="Successfully completed ${action:l} operation for '${computerName}' in static group ${groupID}."
+                ;;
+
+            409)
+                retval="Jamf Pro reported a conflict while attempting to ${action:l} '${computerName}' in static group ${groupID}."
+                returnCode=1
+
+                [[ -n "$responseBody" ]] &&
+                    logMe "HTTP 409 response body: ${responseBody}"
+                ;;
+
+            *)
+                retval="HTTP ${http_code} returned while attempting to ${action:l} '${computerName}' in static group ${groupID}."
+                returnCode=1
+
+                [[ -n "$responseBody" ]] &&
+                    logMe "Unexpected API response body: ${responseBody}"
+                ;;
+        esac
+
+        logMe "$retval"
+        printf '%s' "$retval"
+        return "$returnCode"
+
+    } always {
+        [[ -f "$responseFile" ]] && /bin/rm -f "$responseFile"
+    }
 }
 
 function Jamf_retrieve_data_blob ()
@@ -2453,6 +3390,7 @@ function JAMF_get_deviceID ()
     local result_count=0
     local device_id=""
     local error_message=""
+    local -a curlArgs
 
 
     case "$search_type" in
@@ -2481,11 +3419,22 @@ function JAMF_get_deviceID ()
         return 1
     fi
 
-    {
-        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --get --output "$response_file" --write-out '%{http_code}' \
-                --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" --data-urlencode "section=GENERAL" --data-urlencode "page=0" --data-urlencode "page-size=100" \
-                --data-urlencode "sort=general.name:asc" --data-urlencode "filter=${filter_type}==\"${search_value}\"" "${jamfpro_url}/api/v4/computers-inventory")
+    JAMF_build_curl_args "$response_file"
+    curlArgs=("${CURL_ARGS[@]}")
+    curlArgs+=(
+        --write-out "%{http_code}"
+        --get
+        --header "Authorization: Bearer ${api_token}"
+        --header "Accept: application/json"
+        --data-urlencode "section=GENERAL"
+        --data-urlencode "page=0"
+        --data-urlencode "page-size=100"
+        --data-urlencode "sort=general.name:asc"
+        --data-urlencode "filter=${filter_type}==${search_value}"
+    )
 
+    {
+        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url}/api/v4/computers-inventory")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -2543,7 +3492,8 @@ function JAMF_get_deviceID ()
             return 1
         fi
 
-        ID="$device_id"
+        #ID="$device_id"
+        printf '%s' "$device_id"
         return 0
 
     } always {
@@ -4651,11 +5601,236 @@ function JAMF_renew_binary ()
     }
 }
 
+###########################
+#
+# JAMF functions (Failed MDM Commands)
+#
+###########################
+
+function JAMF_get_failed_commands ()
+{
+    # PURPOSE:
+    #   Retrieve the count of failed MDM commands for a computer.
+    #
+    # PARAMETERS:
+    #   $1 = Computer ID
+    #
+    # RETURNS:
+    #   0 = Success
+    #   1 = Failure
+
+    local computerID="${1:-}"
+    local responseFile=""
+    local httpCode=""
+    local curlExitCode=0
+    local failedCommands=0
+    local -a curlArgs
+    local failedMDM=""
+
+    [[ "$computerID" == <-> ]] || {
+        logMe "ERROR: Invalid computer ID passed to JAMF_get_failed_commands: ${computerID}"
+        return 1
+    }
+
+    JAMF_ensure_valid_token || return 1
+
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.failedmdm.XXXXX") || {
+        logMe "ERROR: Unable to create failed-command response file."
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$responseFile"; then
+        logMe "ERROR: Unable to secure failed-command response file."
+        /bin/rm -f -- "$responseFile"
+        return 1
+    fi
+
+    {
+        JAMF_build_curl_args "$responseFile"
+        curlArgs=("${CURL_ARGS[@]}")
+
+        curlArgs+=(
+            --write-out "%{http_code}"
+            --request GET
+            --header "Authorization: Bearer ${api_token}"
+            --header "Accept: application/json"
+        )
+
+        httpCode=$(curl "${curlArgs[@]}" "${jamfpro_url}/JSSResource/computerhistory/id/${computerID}/subset/commands")
+
+        curlExitCode=$?
+
+        if (( curlExitCode != 0 )); then
+            logMe "ERROR: Failed-command query failed. curl exit code: ${curlExitCode}"
+            return 1
+        fi
+
+        if [[ "$httpCode" != "200" ]]; then
+            logMe "ERROR: Failed-command query returned HTTP ${httpCode}"
+
+            if [[ -s "$responseFile" ]]; then
+                logMe "ERROR: Response body begins with:"
+                /usr/bin/head -c 500 "$responseFile" >&2
+                printf '\n' >&2
+            fi
+
+            return 1
+        fi
+
+        if [[ ! -s "$responseFile" ]]; then
+            logMe "ERROR: Failed-command query returned an empty response."
+            return 1
+        fi
+
+
+        if ! jq -e 'type == "object" and (.computer_history.commands.failed | type == "array")' "$responseFile" >/dev/null 2>&1; then
+            logMe "ERROR: Invalid failed-command JSON structure."
+            return 1
+        fi
+        
+        failedCommands=$(jq -er '.computer_history.commands.failed | length' "$responseFile") || {
+            logMe "ERROR: Unable to determine failed command count."
+            return 1
+        }
+
+        if (( failedCommands > 0 )); then
+            failedMDM=$(jq -r '.computer_history.commands.failed[] |"• \(.name)\n\n" +
+            "    Status: \((.status | select(length > 0)) // "Unknown")\n" +
+            "    Issued: \((.issued | select(length > 0)) // "Unknown")\n" +
+            "    Failed: \((.failed | select(length > 0)) // "Unknown")\n"
+            ' "$responseFile")
+            display_status_message "Fail" "${failedMDM}" "${computerID}"
+        else
+            display_status_message "Clear"
+        fi
+        return 0
+
+    } always {
+        /bin/rm -f -- "$responseFile"
+    }
+}
+
+function JAMF_clear_failed_mdm_commands ()
+{
+    # PURPOSE:
+    #   Flush all failed MDM commands for a computer.
+    #
+    # PARAMETERS:
+    #   $1 = Computer ID
+    #
+    # RETURNS:
+    #   0 = Success
+    #   1 = Failure
+
+    local computerID="${1:-}"
+    local responseFile=""
+    local httpCode=""
+    local curlExitCode=0
+    local -a curlArgs
+
+    [[ "$computerID" == <-> ]] || {
+        logMe "ERROR: Invalid computer ID passed to JAMF_clear_failed_mdm_commands: ${computerID}"
+        return 1
+    }
+
+    JAMF_ensure_valid_token || return 1
+
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.flushmdm.XXXXX") || {
+        logMe "ERROR: Unable to create MDM flush response file."
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$responseFile"; then
+        logMe "ERROR: Unable to secure MDM flush response file."
+        /bin/rm -f -- "$responseFile"
+        return 1
+    fi
+
+    {
+        JAMF_build_curl_args "$responseFile"
+        curlArgs=("${CURL_ARGS[@]}")
+
+        curlArgs+=(
+            --write-out "%{http_code}"
+            --request DELETE
+            --header "Authorization: Bearer ${api_token}"
+            --header "Accept: application/xml"
+        )
+
+        httpCode=$(curl "${curlArgs[@]}" "${jamfpro_url}/JSSResource/commandflush/computers/id/${computerID}/status/Failed")
+        curlExitCode=$?
+
+        if (( curlExitCode != 0 )); then
+            logMe "ERROR: Failed-command flush request failed. curl exit code: ${curlExitCode}"
+            return 1
+        fi
+
+        case "$httpCode" in
+            200|201|202|204)
+                logMe "Failed MDM commands successfully cleared for computer ID ${computerID}."
+
+                if [[ -s "$responseFile" ]]; then
+                    logMe "Flush response received from Jamf."
+                fi
+
+                return 0
+                ;;
+            *)
+                logMe "ERROR: Failed-command flush returned HTTP ${httpCode}"
+
+                if [[ -s "$responseFile" ]]; then
+                    logMe "ERROR: Response body begins with:"
+                    /usr/bin/head -c 500 "$responseFile" >&2
+                    printf '\n' >&2
+                fi
+
+                return 1
+                ;;
+        esac
+
+    } always {
+        /bin/rm -f -- "$responseFile"
+    }
+}
+
+
 #######################################################################################################
 # 
 # Functions to create textfields, listitems, checkboxes & dropdown lists
 #
 #######################################################################################################
+
+function validate_dialog_json ()
+{
+    # PURPOSE:
+    #   Validate the completed SwiftDialog JSON file.
+    #
+    # RETURN:
+    #   0 = Valid JSON
+    #   1 = Missing, empty, or invalid JSON
+
+    if [[ -z "${JSON_DIALOG_BLOB:-}" ]]; then
+        logMe "ERROR: JSON_DIALOG_BLOB is not defined."
+        return 1
+    fi
+
+    if [[ ! -s "$JSON_DIALOG_BLOB" ]]; then
+        logMe "ERROR: SwiftDialog JSON file is missing or empty."
+        return 1
+    fi
+
+    if ! jq -e . "$JSON_DIALOG_BLOB" >/dev/null 2>&1; then
+        logMe "ERROR: SwiftDialog JSON file is invalid."
+
+        while IFS= read -r line; do
+            logMe "JSON: ${line}"
+        done < "$JSON_DIALOG_BLOB"
+
+        return 1
+    fi
+
+    return 0
+}
 
 function create_display_list ()
 {
@@ -4738,78 +5913,152 @@ function create_display_list ()
 
 function construct_dialog_header_settings ()
 {
-    # Construct the basic Switft Dialog screen info that is used on all messages
+    # PURPOSE:
+    #   Create the complete base SwiftDialog JSON object.
     #
-    # RETURN: None
-	# VARIABLES expected: All of the Widow variables should be set
-	# PARMS Passed: $1 is message to be displayed on the window
+    # PARAMETERS:
+    #   $1 = Dialog message
+    #
+    # RETURN:
+    #   Complete JSON object written to stdout
 
-	echo '{
-        "icon" : "'${SD_ICON_FILE}'",
-        "message" : "'$1'",
-        "bannerimage" : "'${SD_BANNER_IMAGE}'",
-        "infobox" : "'${SD_INFO_BOX_MSG}'",
-        "overlayicon" : "'${OVERLAY_ICON}'",
-        "ontop" : "true",
-        "bannertitle" : "'${SD_WINDOW_TITLE}'",
-        "titlefont" : "shadow=1",
-        "button1text" : "OK",
-        "moveable" : "true",
-        "json" : "true", 
-        "quitkey" : "0",
-        "messageposition" : "top",'
+    local dialogMessage="${1:-}"
+    local button1Text="OK"
+    local button2Text="Cancel"
+    local titleFont="shadow=1,color=${BANNER_TEXT_COLOR},offset=${BANNER_TEXT_PADDING}"
+
+    case "${REQUEST_TYPE:l}-${ACTION_TAKEN:l}" in
+        migrate-migrate)
+            button1Text="Migrate"
+            button2Text="Quit"
+            ;;
+
+        *)
+            button1Text="OK"
+            button2Text="Cancel"
+            ;;
+    esac
+
+    jq -n \
+        --arg icon "$SD_ICON_FILE" \
+        --arg overlayIcon "$OVERLAY_ICON" \
+        --arg message "$dialogMessage" \
+        --arg bannerImage "$SD_BANNER_IMAGE" \
+        --arg subtitle "$BANNER_SUBTITLE" \
+        --arg bannerTitle "$SD_WINDOW_TITLE" \
+        --arg infoBox "$SD_INFO_BOX_MSG" \
+        --arg titleFont "$titleFont" \
+        --arg helpMessage "$HELP_MESSAGE" \
+        --arg button1Text "$button1Text" \
+        --arg button2Text "$button2Text" \
+        '{
+            icon: $icon,
+            overlayicon: $overlayIcon,
+            message: $message,
+            bannerimage: $bannerImage,
+            subtitle: $subtitle,
+            bannertitle: $bannerTitle,
+            infobox: $infoBox,
+            titlefont: $titleFont,
+            helpmessage: $helpMessage,
+            moveable: true,
+            quitkey: "0",
+            ontop: true,
+            vieworder: "textfield, dropdown, listitem, selectitems",
+            width: 840,
+            height: 660,
+            messageposition: "top",
+            button1text: $button1Text,
+            button2text: $button2Text
+        }'
 }
 
 function create_listitem_list ()
 {
-    # PURPOSE: Create the display list for the dialog box
-    # RETURN: None
-    # EXPECTED: JSON_DIALOG_BLOB should be defined
+    # PARAMETERS:
+    #   $1 = Dialog message
+    #   $2 = Data type
+    #   $3 = jq expression returning member names
+    #   $4 = Source JSON
+    #   $5 = List-item icon
 
-    local xml_blob
-    local line
+    local dialogMessage="${1:-}"
+    local dataType="${2:-json}"
+    local jqExpression="${3:-}"
+    local sourceJSON="${4:-}"
+    local itemIcon="${5:-}"
+    local memberNamesJSON="[]"
+    local dialogReturnCode=0
 
-    if ! construct_dialog_header_settings "$1" > "$JSON_DIALOG_BLOB"; then
-        logMe "ERROR: Unable to initialize SwiftDialog JSON" >&2
+    if [[ "${dataType:l}" != "json" ]]; then
+        logMe "ERROR: Unsupported list-item data type: ${dataType}"
         return 1
     fi
 
-    if ! create_listitem_message_body "" "" "" "" "first"; then
+    if ! jq -e . \
+        <<< "$sourceJSON" >/dev/null 2>&1; then
+
+        logMe "ERROR: List-item source data is not valid JSON."
         return 1
     fi
 
-    if [[ "${2:l}" == "json" ]]; then
-        # Parse the JSON data using jq and extract the relevant information
-        if ! xml_blob=$(printf '%s' "$4" | jq -r "$3"); then
-            logMe "ERROR: Unable to parse list-item JSON" >&2
+    if ! memberNamesJSON=$(jq -c "[
+                ${jqExpression}
+                | strings
+                | select(length > 0)
+            ]
+            | unique
+            | sort" <<< "$sourceJSON"); then
+        logMe "ERROR: Unable to parse static-group member names."
+        return 1
+    fi
+
+    if ! construct_dialog_header_settings "$dialogMessage" > "$JSON_DIALOG_BLOB"; then
+        logMe "ERROR: Unable to construct the membership-list dialog."
+        return 1
+    fi
+
+    if ! jq --argjson memberNames "$memberNamesJSON" --arg selectedComputer "$hostName" --arg itemIcon "$itemIcon" \
+        '.listitem = [
+            $memberNames[] |
+            {
+                title: .,
+                icon: $itemIcon
+            }
+            +
+            (
+                if . == $selectedComputer then
+                    {
+                        status: "success",
+                        statustext: "Found"
+                    }
+                else
+                    {}
+                end
+            )
+        ]' "$JSON_DIALOG_BLOB" |
+        update_dialog_json; then
+
+        logMe "ERROR: Unable to construct the membership-list JSON."
+        return 1
+    fi
+
+    validate_dialog_json || return 1
+
+    "$SW_DIALOG" --json --jsonfile "$JSON_DIALOG_BLOB"
+
+    dialogReturnCode=$?
+
+    case "$dialogReturnCode" in
+        0|2)
+            return 0
+            ;;
+
+        *)
+            logMe "ERROR: Membership dialog exited with code ${dialogReturnCode}."
             return 1
-        fi
-    else
-        # Parse the XML data using xmllint and extract the relevant information
-        if ! xml_blob=$(printf '%s' "$4" | xmllint --xpath "//$3" - 2>/dev/null); then
-            logMe "ERROR: Unable to parse list-item XML" >&2
-            return 1
-        fi
-    fi
-
-    while IFS= read -r line; do
-        line="${${line#*<name>}%</name>*}"
-        line="${line%%[[:space:]]#}"
-
-        if ! create_listitem_message_body "$line" "$5" "pending" "Pending..."; then
-            return 1
-        fi
-    done <<< "$xml_blob"
-
-    if ! create_listitem_message_body "" "" "" "" "last"; then
-        return 1
-    fi
-
-    if ! update_display_list "Create"; then
-        return 1
-    fi
-
-    return 0
+            ;;
+    esac
 }
 
 function create_listitem_message_body ()
@@ -4843,23 +6092,83 @@ function create_listitem_message_body ()
 
 function create_textfield_message_body ()
 {
-    # PURPOSE: Construct the List item body of the dialog box
-    # "listitem" : [
-    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+    # PURPOSE:
+    #   Add one text field to the SwiftDialog textfield array.
+    #
+    # PARAMETERS:
+    #   $1 = Internal field name
+    #   $2 = Display title
+    #   $3 = Required value: true, false, yes, or no
+    #   $4 = Default value, optional
+    #
+    # EXAMPLE:
+    #   create_textfield_message_body \
+    #       "HostName" \
+    #       "Computer Hostname" \
+    #       true \
+    #       "$MAC_HOSTNAME"
 
-    # RETURN: None
-    # EXPECTED: message
-    # PARMS: $1 - item name (interal reference) 
-    #        $2 - title (Display)
-    #        $3 - first or last - construct appropriate listitem heders / footers
+    local fieldName="${1:-}"
+    local title="${2:-}"
+    local requiredValue="${3:-true}"
+    local defaultValue="${4:-}"
+    local requiredJSON="false"
 
-    declare line && line=""
-    declare today && today=$(date +"%m/%d/%y")
+    if [[ -z "$fieldName" ]]; then
+        logMe "ERROR: Text-field name was not provided."
+        return 1
+    fi
 
-    [[ "$3:l" == "first" ]] && line+='"textfield" : ['
-    [[ ! -z $1 ]] && line+='{"name" : "'$1'", "title" : "'$2'", "isdate" : "true", "required" : "true", "value" : "'$today'" },'
-    [[ "$3:l" == "last" ]] && line+=']'
-    echo $line >> ${JSON_DIALOG_BLOB}
+    if [[ -z "$title" ]]; then
+        logMe "ERROR: Text-field title was not provided."
+        return 1
+    fi
+
+    case "${requiredValue:l}" in
+        true|yes)
+            requiredJSON="true"
+            ;;
+
+        false|no)
+            requiredJSON="false"
+            ;;
+
+        *)
+            logMe "ERROR: Invalid required value for text field '${fieldName}': ${requiredValue}"
+            return 1
+            ;;
+    esac
+
+    if ! jq \
+        --arg fieldName "$fieldName" \
+        --arg title "$title" \
+        --arg defaultValue "$defaultValue" \
+        --argjson required "$requiredJSON" \
+        '
+        .textfield = (.textfield // []) |
+        .textfield += [
+            {
+                name: $fieldName,
+                title: $title,
+                required: $required
+            }
+            +
+            (
+                if $defaultValue != "" then
+                    {value: $defaultValue}
+                else
+                    {}
+                end
+            )
+        ]
+        ' "$JSON_DIALOG_BLOB" |
+        update_dialog_json; then
+
+        logMe "ERROR: Unable to add text field '${fieldName}' to SwiftDialog JSON."
+        return 1
+    fi
+
+    return 0
 }
 
 function create_dropdown_list ()
@@ -4903,42 +6212,143 @@ function create_dropdown_list ()
 
 function create_dropdown_message_body ()
 {
-    # PURPOSE: Construct the List item body of the dialog box
-    # "listitem" : [
-    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
+    # PURPOSE:
+    #   Add one dropdown to the SwiftDialog selectitems array.
+    #
+    # PARAMETERS:
+    #   $1 = Display title
+    #   $2 = Values as a JSON array
+    #   $3 = Default value, optional
+    #   $4 = Internal field name, optional
+    #   $5 = Required value: true, false, yes, or no
+    #
+    # EXAMPLE:
+    #   create_dropdown_message_body "Old Computer Name" '["MAC-001","MAC-002"]' "MAC-001" "oldsystem" true
 
-    # RETURN: None
-    # EXPECTED: message
-    # PARMS: $1 - title (Display)
-    #        $2 - values (comma separated list)
-    #        $3 - default option
-    #        $4 - first or last - construct appropriate listitem headers / footers
+    local title="${1:-}"
+    local valuesJSON="${2:-[]}"
+    local defaultValue="${3:-}"
+    local fieldName="${4:-}"
+    local requiredValue="${5:-true}"
+    local requiredJSON="false"
 
-    local line && line=""
-
-    [[ "$4:l" == "first" ]] && line+=' "selectitems" : ['
-    [[ ! -z $1 ]] && line+='{"title" : "'$1'", "values" : ['$2'], "default" : "'$3'"},'
-    if [[ "${4:l}" == "last" ]]; then
-        sed -i '' -e '$ s/,$//' "$JSON_DIALOG_BLOB"
-        printf '%s\n' ']' >> "$JSON_DIALOG_BLOB"
-        return 0
+    if [[ -z "$title" ]]; then
+        logMe "ERROR: Dropdown title was not provided."
+        return 1
     fi
-    printf '%s\n' "$line" >> "$JSON_DIALOG_BLOB"
+
+    if ! jq -e 'type == "array"' <<< "$valuesJSON" >/dev/null 2>&1; then
+
+        logMe "ERROR: Values for dropdown '${title}' are not a valid JSON array."
+        return 1
+    fi
+
+    case "${requiredValue:l}" in
+        true|yes)
+            requiredJSON="true"
+            ;;
+
+        false|no)
+            requiredJSON="false"
+            ;;
+
+        *)
+            logMe "ERROR: Invalid required value for dropdown '${title}': ${requiredValue}"
+            return 1
+            ;;
+    esac
+
+    if ! jq \
+        --arg title "$title" \
+        --argjson values "$valuesJSON" \
+        --arg defaultValue "$defaultValue" \
+        --arg fieldName "$fieldName" \
+        --argjson required "$requiredJSON" \
+        '
+        .selectitems = (.selectitems // []) |
+        .selectitems += [
+            {
+                title: $title,
+                values: $values
+            }
+            +
+            (
+                if $defaultValue != "" then
+                    {default: $defaultValue}
+                else
+                    {}
+                end
+            )
+            +
+            (
+                if $fieldName != "" then
+                    {
+                        name: $fieldName,
+                        required: $required
+                    }
+                else
+                    {}
+                end
+            )
+        ]
+        ' "$JSON_DIALOG_BLOB" |
+        update_dialog_json; then
+
+        logMe "ERROR: Unable to add dropdown '${title}' to SwiftDialog JSON."
+        return 1
+    fi
+
+    return 0
 }
 
 function construct_dropdown_list_items ()
 {
-    local input_json="$1"
-    local jq_path="$2"
-    local line
-    local -a values=()
+    # PURPOSE:
+    #   Extract dropdown values from a JSON response.
+    #
+    # PARAMETERS:
+    #   $1 = Source JSON
+    #   $2 = jq expression that returns individual values
+    #
+    # RETURN:
+    #   Compact JSON array written to stdout
+    #
+    # EXAMPLE:
+    #   construct_dropdown_list_items \
+    #       "$groupList" \
+    #       '.results[]?.name'
 
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        values+=("$(jq -Rn --arg value "$line" '$value')")
-    done < <(printf '%s' "$input_json" | jq -r "${jq_path} | \"\\(.id) - \\(.name)\"")
+    local sourceJSON="${1:-}"
+    local jqExpression="${2:-}"
 
-    printf '%s' "${(j:,:)values}"
+    if [[ -z "$sourceJSON" ]]; then
+        logMe "ERROR: Dropdown source JSON was not provided."
+        return 1
+    fi
+
+    if [[ -z "$jqExpression" ]]; then
+        logMe "ERROR: Dropdown jq expression was not provided."
+        return 1
+    fi
+
+    if ! jq -e . <<< "$sourceJSON" >/dev/null 2>&1; then
+        logMe "ERROR: Dropdown source is not valid JSON."
+        return 1
+    fi
+
+    if ! jq -c "[
+            ${jqExpression}
+            | strings
+            | select(length > 0)
+        ]
+        | unique
+        | sort" <<< "$sourceJSON"; then
+
+        logMe "ERROR: Unable to construct dropdown values."
+        return 1
+    fi
+
+    return 0
 }
 
 function create_checkbox_message_body ()
