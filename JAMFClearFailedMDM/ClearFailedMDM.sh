@@ -361,6 +361,7 @@ function initialize_user_context ()
     SD_FIRST_NAME="${(C)${JAMF_LOGGED_IN_USER%%.*}}"
     return 0
 }
+
 function cleanup_and_exit ()
 {
     local exit_code="${1:-0}"
