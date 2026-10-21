@@ -95,7 +95,7 @@ ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 ###################################################
 #
 # App Specific variables (Feel free to change these)
-#MAC-KCJGJT4W22
+#
 ###################################################
 
 # See if there is a "defaults" file...if so, read in the contents
@@ -2881,7 +2881,6 @@ function retrieve_user_systems ()
         fi
 
         if ! inventoryJSON=$(JAMF_get_paginated_inventory_records "GENERAL" "userAndLocation.username=='${userName}'" 100); then
-        #if ! inventoryJSON=$(JAMF_get_inventory_record "GENERAL" "userAndLocation.username=='${userName}'"); then
             logMe "ERROR: Unable to retrieve systems assigned to '${userName}'."
             return 1
         fi
@@ -2947,19 +2946,12 @@ function display_msg_single ()
     local dialogSelectedGroup=""
     local returnCode=0
 
-    if ! groupList=$(JAMF_retrieve_paginated_results \
-        "api/v3/computer-groups/static-groups" \
-        100 \
-        "id:asc"); then
-
+    if ! groupList=$(JAMF_retrieve_paginated_results "api/v3/computer-groups/static-groups" 100 "id:asc"); then
         logMe "ERROR: Unable to retrieve all static computer groups."
         return 1
     fi
 
-    if ! jq -e \
-        'type == "object" and (.results | type == "array")' \
-        <<< "$groupList" >/dev/null 2>&1; then
-
+    if ! jq -e 'type == "object" and (.results | type == "array")' <<< "$groupList" >/dev/null 2>&1; then
         logMe "ERROR: Static-group response does not contain a valid results array."
         return 1
     fi
@@ -2967,17 +2959,12 @@ function display_msg_single ()
     if [[ -z "$JAMF_GROUP_NAME" ]]; then
         message="Select a static group, enter the computer hostname, and choose the action to perform. The selected group is ignored when Remove All is chosen."
 
-        if ! groupValuesJSON=$(construct_dropdown_list_items \
-            "$groupList" \
-            '.results[]?.name'); then
-
+        if ! groupValuesJSON=$(construct_dropdown_list_items "$groupList" '.results[]?.name'); then
             logMe "ERROR: Unable to construct static-group choices."
             return 1
         fi
 
-        if ! jq -e \
-            'type == "array" and length > 0' \
-            <<< "$groupValuesJSON" >/dev/null 2>&1; then
+        if ! jq -e 'type == "array" and length > 0' <<< "$groupValuesJSON" >/dev/null 2>&1; then
 
             logMe "ERROR: No static-group choices were returned."
             return 1
@@ -2992,48 +2979,25 @@ function display_msg_single ()
     fi
 
     if [[ -z "$JAMF_GROUP_NAME" ]]; then
-        if ! create_dropdown_message_body \
-            "Select Group:" \
-            "$groupValuesJSON" \
-            "" \
-            "selectedgroup" \
-            true; then
-
+        if ! create_dropdown_message_body "Select Group:" "$groupValuesJSON" "" "selectedgroup" true; then
             logMe "ERROR: Unable to add the static-group selector."
             return 1
         fi
     fi
 
-    if ! create_radio_message_body \
-        "Group Action:" \
-        "$actionValuesJSON" \
-        "groupaction" \
-        "View Users" \
-        true; then
-
+    if ! create_radio_message_body "Group Action:" "$actionValuesJSON" "groupaction" "View Users" true; then
         logMe "ERROR: Unable to add the group-action selector."
         return 1
     fi
 
-    if ! create_textfield_message_body \
-        "HostName" \
-        "Computer Hostname" \
-        true \
-        "$MAC_HOSTNAME"; then
-
+    if ! create_textfield_message_body "HostName" "Computer Hostname" true "$MAC_HOSTNAME"; then
         logMe "ERROR: Unable to add the computer-hostname field."
         return 1
     fi
 
     validate_dialog_json || return 1
 
-    dialogResults=$(
-        "$SW_DIALOG" \
-            --json \
-            --jsonfile "$JSON_DIALOG_BLOB" \
-            --vieworder "dropdown, radiobutton, listitem, textfield" \
-            2>/dev/null
-    )
+    dialogResults=$("$SW_DIALOG" --json --jsonfile "$JSON_DIALOG_BLOB" --vieworder "dropdown, radiobutton, listitem, textfield" 2>/dev/null)
     returnCode=$?
 
     case "$returnCode" in
@@ -3051,20 +3015,12 @@ function display_msg_single ()
             ;;
     esac
 
-    if ! jq -e \
-        'type == "object"' \
-        <<< "$dialogResults" >/dev/null 2>&1; then
-
+    if ! jq -e 'type == "object"' <<< "$dialogResults" >/dev/null 2>&1; then
         logMe "ERROR: SwiftDialog returned invalid JSON."
         return 1
     fi
 
-    if ! selectedAction=$(jq -er \
-        '.groupaction.selectedValue |
-         strings |
-         select(length > 0)' \
-        <<< "$dialogResults"); then
-
+    if ! selectedAction=$(jq -er '.groupaction.selectedValue strings select(length > 0)' <<< "$dialogResults"); then
         logMe "ERROR: Unable to determine the selected group action."
         return 1
     fi
@@ -3080,12 +3036,7 @@ function display_msg_single ()
             ;;
     esac
 
-    if ! enteredHostName=$(jq -er \
-        '.HostName |
-         strings |
-         gsub("^\\s+|\\s+$"; "") |
-         select(length > 0)' \
-        <<< "$dialogResults"); then
+    if ! enteredHostName=$(jq -er '.HostName | strings | gsub("^\\s+|\\s+$"; "") | select(length > 0)' <<< "$dialogResults"); then
 
         logMe "ERROR: Unable to determine the entered computer hostname."
         return 1
