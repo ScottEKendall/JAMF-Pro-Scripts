@@ -8,15 +8,15 @@ This script is designed to extract all of the system scripts from your JAMF serv
 
 Welcome Screen
 
-![Welcome](./BackupJAMFScripts-welcome.png)
+![Welcome](./JAMFBackupScripts-welcome.png)
 
 Process Screen
 
-![](./BackupJAMFScripts-progress.png)
+![](./JAMFBackupScripts-progress.png)
 
 Errors window
 
-![](./BackupJAMFScripts-error.png)
+![](./JAMFBackupScripts-error.png)
 
 At some point, I might combine both this script and my [BackupSSscripts](https://github.com/ScottEKendall/JAMF-Pro-Scripts/tree/main/BackupSSIcons) into one and make a "common" JAMF utility..just wanted to get this out now...
 
@@ -43,3 +43,15 @@ If you are using the Modern JAMF API credentials, you need to set:
 ||       Had to increase window height for Tahoe & SD v3.0
 | 2.0 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.1 | Added category-based script backup folders
+||       Added APFS-safe formatting for category and script filenames
+||       Added an Uncategorized fallback for missing Jamf categories
+||       Added Jamf script IDs to exported filenames to prevent collisions
+||       Added destination-folder creation and write validation
+||       Added detection and cleanup of empty or failed script exports
+||       Added successful and failed backup counters
+||       Added JSON backup manifest containing script metadata and totals
+||       Added automatic token validation during long-running exports
+||       Added current-script and total-script progress reporting
+||       Added JSON structure validation for the script summary response
+||       Improved failure reporting in SwiftDialog and the script log
