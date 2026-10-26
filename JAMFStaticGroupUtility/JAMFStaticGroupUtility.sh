@@ -141,6 +141,16 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 JQ_FILE_INSTALL_POLICY="install_jq"
 
+####################
+#
+# JAMF API Keys Used
+#
+####################
+
+JAMF_API_INVENTORY_KEY="api/v4/computers-inventory"
+JAMF_API_MDM_KEY="api/v2/mdm/commands"
+JAMF_API_STATIC_GROUP_KEY="api/v3/computer-groups/static-groups"
+
 ##################################################
 #
 # Passed in variables
@@ -1203,7 +1213,7 @@ function JAMF_get_paginated_inventory_records ()
             
             logMe "Retrieving inventory page ${page} for section '${inventorySection}'."
 
-            httpCode=$(curl "${curlArgs[@]}" "${jamfpro_url}/api/v4/computers-inventory")
+            httpCode=$(curl "${curlArgs[@]}" "${jamfpro_url}/$JAMF_API_INVENTORY_KEY")
 
             curlExitCode=$?
 
@@ -1482,7 +1492,7 @@ function JAMF_retrieve_static_group_id ()
             --data-urlencode "filter=name==\"${groupName}\""
             )
 
-        http_code=$(curl "${curlArgs[@]}" "${jamfpro_url}/api/v3/computer-groups/static-groups")
+        http_code=$(curl "${curlArgs[@]}" "${jamfpro_url}/$JAMF_API_STATIC_GROUP_KEY")
 
         curlExitCode=$?
 
@@ -2946,7 +2956,7 @@ function display_msg_single ()
     local dialogSelectedGroup=""
     local returnCode=0
 
-    if ! groupList=$(JAMF_retrieve_paginated_results "api/v3/computer-groups/static-groups" 100 "id:asc"); then
+    if ! groupList=$(JAMF_retrieve_paginated_results "$JAMF_API_STATIC_GROUP_KEY" 100 "id:asc"); then
         logMe "ERROR: Unable to retrieve all static computer groups."
         return 1
     fi
@@ -3020,7 +3030,7 @@ function display_msg_single ()
         return 1
     fi
 
-    if ! selectedAction=$(jq -er '.groupaction.selectedValue strings select(length > 0)' <<< "$dialogResults"); then
+    if ! selectedAction=$(jq -er '.groupaction.selectedValue | strings | select(length > 0)' <<< "$dialogResults"); then
         logMe "ERROR: Unable to determine the selected group action."
         return 1
     fi
@@ -3446,18 +3456,13 @@ function static_group_remove_all ()
 
     logMe "Retrieving all static computer groups for Remove All."
 
-    if ! groupBlob=$(JAMF_retrieve_paginated_results \
-        "api/v3/computer-groups/static-groups" \
-        100 \
-        "id:asc"); then
+    if ! groupBlob=$(JAMF_retrieve_paginated_results "$JAMF_API_STATIC_GROUP_KEY" 100 "id:asc"); then
 
         logMe "ERROR: Unable to retrieve all static computer groups."
         return 1
     fi
 
-    if ! jq -e \
-        'type == "object" and (.results | type == "array")' \
-        <<< "$groupBlob" >/dev/null 2>&1; then
+    if ! jq -e 'type == "object" and (.results | type == "array")' <<< "$groupBlob" >/dev/null 2>&1; then
 
         logMe "ERROR: Static-group response does not contain a valid results array."
         return 1
@@ -3742,7 +3747,7 @@ function static_group_multiple ()
         return 1
     fi
 
-    if ! groupBlob=$(JAMF_retrieve_paginated_results "api/v3/computer-groups/static-groups" 100 "id:asc"); then
+    if ! groupBlob=$(JAMF_retrieve_paginated_results "$JAMF_API_STATIC_GROUP_KEY" 100 "id:asc"); then
         logMe "ERROR: Unable to retrieve all static computer groups."
         return 1
     fi
