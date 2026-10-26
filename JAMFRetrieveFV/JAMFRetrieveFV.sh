@@ -139,7 +139,7 @@ JAMF_SERVER="${6:-}"            #Override the Jamf server URL if needed (if not 
 
 # Determine which Jamf API authentication method is being used.
 CLIENT_ID_REGEX='^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$'
-[[ "$CLIENT_ID" =~ ${CLIENT_ID_REGEX} ]] && Jamf_TOKEN="new" || Jamf_TOKEN="classic"           
+[[ "$CLIENT_ID" =~ ${CLIENT_ID_REGEX} ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic"           
 
 ####################################################################################################
 #
@@ -377,7 +377,7 @@ function cleanup_and_exit ()
     trap - INT TERM
 
     if [[ -n "${api_token:-}" ]]; then
-        if ! Jamf_invalidate_token; then
+        if ! JAMF_invalidate_token; then
             logMe "WARNING: Unable to invalidate the Jamf Pro API token."
         fi
     fi
@@ -393,7 +393,7 @@ trap 'cleanup_and_exit 143' TERM
 #
 ###########################
 
-function Jamf_build_curl_args ()
+function JAMF_build_curl_args ()
 {
     # PURPOSE:
     #   Build the shared curl arguments for authenticated Jamf API requests.
@@ -484,7 +484,7 @@ function JAMF_which_self_service ()
     print -r -- "$app_path"
 }
 
-function Jamf_get_server ()
+function JAMF_get_server ()
 {
     if [[ -z "$JAMF_SERVER" ]]; then
         if ! JAMF_SERVER=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url 2>/dev/null); then
@@ -517,7 +517,7 @@ function Jamf_get_server ()
     return 0
 }
 
-function Jamf_check_credentials ()
+function JAMF_check_credentials ()
 {
     # PURPOSE: Check to make sure the Client ID & Secret are passed correctly
     # RETURN: None
@@ -531,7 +531,7 @@ function Jamf_check_credentials ()
     return 0
 }
 
-function Jamf_check_connection ()
+function JAMF_check_connection ()
 {
     # PURPOSE: Function to check connectivity to the Jamf Pro server
     # RETURN: None
@@ -541,7 +541,7 @@ function Jamf_check_connection ()
     local -a curlArgs
 
 
-    Jamf_build_curl_args
+    JAMF_build_curl_args
     curlArgs=("${CURL_ARGS[@]}")
     curlArgs+=(
         --write-out "%{http_code}"
@@ -565,7 +565,7 @@ function Jamf_check_connection ()
     return 0
 }
 
-function Jamf_get_classic_api_token ()
+function JAMF_get_classic_api_token ()
 {
     local response_file=""
     local http_status=""
@@ -574,74 +574,88 @@ function Jamf_get_classic_api_token ()
     local expires=""
     local expiration_epoch=""
     local error_message=""
+    local -a curlArgs
 
     response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.classic-token.XXXXX") || {
-        logMe "ERROR: Unable to create Classic API token response file." >&2
+        logMe "ERROR: Unable to create Classic API token response file."
         return 1
     }
 
     if ! /bin/chmod 600 "$response_file"; then
-        logMe "ERROR: Unable to secure Classic API token response file." >&2
+        logMe "ERROR: Unable to secure Classic API token response file."
         /bin/rm -f -- "$response_file"
         return 1
     fi
 
+    JAMF_build_curl_args "$response_file"
+    curlArgs=("${CURL_ARGS[@]}")
+    curlArgs+=(
+        --write-out "%{http_code}"
+        --request POST
+        --user "${CLIENT_ID}:${CLIENT_SECRET}"
+        --header "Accept: application/json"
+    )
+
     {
-        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
-            --request POST --user "${CLIENT_ID}:${CLIENT_SECRET}" --header "Accept: application/json" \
-            "${jamfpro_url}/api/v1/auth/token")
+        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url}/$JAMF_API_MDM_KEY")
         curl_status=$?
 
         if (( curl_status != 0 )); then
-            logMe "ERROR: Classic API token request failed. curl exit code: ${curl_status}" >&2
+            logMe "ERROR: Classic API token request failed. curl exit code: ${curl_status}"
             return 1
         fi
 
         if [[ "$http_status" != "200" ]]; then
-            logMe "ERROR: Classic API token request returned HTTP ${http_status}." >&2
+            logMe "ERROR: Classic API token request returned HTTP ${http_status}."
 
             if [[ -s "$response_file" ]]; then
-                error_message=$(/usr/bin/jq -r '.errors[0].description //.errors[0].message //.message //.error_description //empty' "$response_file" 2>/dev/null)
+                error_message=$(jq -r '.errors[0].description // .errors[0].message // .message // .error_description // .error // empty' "$response_file" 2>/dev/null)
 
-                [[ -n "$error_message" ]] &&
+                if [[ -n "$error_message" ]]; then
                     logMe "Jamf error: ${error_message}"
+                else
+                    logMe "ERROR: Classic API response begins with:"
+                    /usr/bin/head -c 500 "$response_file" >&2
+                    /usr/bin/printf '\n' >&2
+                fi
             fi
 
             return 1
         fi
 
         if [[ ! -s "$response_file" ]]; then
-            logMe "ERROR: Classic API token response was empty." >&2
+            logMe "ERROR: Classic API token response was empty."
             return 1
         fi
 
-        if ! /usr/bin/jq -e 'type == "object"' "$response_file" >/dev/null 2>&1; then
-            logMe "ERROR: Classic API token response was not valid JSON." >&2
+        if ! jq -e 'type == "object"' "$response_file" >/dev/null 2>&1
+        then
+            logMe "ERROR: Classic API token response was not valid JSON."
             return 1
         fi
 
-        if ! token=$(/usr/bin/jq -er '.token | strings | select(length > 0)' "$response_file"); then
-            logMe "ERROR: Classic API response did not contain a bearer token." >&2
+        if ! token=$(jq -er '.token | strings | select(length > 0)' "$response_file"); then
+            logMe "ERROR: Classic API response did not contain a bearer token."
             return 1
         fi
 
-        if ! expires=$(/usr/bin/jq -er '.expires | strings | select(length > 0)' "$response_file"); then
-            logMe "ERROR: Classic API response did not contain a token expiration date." >&2
+        if ! expires=$(jq -er '.expires | strings | select(length > 0)' "$response_file"); then
+            logMe "ERROR: Classic API response did not contain a token expiration date."
             return 1
         fi
 
         if ! expiration_epoch=$(format_jamf_date "$expires" "+%s"); then
-            logMe "ERROR: Unable to parse Classic API token expiration: ${expires}" >&2
+            logMe "ERROR: Unable to parse Classic API token expiration: ${expires}"
             return 1
         fi
 
         if [[ "$expiration_epoch" != <-> ]]; then
-            logMe "ERROR: Classic API token expiration did not convert to a valid epoch value: ${expiration_epoch}" >&2
+            logMe "ERROR: Classic API token expiration is not a valid epoch value: ${expiration_epoch}"
             return 1
         fi
 
         if (( expiration_epoch <= EPOCHSECONDS )); then
-            logMe "ERROR: Classic API returned a token that is already expired. Expiration: ${expires}" >&2
+            logMe "ERROR: Classic API returned an already-expired token. Expiration: ${expires}"
             return 1
         fi
 
@@ -656,14 +670,67 @@ function Jamf_get_classic_api_token ()
     }
 }
 
-function Jamf_get_access_token ()
+function JAMF_ensure_valid_token ()
 {
-    local response_file=""
-    local http_status=""
-    local curl_status=0
-    local token=""
-    local expires_in=0
-    
+    local -i renewal_buffer=60
+
+    if [[ -n "$api_token" ]] &&
+       (( api_token_expires_epoch > 0 )) &&
+       (( EPOCHSECONDS + renewal_buffer < api_token_expires_epoch )); then
+        return 0
+    fi
+
+    logMe "Jamf API token is missing or nearing expiration. Requesting a new token."
+
+    api_token=""
+    api_token_expires_epoch=0
+
+    case "$JAMF_TOKEN" in
+        new)
+            if ! JAMF_get_access_token; then
+                logMe "ERROR: Unable to obtain a new OAuth access token." >&2
+                return 1
+            fi
+            ;;
+
+        classic)
+            if ! JAMF_get_classic_api_token; then
+                logMe "ERROR: Unable to obtain a new Classic API bearer token." >&2
+                return 1
+            fi
+            ;;
+
+        *)
+            logMe "ERROR: Unknown authentication type: ${JAMF_TOKEN}" >&2
+            return 1
+            ;;
+    esac
+
+    if [[ -z "$api_token" ]]; then
+        logMe "ERROR: Token request completed without returning an API token." >&2
+        api_token_expires_epoch=0
+        return 1
+    fi
+
+    if (( api_token_expires_epoch <= EPOCHSECONDS )); then
+        logMe "ERROR: Token request returned an invalid expiration epoch: ${api_token_expires_epoch}" >&2
+        api_token=""
+        api_token_expires_epoch=0
+        return 1
+    fi
+
+    return 0
+}
+
+function JAMF_get_access_token ()
+{
+    local response_file
+    local http_status
+    local curl_status
+    local token
+    local expires_in 
+    local -a curlArgs
+
     response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.token.XXXXX") || {
         logMe "ERROR: Unable to create OAuth response file" >&2
         return 1
@@ -674,11 +741,19 @@ function Jamf_get_access_token ()
         return 1
     fi
 
-    {
-        http_status=$(/usr/bin/curl -s -S -L -o "$response_file" -w '%{http_code}' -X POST -H "Content-Type: application/x-www-form-urlencoded" --connect-timeout 15 --max-time 60 \
-            --data-urlencode "client_id=${CLIENT_ID}" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_secret=${CLIENT_SECRET}" \
-            "${jamfpro_url}/api/oauth/token")
+    JAMF_build_curl_args "$response_file"
+    curlArgs=("${CURL_ARGS[@]}")
+    curlArgs+=(
+        --write-out "%{http_code}"
+        --request POST 
+        --header "Content-Type: application/x-www-form-urlencoded"
+        --data-urlencode "client_id=${CLIENT_ID}" 
+        --data-urlencode "grant_type=client_credentials" 
+        --data-urlencode "client_secret=${CLIENT_SECRET}"
+    )
 
+    {
+        http_status=$(curl  "${curlArgs[@]}" "${jamfpro_url}/api/oauth/token")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -701,6 +776,7 @@ function Jamf_get_access_token ()
             return 1
         fi
 
+
         if ! expires_in=$(jq -er '.expires_in | numbers | floor | select(. > 0)' "$response_file"); then
             logMe "ERROR: OAuth response did not contain a valid expires_in value." >&2
             return 1
@@ -715,126 +791,90 @@ function Jamf_get_access_token ()
     }
 }
 
-function Jamf_ensure_valid_token ()
-{
-    local -i renewal_buffer=30
-
-    if [[ -n "$api_token" ]] &&
-       (( api_token_expires_epoch > 0 )) &&
-       (( EPOCHSECONDS + renewal_buffer < api_token_expires_epoch )); then
-        return 0
-    fi
-
-    logMe "Jamf API token is missing or nearing expiration. Requesting a new token."
-
-    api_token=""
-    api_token_expires_epoch=0
-
-    case "$Jamf_TOKEN" in
-        new)
-            if ! Jamf_get_access_token; then
-                logMe "ERROR: Unable to obtain a new OAuth access token." >&2
-                return 1
-            fi
-            ;;
-
-        classic)
-            if ! Jamf_get_classic_api_token; then
-                logMe "ERROR: Unable to obtain a new Classic API bearer token." >&2
-                return 1
-            fi
-            ;;
-
-        *)
-            logMe "ERROR: Unknown authentication type: ${Jamf_TOKEN}" >&2
-            return 1
-            ;;
-    esac
-
-    if [[ -z "$api_token" ]]; then
-        logMe "ERROR: Token request completed without returning an API token." >&2
-        api_token_expires_epoch=0
-        return 1
-    fi
-
-    if (( api_token_expires_epoch <= EPOCHSECONDS )); then
-        logMe "ERROR: Token request returned an invalid expiration epoch: ${api_token_expires_epoch}" >&2
-        api_token=""
-        api_token_expires_epoch=0
-        return 1
-    fi
-
-    return 0
-}
-
-function Jamf_invalidate_token ()
+function JAMF_invalidate_token ()
 {
     local response_file=""
     local http_status=""
     local curl_status=0
+    local error_message=""
+    local token_to_invalidate=""
+    local -a curlArgs
 
     if [[ -z "$api_token" ]]; then
         logMe "INFO: No Jamf token is available to invalidate."
         return 0
     fi
-    
-    if [[ "$Jamf_TOKEN" == "new" ]]; then
+
+    if [[ "$JAMF_TOKEN" == "new" ]]; then
         api_token=""
         api_token_expires_epoch=0
         logMe "OAuth access token cleared from script memory."
         return 0
     fi
 
+    token_to_invalidate="$api_token"
+
     response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.invalidate.XXXXX") || {
         logMe "ERROR: Unable to create token-invalidation response file."
-        api_token=""
-        api_token_expires_epoch=0
         return 1
     }
 
     if ! /bin/chmod 600 "$response_file"; then
         logMe "ERROR: Unable to secure token-invalidation response file."
-        api_token=""
-        api_token_expires_epoch=0
         /bin/rm -f -- "$response_file"
         return 1
     fi
+
+    JAMF_build_curl_args "$response_file"
+    curlArgs=("${CURL_ARGS[@]}")
+
+    curlArgs+=(
+        --write-out "%{http_code}"
+        --request POST
+        --header "Authorization: Bearer ${token_to_invalidate}"
+        --header "Accept: application/json"
+    )
+
     {
-        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
-                --request POST --header "Authorization: Bearer ${api_token}" \
-                "${jamfpro_url}/api/v1/auth/invalidate-token")
+        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url}/api/v1/auth/invalidate-token")
         curl_status=$?
 
-        api_token=""
-        api_token_expires_epoch=0
-
         if (( curl_status != 0 )); then
-            logMe "ERROR: Token invalidation failed. curl exit code: ${curl_status}" >&2
+            logMe "ERROR: Token invalidation failed. curl exit code: ${curl_status}"
             return 1
         fi
 
         case "$http_status" in
             204)
                 logMe "Jamf Pro user-account token successfully invalidated."
+                return 0
                 ;;
 
             401)
                 logMe "Jamf Pro user-account token was already invalid."
+                return 0
                 ;;
 
             *)
-                logMe "WARNING: Unexpected token invalidation response: HTTP ${http_status}" >&2
+                logMe "WARNING: Unexpected token invalidation response: HTTP ${http_status}"
+
+                if [[ -s "$response_file" ]]; then
+                    error_message=$(jq -r '.errors[0].description // .errors[0].message // .message // .error_description // .error // empty' "$response_file" 2>/dev/null)
+                    [[ -n "$error_message" ]] && logMe "Jamf error: ${error_message}"
+                fi
                 return 1
                 ;;
         esac
-        # Request and status handling
-        } always {
-            /bin/rm -f -- "$response_file"
+
+    } always {
+        api_token=""
+        api_token_expires_epoch=0
+        token_to_invalidate=""
+        /bin/rm -f -- "$response_file"
     }
-    return 0
 }
 
-function Jamf_get_deviceID ()
+function JAMF_get_deviceID ()
 {
     # PURPOSE:
     #   Locate a single computer in Jamf Pro and return the requested ID.
@@ -877,7 +917,7 @@ function Jamf_get_deviceID ()
             ;;
     esac
 
-    Jamf_ensure_valid_token || return 1
+    JAMF_ensure_valid_token || return 1
 
     response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.inventory.XXXXX") || {
         logMe "ERROR: Unable to create inventory response file."
@@ -890,7 +930,7 @@ function Jamf_get_deviceID ()
         return 1
     fi
 
-    Jamf_build_curl_args "$response_file"
+    JAMF_build_curl_args "$response_file"
     curlArgs=("${CURL_ARGS[@]}")
     curlArgs+=(
         --write-out "%{http_code}"
@@ -905,7 +945,7 @@ function Jamf_get_deviceID ()
     )
 
     {
-        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url}/api/v4/computers-inventory")
+        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url}/$JAMF_API_KEY")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -971,6 +1011,7 @@ function Jamf_get_deviceID ()
         /bin/rm -f -- "$response_file"
     }
 }
+
 ###########################
 #
 # Application Specific functions
@@ -1073,7 +1114,7 @@ function Jamf_retrieve_filevault_key ()
     local error_message=""
     local -a curlArgs
 
-    Jamf_ensure_valid_token || {
+    JAMF_ensure_valid_token || {
         logMe "ERROR: Unable to obtain a valid Jamf Pro API token."
         return 1
     }
@@ -1090,7 +1131,7 @@ function Jamf_retrieve_filevault_key ()
     fi
 
     {
-        Jamf_build_curl_args "$response_file"
+        JAMF_build_curl_args "$response_file"
         curlArgs=("${CURL_ARGS[@]}")
 
         curlArgs+=(
@@ -1236,9 +1277,9 @@ create_log_directory || cleanup_and_exit 1
 initialize_user_context || cleanup_and_exit 1
 check_swift_dialog_install || cleanup_and_exit 1
 check_support_files || cleanup_and_exit 1
-Jamf_get_server || cleanup_and_exit 1
-Jamf_check_connection || cleanup_and_exit 1
-Jamf_check_credentials || cleanup_and_exit 1
+JAMF_get_server || cleanup_and_exit 1
+JAMF_check_connection || cleanup_and_exit 1
+JAMF_check_credentials || cleanup_and_exit 1
 
 create_infobox_message
 
@@ -1247,7 +1288,7 @@ if ! display_welcome_message; then
     cleanup_and_exit 1
 fi
 
-Jamf_get_deviceID "$search_type" "$computer_id" '.results[0].id'
+JAMF_get_deviceID "$search_type" "$computer_id" '.results[0].id'
 
 device_lookup_status=$?
 
