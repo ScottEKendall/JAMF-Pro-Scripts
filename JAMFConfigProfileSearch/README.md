@@ -29,3 +29,15 @@ If you are using the Modern JAMF API credentials, you need to set:
 ||       Fixed variable names in the defaults file section
 | 2.0 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.1 | Hardened Jamf Pro API communication and error handling
+||       Support for multiple JAMF servers
+||       Added centralized curl argument handling with connection and request timeouts
+||       Added HTTP response, JSON/XML, and empty-response validation
+||       Improved OAuth and Classic API token handling, expiration tracking, and cleanup
+||       Converted Configuration Profile retrieval and processing to JSON
+||       Added secured temporary files and centralized cleanup handling
+||       Added parallel Configuration Profile processing with controlled worker limits
+||       Added serialized SwiftDialog command-file updates for parallel workers
+||       Improved SwiftDialog startup, readiness checks, progress updates, and error handling
+||       Changed profile searches to case-insensitive literal-text matching
+||       Improved validation, logging, and failure handling throughout the script
