@@ -15,6 +15,16 @@
 #       - Upload and assign banner images
 #       - Maintain image ID cross-reference data
 # 1.1   - Moved the API calls into a variable inside each function so easier to locate/edit
+# 2.0 - Modernized Jamf API and branding workflows
+#       - Added shared curl argument handling for authenticated API requests
+#       - Added support for OAuth client credentials and Classic API authentication
+#       - Added configurable Jamf Pro server support
+#       - Hardened API response, HTTP status, JSON, and temporary-file validation
+#       - Improved banner image upload and download handling
+#       - Improved branding text and image update workflows
+#       - Added local banner-to-Jamf image cross-reference management
+#       - Added automatic upload of banner images not found in the cross-reference
+#       - Improved SwiftDialog workflow, help content, and error reporting
 ######################################################################################################
 #
 # Global "Common" variables
@@ -45,7 +55,6 @@ case $HOUR in
 esac
 SD_DIALOG_GREETING="Good $GREET"
 
-
 ###################################################
 #
 # App Specific variables (Feel free to change these)
@@ -61,7 +70,13 @@ BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding 2>/dev/null) |
 BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle 2>/dev/null) || BANNER_SUBTITLE=""
 BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor 2>/dev/null) || BANNER_TEXT_COLOR="white"
 
-[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
+SUPPORT_DIR="${SUPPORT_DIR%/}"
+
+if [[ "${SD_BANNER_IMAGE#/SupportFiles/}" != "$SD_BANNER_IMAGE" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE#/}"
+elif [[ "${SD_BANNER_IMAGE:0:1}" != "/" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE}"
+fi
 
 # Log files location
 
@@ -88,11 +103,14 @@ CLIENT_ID=${4}                  # user name for JAMF Pro
 CLIENT_SECRET=${5}
 JAMF_SERVER=${6:-""}            # Jamf Pro server URL
 WALLPAPER_DIR=${7:-""}          # directory where the wallpapers are stored
-[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF credentials we are using 
+
+# Determine the Jamf API authentication method based on the supplied credential format.
+CLIENT_ID_REGEX='^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$'
+[[ "$CLIENT_ID" =~ ${CLIENT_ID_REGEX} ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" 
 
 # Number of branding images to retrieve from the server
 # Adjust this number accordingly...the more iamges you download, the longer it will take to load the previews
-BRANDING_IMAGES_DOWNLOADS=10
+BRANDING_IMAGES_DOWNLOADS=20
 
 ####################################################################################################
 #
@@ -430,18 +448,18 @@ function Jamf_which_self_service ()
 
 function Jamf_get_classic_api_token ()
 {
-    local response_file
+    local responseFile
     local http_status
     local curl_status
     local token
 
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.token.XXXXX") || {
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.token.XXXXX") || {
         logMe "ERROR: Unable to create Classic token response file" >&2
         return 1
     }
 
     {
-        http_status=$(curl -sS -L -o "$response_file" -w '%{http_code}' -X POST -u "${CLIENT_ID}:${CLIENT_SECRET}" -H "Accept: application/json" "${jamfpro_url}/api/v1/auth/token")
+        http_status=$(curl -sS -L -o "$responseFile" -w '%{http_code}' -X POST -u "${CLIENT_ID}:${CLIENT_SECRET}" -H "Accept: application/json" "${jamfpro_url}/api/v1/auth/token")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -454,12 +472,12 @@ function Jamf_get_classic_api_token ()
             return 1
         fi
 
-        if ! jq -e . "$response_file" >/dev/null 2>&1; then
+        if ! jq -e . "$responseFile" >/dev/null 2>&1; then
             logMe "ERROR: Classic token response was not valid JSON" >&2
             return 1
         fi
 
-        if ! token=$(jq -er '.token | strings | select(length > 0)' "$response_file"); then
+        if ! token=$(jq -er '.token | strings | select(length > 0)' "$responseFile"); then
             logMe "ERROR: Classic response did not contain a bearer token" >&2
             return 1
         fi
@@ -469,7 +487,7 @@ function Jamf_get_classic_api_token ()
         return 0
 
     } always {
-        rm -f -- "$response_file"
+        rm -f -- "$responseFile"
     }
 }
 
@@ -506,18 +524,18 @@ function Jamf_ensure_valid_token ()
 
 function Jamf_get_access_token ()
 {
-    local response_file
+    local responseFile
     local http_status
     local curl_status
     local token
 
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.token.XXXXX") || {
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.token.XXXXX") || {
         logMe "ERROR: Unable to create OAuth response file" >&2
         return 1
     }
 
     {
-        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+        http_status=$(curl -s -S -L -o "$responseFile" -w '%{http_code}' -X POST -H "Content-Type: application/x-www-form-urlencoded" \
             --data-urlencode "client_id=${CLIENT_ID}" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_secret=${CLIENT_SECRET}" "${jamfpro_url}/api/oauth/token")
 
         curl_status=$?
@@ -532,12 +550,12 @@ function Jamf_get_access_token ()
             return 1
         fi
 
-        if ! jq -e . "$response_file" >/dev/null 2>&1; then
+        if ! jq -e . "$responseFile" >/dev/null 2>&1; then
             logMe "ERROR: OAuth token response was not valid JSON" >&2
             return 1
         fi
 
-        if ! token=$(jq -er '.access_token | strings | select(length > 0)' "$response_file"); then
+        if ! token=$(jq -er '.access_token | strings | select(length > 0)' "$responseFile"); then
             logMe "ERROR: OAuth response did not contain an access token" >&2
             return 1
         fi
@@ -546,8 +564,37 @@ function Jamf_get_access_token ()
         logMe "OAuth access token successfully obtained."
         return 0
     } always {
-        rm -f -- "$response_file"
+        rm -f -- "$responseFile"
     }
+}
+
+function JAMF_build_curl_args ()
+{
+    # PURPOSE:
+    #   Build the shared curl arguments for authenticated Jamf API requests.
+    #
+    # PARAMETERS:
+    #   $1 = Optional response-file path
+    #   $2 = Optional maximum request time in seconds
+    #
+    # RETURN:
+    #   CURL_ARGS global array
+
+    local responseFile="${1:-}"
+    local maxTime="${2:-60}"
+
+    CURL_ARGS=(
+        --silent
+        --show-error
+        --location
+        --connect-timeout 15
+        --max-time "$maxTime"
+        --header "Authorization: Bearer ${api_token}"
+    )
+
+    [[ -n "$responseFile" ]] && CURL_ARGS+=(--output "$responseFile")
+
+    return 0
 }
 
 function Jamf_invalidate_token ()
@@ -591,52 +638,67 @@ function Jamf_invalidate_token ()
 function Jamf_read_images ()
 {
     local endpoint="$1"
-    local response_file
-    local http_status
-    local curl_status
+    local responseFile=""
+    local http_status=""
+    local curl_status=0
+    local -a curlArgs
     local api_key="api/v1/branding-images/download"
 
-
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}_image_${endpoint}.XXXXXX") || {
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}_image_${endpoint}.XXXXXX") || {
         logMe "ERROR: Unable to create temporary response file" >&2
         return 1
     }
-    chmod 644 "$response_file" || {
-        logMe "ERROR: Unable to set readable permissions on ${response_file}." >&2
-        rm -f -- "$response_file"
+
+    chmod 644 "$responseFile" || {
+        logMe "ERROR: Unable to set readable permissions on ${responseFile}." >&2
+        rm -f -- "$responseFile"
         return 1
     }
 
-    {
-        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: image/*" "${jamfpro_url%/}/${api_key}/${endpoint}")
-        curl_status=$?
+    JAMF_build_curl_args "$responseFile"
 
-        if (( curl_status != 0 )); then
-            logMe "ERROR: curl failed retrieving ${endpoint}, exit code ${curl_status}" >&2
-            rm -f -- "$response_file"
+    curlArgs=("${CURL_ARGS[@]}")
+    curlArgs+=(
+        --write-out "%{http_code}"
+        --request GET
+        --header "Accept: image/*"
+    )
+
+    http_status=$(curl "${curlArgs[@]}" "${jamfpro_url%/}/${api_key}/${endpoint}")
+    curl_status=$?
+
+    if (( curl_status != 0 )); then
+        logMe "ERROR: curl failed retrieving image ${endpoint}, exit code ${curl_status}." >&2
+        rm -f -- "$responseFile"
+        return 1
+    fi
+
+    case "$http_status" in
+        200)
+            if [[ ! -s "$responseFile" ]]; then
+                logMe "ERROR: Jamf returned HTTP 200 for image ${endpoint}, but the downloaded file was empty." >&2
+                rm -f -- "$responseFile"
+                return 1
+            fi
+
+            printf '%s\n' "$responseFile"
+            return 0
+            ;;
+
+        401|403|404)
+            logMe "ERROR: Unable to retrieve image ${endpoint}, HTTP ${http_status}." >&2
+            [[ -s "$responseFile" ]] && cat "$responseFile" >&2
+            rm -f -- "$responseFile"
             return 1
-        fi
+            ;;
 
-        case "$http_status" in
-            200)
-                echo "$response_file"
-                ;;
-
-            401|403|404)
-                logMe "ERROR: Unable to retrieve image ${endpoint}, HTTP ${http_status}." >&2
-                [[ -s "$response_file" ]] && cat "$response_file" >&2
-                rm -f -- "$response_file"
-                return 1
-                ;;
-
-            *)
-                logMe "ERROR: Unexpected image response, HTTP ${http_status}." >&2
-                [[ -s "$response_file" ]] && cat "$response_file" >&2
-                rm -f -- "$response_file"
-                return 1
-                ;;
-        esac
-    }
+        *)
+            logMe "ERROR: Unexpected image response, HTTP ${http_status}." >&2
+            [[ -s "$responseFile" ]] && cat "$responseFile" >&2
+            rm -f -- "$responseFile"
+            return 1
+            ;;
+    esac
 }
 
 function Jamf_read_branding ()
@@ -645,6 +707,7 @@ function Jamf_read_branding ()
     local httpStatus=""
     local curlStatus=0
     local brandingID=""
+    local -a curlArgs
     local api_key="api/v1/self-service/branding/macos?page=0&page-size=100&sort=id%3Aasc"
 
     responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}_branding_list.XXXXXX") || {
@@ -657,10 +720,15 @@ function Jamf_read_branding ()
         return 1
     }
 
+    JAMF_build_curl_args "$responseFile"
+    curlArgs=("${CURL_ARGS[@]}")
+    curlArgs+=(
+        --write-out "%{http_code}"
+        --request GET
+        --header "Accept: application/json"
+    )
     {
-        httpStatus=$(
-            curl -sS -L -o "$responseFile" -w '%{http_code}' --connect-timeout 30 --max-time 120 -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" \
-                --url "${jamfpro_url%/}/${api_key}" )
+        httpStatus=$(curl "${curlArgs[@]}" "${jamfpro_url%/}/${api_key}" )
         curlStatus=$?
 
         if (( curlStatus != 0 )); then
@@ -712,24 +780,36 @@ function Jamf_read_branding ()
 function Jamf_read_branding_details ()
 {
     local endpoint="$1"
-    local response_file
+    local responseFile
     local http_status
     local curl_status
+    local -a curlArgs
     local api_key="api/v1/self-service/branding/macos"
 
-    response_file="/var/tmp/${SCRIPT_NAME}_${endpoint}.XXXX"
-    [[ -e "$response_file" ]] && rm -f -- "$response_file"
-    response_file=$(mktemp "$response_file") || {
+    responseFile="/var/tmp/${SCRIPT_NAME}_${endpoint}.XXXX"
+    [[ -e "$responseFile" ]] && rm -f -- "$responseFile"
+    responseFile=$(mktemp "$responseFile") || {
         logMe "ERROR: Unable to create temporary response file" >&2
         return 1
     }
-    chmod 600 "$response_file" || {
-    rm -f -- "$response_file"
-    return 1
+    chmod 600 "$responseFile" || {
+        rm -f -- "$responseFile"
+        return 1
     }
+    if ! Jamf_ensure_valid_token; then
+        logMe "ERROR: Unable to obtain a valid Jamf token before reading the branding ID ${endpoint}." >&2
+        return 1
+    fi   
+    JAMF_build_curl_args "$responseFile"
+    curlArgs=("${CURL_ARGS[@]}")
+    curlArgs+=(
+        --write-out "%{http_code}"
+        --request GET
+        --header "Accept: application/json"
+    )
 
     {
-        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url%/}/${api_key}/${endpoint}")
+        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url%/}/${api_key}/${endpoint}")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -739,35 +819,35 @@ function Jamf_read_branding_details ()
 
         case "$http_status" in
             200)
-                cat "$response_file"
+                cat "$responseFile"
                 ;;
 
             401)
                 logMe "ERROR: Authentication failed retrieving ${endpoint}, HTTP 401" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
 
             403)
                 logMe "ERROR: Insufficient privilege retrieving ${endpoint}, HTTP 403" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
 
             404)
                 logMe "ERROR: Resource not found: ${endpoint}, HTTP 404" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
 
             *)
                 logMe "ERROR: Unexpected Jamf response for ${endpoint}, HTTP ${http_status}" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
         esac
         } always {
-        rm -f -- "$response_file"
+        rm -f -- "$responseFile"
     }
 }
 
@@ -778,6 +858,7 @@ function Jamf_write_branding ()
     local responseFile=""
     local httpStatus=""
     local curlStatus=0
+    local -a curlArgs
     local api_key="api/v1/self-service/branding/macos"
 
     if [[ ! "$endpoint" =~ ^[0-9]+$ ]]; then
@@ -806,8 +887,16 @@ function Jamf_write_branding ()
             return 1
         fi        
         
-        httpStatus=$(curl -sS -L -o "$responseFile" -w '%{http_code}' --connect-timeout 30 --max-time 120 -H "Content-Type: application/json" -H "Authorization: Bearer ${api_token}" \
-            --request PUT --url "${jamfpro_url%/}/${api_key}/${endpoint}" -H "Accept: application/json" --data-binary "$jsonPayload" )
+        JAMF_build_curl_args "$responseFile"
+        curlArgs=("${CURL_ARGS[@]}")
+        curlArgs+=(
+            --write-out "%{http_code}"
+            --request PUT
+            --header "Accept: application/json"
+            --header "Content-Type: application/json"
+            --data-binary "$jsonPayload"
+        )
+        httpStatus=$(curl "${curlArgs[@]}" "${jamfpro_url%/}/${api_key}/${endpoint}")
         curlStatus=$?
 
         if (( curlStatus != 0 )); then
@@ -852,6 +941,7 @@ function Jamf_upload_branding_image ()
     local response=""
     local imageURL=""
     local imageID=""
+    local -a curlArgs
     local api_key="api/self-service/branding/images"
 
     [[ -z "$imagePath" || ! -f "$imagePath" ]] && {logMe "ERROR: Branding image does not exist: ${imagePath}" >&2; return 1; }
@@ -876,10 +966,17 @@ function Jamf_upload_branding_image ()
         fi      
         logMe "Uploading branding image: ${imagePath:t}"
 
+        JAMF_build_curl_args "$responseFile" 300
+        curlArgs=("${CURL_ARGS[@]}")
+        curlArgs+=(
+            --write-out "%{http_code}"
+            --request POST
+            --header "Accept: application/json"
+            --form "file=@${imagePath}"
+        )
         # Do not manually specify Content-Type. curl generates the multipart boundary correctly when --form is used.
 
-        httpStatus=$(curl -s -S -L --connect-timeout 30 --max-time 300 -o "$responseFile" -w '%{http_code}' \
-            --request POST --url "${jamfpro_url%/}/${apk_key}" -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" --form "file=@${imagePath}" )
+        httpStatus=$(curl "${curlArgs[@]}" "${jamfpro_url%/}/${api_key}")
 
         curlStatus=$?
 
@@ -920,16 +1017,9 @@ function Jamf_upload_branding_image ()
 
         [[ -n "$imageURL" ]] && logMe "Image URL: $imageURL"
 
-        if [[ -n "$imageID" ]]; then
-            logMe "Image ID: $imageID"
-            REPLY="$imageID"
-        elif [[ -n "$imageURL" ]]; then
-            REPLY="$imageURL"
-        else
-            # Preserve the complete response if its format differs by Jamf version.
-            REPLY="$response"
-            [[ -n "$response" ]] && logMe "API response: $response"
-        fi
+        logMe "Image ID: $imageID"
+        REPLY="$imageID"
+
         return 0
 
     } always {
@@ -1907,45 +1997,21 @@ typeset -g BannerOption
 typeset -gA BannerLookup
 typeset -ga MainDialogBody
 typeset -ga wallpaperFiles
+typeset -ga CURL_ARGS
 
 autoload -Uz is-at-least
 
-check_for_sudo
-
-if ! initialize_user_context; then
-    cleanup_and_exit 0
-fi
-
-if ! create_log_directory; then
-    cleanup_and_exit 1
-fi
-
-if ! check_swift_dialog_install; then
-    cleanup_and_exit 1
-fi
-
-if ! check_support_files; then
-    cleanup_and_exit 1
-fi
-
+check_for_sudo || cleanup_and_exit 1
+create_log_directory || cleanup_and_exit 1
+initialize_user_context || cleanup_and_exit 1
+check_swift_dialog_install || cleanup_and_exit 1
+check_support_files || cleanup_and_exit 1
+Jamf_get_server || cleanup_and_exit 1
+Jamf_check_connection || cleanup_and_exit 1
+Jamf_check_credentials || cleanup_and_exit 1
 create_infobox_message
-
-if ! Jamf_check_credentials; then
-    cleanup_and_exit 1
-fi
-
-if ! Jamf_get_server; then
-    cleanup_and_exit 1
-fi
-
-if ! Jamf_check_connection; then
-    cleanup_and_exit 1
-fi
 
 OVERLAY_ICON=$(Jamf_which_self_service)
-
-create_infobox_message
-
 
 while true; do
     welcome_menu

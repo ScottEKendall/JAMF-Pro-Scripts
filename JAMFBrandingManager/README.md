@@ -113,3 +113,13 @@ If you are using the OAuth credentials, you will need the follow access rights
 || Modify Self Service branding text
 || Upload and assign banner images
 || Maintain image ID cross-reference data
+| 2.0 | Modernized Jamf API and branding workflows
+||       Added shared curl argument handling for authenticated API requests
+||       Added support for OAuth client credentials and Classic API authentication
+||       Added configurable Jamf Pro server support
+||       Hardened API response, HTTP status, JSON, and temporary-file validation
+||       Improved banner image upload and download handling
+||       Improved branding text and image update workflows
+||       Added local banner-to-Jamf image cross-reference management
+||       Added automatic upload of banner images not found in the cross-reference
+||       Improved SwiftDialog workflow, help content, and error reporting
