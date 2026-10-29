@@ -38,3 +38,10 @@ If you are using the Modern JAMF API credentials, you need to set:
 ||       Fully multitasking enabled for faster processing of large user counts
 | 2.1 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.2 | Added selectable export scopes for all Jamf users, managed-system users, and static computer groups
+||       Added static computer group selection and assigned-user matching using User and Location inventory
+||       Added optional email creation for successfully exported users
+||       Added email recipient validation and case-insensitive duplicate removal
+||       Added support for overriding the Jamf Pro server URL using a passed script parameter
+||       Added expanded SwiftDialog help describing export scopes, user requirements, and email functionality
+||       Updated welcome, progress, summary, and logging messages for the expanded workflow
