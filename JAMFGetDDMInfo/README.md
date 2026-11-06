@@ -188,7 +188,7 @@ GetDDMInfo includes extensive validation and resiliency features:
 * Worker failure detection
 * Progress synchronization
 
-Jamf Pro Required permissions include:
+Jamf Pro API Required permissions include:
 ```
 Read Computers
 Read Computer Groups
