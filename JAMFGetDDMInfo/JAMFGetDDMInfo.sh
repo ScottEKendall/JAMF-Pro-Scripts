@@ -1,11 +1,15 @@
-#!/bin/zsh
+#!/bin/zsh --no-rcs
+
+# Prevent shell tracing from contaminating structured output captured
+# through command substitution.
+unsetopt XTRACE
 #
 # GetDDMInfo.sh
 #
 # by: Scott Kendall
 #
 # Written: 01/03/2023
-# Last updated: 09/01/2026
+# Last updated: 11/06/2026
 #
 # Script Purpose: Retrieve the DDM info for Jamf devices
 #
@@ -72,18 +76,33 @@
 #       Finalized Blueprint and group filtering
 #       Finalized thread-safe CSV and SwiftDialog output
 #       Finalized result counters, API validation, cleanup, and error handling
+# 1.1 - Added support for mulitple JAMF servers
+#       Finalized Blueprint and Smart/Static Group filtering and result counts
+#       Improved DDM, Blueprint, and Software Update parsing and error handling
+#       Added handling for missing Blueprint configuration data and DDM status
+#       Added Parse Error reporting to distinguish parsing failures from valid empty results
+#       Updated computer inventory retrieval to the Jamf Pro API v4 endpoint
+#       Improved Jamf API authentication, token validation, renewal, and cleanup
+#       Improved paginated inventory retrieval and parallel processing
+#       Added thread-safe CSV and SwiftDialog command-file writes
+#       Added background worker failure tracking and reliable progress reporting
+#       Improved CSV escaping, filename sanitization, file ownership, and permissions
+#       Improved individual DDM reporting for device, OS, Software Update, and Blueprint information
+#       Improved Blueprint cross-reference, invalid, inactive, and Mixed status reporting
+#       Improved SwiftDialog list, dropdown, progress, and result handling
+#       Added safer temporary files, locking, cleanup, and startup validation
+#       Improved logging and error handling throughout
+#
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
-#set -x
+
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
-umask 022
-typeset -g DIALOG_PROCESS=""
 MAIN_PID=$$
 SCRIPT_NAME="GetDDMInfo"
-SCRIPT_VERSION="1.0"
+SCRIPT_VERSION="1.1"
 
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | grep "Free Space" | awk '{print $6}' | cut -c 2- ) / 1024 / 1024 / 1024 ))
 MACOS_NAME=$(sw_vers -productName)
@@ -131,7 +150,6 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 SD_WINDOW_TITLE="Retrieve Jamf DDM Info"
 SD_ICON_FILE="https://images.crunchbase.com/image/upload/c_pad,h_170,w_170,f_auto,b_white,q_auto:eco,dpr_1/vhthjpy7kqryjxorozdk"
 OVERLAY_ICON="SF=list.bullet.circle,color=orange,weight=heavy,bgcolor=none"
-#OVERLAY_ICON="/System/Applications/App Store.app"
 
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
@@ -141,6 +159,21 @@ JQ_INSTALL_POLICY="install_jq"
 
 BACKGROUND_TASKS=10                 # Number of background tasks to run in parallel
 JAMF_INVENTORY_PAGE_SIZE=100        # Jamf records to return at once from the API inventory lookup
+
+##################################################
+#
+# Passed in variables
+# 
+#################################################               
+
+JAMF_PARAMETER_USER="${3:-}"    #If run from JAMF, this will be the logged in user. If run from terminal, this will be empty (and will use the logged in user)
+CLIENT_ID="${4:-}"              #Client ID for JAMF API authentication (if using Client ID/Secret)
+CLIENT_SECRET="${5:-}"          #Client Secret for JAMF API authentication (if using Client ID/Secret)
+JAMF_SERVER="${6:-}"            #Override the JAMF server URL if needed (if not passed, will use the defaults file or the local JAMF binary to determine the server URL)
+
+# Determine which Jamf API authentication method is being used.
+CLIENT_ID_REGEX='^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$'
+[[ "$CLIENT_ID" =~ ${CLIENT_ID_REGEX} ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" 
 
 ####################################################################################################
 #
@@ -155,26 +188,34 @@ function admin_user ()
 
 function create_log_directory ()
 {
-    # Ensure that the log directory and the log files exist. If they
-    # do not then create them and set the permissions.
-    #
-    # RETURN: None
-
-	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
     local LOG_DIR="${LOG_FILE%/*}"
 
     admin_user || return 0
 
     if [[ ! -d "$LOG_DIR" ]]; then
-        mkdir -p "$LOG_DIR" || {print -u2 "ERROR: Unable to create log directory: ${LOG_DIR}"; return 1; }
-    fi
-    chmod 755 "$LOG_DIR" || {print -u2 "ERROR: Unable to set permissions on: ${LOG_DIR}"; return 1; }
-    # If the log file does not exist - create it and set the permissions
-    if [[ ! -f "$LOG_FILE" ]]; then
-        touch "$LOG_FILE" || {print -u2 "ERROR: Unable to create log file: ${LOG_FILE}"; return 1;}
+        mkdir -p "$LOG_DIR" || {
+            print -u2 "ERROR: Unable to create log directory: ${LOG_DIR}"
+            return 1
+        }
     fi
 
-    chmod 640 "$LOG_FILE" || {print -u2 "ERROR: Unable to secure log file: ${LOG_FILE}"; return 1;}
+    chmod 755 "$LOG_DIR" || {
+        print -u2 "ERROR: Unable to set permissions on: ${LOG_DIR}"
+        return 1
+    }
+
+    if [[ ! -f "$LOG_FILE" ]]; then
+        touch "$LOG_FILE" || {
+            print -u2 "ERROR: Unable to create log file: ${LOG_FILE}"
+            return 1
+        }
+    fi
+
+    chmod 640 "$LOG_FILE" || {
+        print -u2 "ERROR: Unable to secure log file: ${LOG_FILE}"
+        return 1
+    }
+
     return 0
 }
 
@@ -190,9 +231,9 @@ function logMe ()
     #
     # RETURN: None
     if admin_user; then
-        echo "$(date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | /usr/bin/tee -a "${LOG_FILE}" >&2
     else
-        echo "$(date '+%Y-%m-%d %H:%M:%S'): ${1}"
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
     fi
 }
 
@@ -211,7 +252,7 @@ function check_swift_dialog_install ()
         fi
     fi
 
-    if ! SD_VERSION=$("$SW_DIALOG" --version ); then #2>/dev/null); then
+    if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
         logMe "ERROR: Unable to determine SwiftDialog version." >&2
         return 1
     fi
@@ -362,8 +403,8 @@ function initialize_user_context ()
         return 1
     fi
 
-    Jamf_LOGGED_IN_USER="${Jamf_PARAMETER_USER:-$LOGGED_IN_USER}"
-    SD_FIRST_NAME="${(C)${Jamf_LOGGED_IN_USER%%.*}}"
+    JAMF_LOGGED_IN_USER="${JAMF_PARAMETER_USER:-$LOGGED_IN_USER}"
+    SD_FIRST_NAME="${(C)${JAMF_LOGGED_IN_USER%%.*}}"
 
     CSV_PATH="${USER_DIR}/Desktop/DDM Data Dump for "
     DDM_CROSS_REF_FILE="${USER_DIR}/Documents/DDMCrossRef.csv"
@@ -411,7 +452,12 @@ function cleanup_and_exit ()
 {
     local exit_code="${1:-0}"
 
-    trap - EXIT
+    trap - INT TERM EXIT
+
+    if [[ -n "$api_token" && -n "$jamfpro_url" ]]; then
+        Jamf_invalidate_token >/dev/null 2>&1
+    fi
+
     cleanup_files
     exit "$exit_code"
 }
@@ -738,15 +784,22 @@ function create_dropdown_message_body ()
 
 function construct_dropdown_list_items ()
 {
+
     local input_json="$1"
     local jq_path="$2"
     local line
+    local output
     local -a values=()
 
-    while IFS= read -r line; do
+    if ! output=$(printf '%s' "$input_json" | jq -r "${jq_path} | \"\\(.id) - \\(.name)\""); then
+        logMe "ERROR: Unable to construct dropdown list items" >&2
+        return 1
+    fi
+
+    for line in "${(@f)output}"; do
         [[ -z "$line" ]] && continue
         values+=("$(jq -Rn --arg value "$line" '$value')")
-    done < <(printf '%s' "$input_json" | jq -r "${jq_path} | \"\\(.id) - \\(.name)\"")
+    done
 
     printf '%s' "${(j:,:)values}"
 }
@@ -838,6 +891,31 @@ function dialog_cmd ()
 #
 ###########################
 
+function Jamf_build_curl_args ()
+{
+    # PURPOSE:
+    #   Build the shared curl arguments for authenticated Jamf API requests.
+    #
+    # PARAMETERS:
+    #   $1 = Optional response-file path
+    #
+    # RETURN:
+    #   CURL_ARGS global array
+
+    local responseFile="${1:-}"
+
+    CURL_ARGS=(
+        --silent
+        --show-error
+        --location
+        --connect-timeout 15
+        --max-time 120
+    )
+
+    [[ -n "$responseFile" ]] && CURL_ARGS+=(--output "$responseFile")
+    return 0
+}
+
 function Jamf_check_credentials ()
 {
     if [[ -z "$CLIENT_ID" || -z "$CLIENT_SECRET" ]]; then
@@ -865,28 +943,51 @@ function Jamf_check_connection ()
 
 function Jamf_get_server ()
 {
-    jamfpro_url=$(defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url) || {
-        logMe "ERROR: Unable to read Jamf Pro URL" >&2
+    if [[ -z "$JAMF_SERVER" ]]; then
+        if ! JAMF_SERVER=$(/usr/bin/defaults read /Library/Preferences/com.jamfsoftware.jamf.plist jss_url 2>/dev/null); then
+            logMe "ERROR: Unable to read the Jamf Pro URL."
+            return 1
+        fi
+
+        logMe "No server passed in, defaulting to: ${JAMF_SERVER}"
+    fi
+
+    JAMF_SERVER="${JAMF_SERVER#"${JAMF_SERVER%%[![:space:]]*}"}"
+    JAMF_SERVER="${JAMF_SERVER%"${JAMF_SERVER##*[![:space:]]}"}"
+
+    if [[ -z "$JAMF_SERVER" ]]; then
+        logMe "ERROR: The Jamf Pro server URL is empty."
         return 1
-    }
-    jamfpro_url="${jamfpro_url%/}"
-    logMe "Jamf Pro server is: $jamfpro_url"
+    fi
+
+    case "${JAMF_SERVER%%:*}" in
+        http|https)
+            ;;
+        *)
+            logMe "ERROR: The Jamf Pro server URL is invalid: ${JAMF_SERVER}"
+            return 1
+            ;;
+    esac
+
+    jamfpro_url="${JAMF_SERVER%/}"
+    logMe "Jamf Pro server is: ${jamfpro_url}"
+    return 0
 }
 
 function Jamf_get_classic_api_token ()
 {
-    local response_file
+    local responseFile
     local http_status
     local curl_status
     local token
 
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.token.XXXXX") || {
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.token.XXXXX") || {
         logMe "ERROR: Unable to create Classic token response file" >&2
         return 1
     }
 
     {
-        http_status=$(curl -sS -L -o "$response_file" -w '%{http_code}' -X POST -u "${CLIENT_ID}:${CLIENT_SECRET}" -H "Accept: application/json" "${jamfpro_url}/api/v1/auth/token")
+        http_status=$(curl -sS -L -o "$responseFile" -w '%{http_code}' -X POST -u "${CLIENT_ID}:${CLIENT_SECRET}" -H "Accept: application/json" "${jamfpro_url}/api/v1/auth/token")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -899,12 +1000,12 @@ function Jamf_get_classic_api_token ()
             return 1
         fi
 
-        if ! jq -e . "$response_file" >/dev/null 2>&1; then
+        if ! jq -e . "$responseFile" >/dev/null 2>&1; then
             logMe "ERROR: Classic token response was not valid JSON" >&2
             return 1
         fi
 
-        if ! token=$(jq -er '.token | strings | select(length > 0)' "$response_file"); then
+        if ! token=$(jq -er '.token | strings | select(length > 0)' "$responseFile"); then
             logMe "ERROR: Classic response did not contain a bearer token" >&2
             return 1
         fi
@@ -914,7 +1015,7 @@ function Jamf_get_classic_api_token ()
         return 0
 
     } always {
-        rm -f -- "$response_file"
+        rm -f -- "$responseFile"
     }
 }
 
@@ -951,18 +1052,18 @@ function Jamf_ensure_valid_token ()
 
 function Jamf_get_access_token ()
 {
-    local response_file
+    local responseFile
     local http_status
     local curl_status
     local token
 
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.token.XXXXX") || {
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.token.XXXXX") || {
         logMe "ERROR: Unable to create OAuth response file" >&2
         return 1
     }
 
     {
-        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -X POST -H "Content-Type: application/x-www-form-urlencoded" \
+        http_status=$(curl -s -S -L -o "$responseFile" -w '%{http_code}' -X POST -H "Content-Type: application/x-www-form-urlencoded" \
             --data-urlencode "client_id=${CLIENT_ID}" --data-urlencode "grant_type=client_credentials" --data-urlencode "client_secret=${CLIENT_SECRET}" "${jamfpro_url}/api/oauth/token")
 
         curl_status=$?
@@ -977,12 +1078,12 @@ function Jamf_get_access_token ()
             return 1
         fi
 
-        if ! jq -e . "$response_file" >/dev/null 2>&1; then
+        if ! jq -e . "$responseFile" >/dev/null 2>&1; then
             logMe "ERROR: OAuth token response was not valid JSON" >&2
             return 1
         fi
 
-        if ! token=$(jq -er '.access_token | strings | select(length > 0)' "$response_file"); then
+        if ! token=$(jq -er '.access_token | strings | select(length > 0)' "$responseFile"); then
             logMe "ERROR: OAuth response did not contain an access token" >&2
             return 1
         fi
@@ -991,7 +1092,7 @@ function Jamf_get_access_token ()
         logMe "OAuth access token successfully obtained."
         return 0
     } always {
-        rm -f -- "$response_file"
+        rm -f -- "$responseFile"
     }
 }
 
@@ -1038,17 +1139,26 @@ function Jamf_retrieve_data_blob ()
     local endpoint="$1"
     local format="${2:-xml}"
     local jq_filter="${3:-}"
-    local response_file
+    local responseFile
     local http_status
     local curl_status
+    local curlArgs
 
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.response.XXXXX") || {
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.response.XXXXX") || {
         logMe "ERROR: Unable to create temporary response file" >&2
         return 1
     }
 
+    Jamf_build_curl_args "$responseFile"
+    curlArgs=("${CURL_ARGS[@]}")
+    curlArgs+=(
+        --write-out "%{http_code}"
+        --header "Accept: application/json"
+        --header "Authorization: Bearer ${api_token}"
+    )
+
     {
-        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: application/${format}" "${jamfpro_url%/}/${endpoint}")
+        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url%/}/${endpoint}")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1059,72 +1169,67 @@ function Jamf_retrieve_data_blob ()
         case "$http_status" in
             200)
                 if [[ "$format" == "json" ]]; then
-                    if ! jq -e . "$response_file" >/dev/null 2>&1; then
+                    if ! jq -e . "$responseFile" >/dev/null 2>&1; then
                         logMe "ERROR: Invalid JSON returned by ${endpoint}" >&2
-                        cat "$response_file" >&2
+                        cat "$responseFile" >&2
                         return 1
                     fi
 
                     if [[ -n "$jq_filter" ]]; then
-                        if ! jq "$jq_filter" "$response_file"; then
+                        if ! jq "$jq_filter" "$responseFile"; then
                             logMe "ERROR: Unable to apply jq filter to ${endpoint}: ${jq_filter}" >&2
                             return 1
                         fi
                     else
-                        cat "$response_file"
+                        cat "$responseFile"
                     fi
                 else
-                    cat "$response_file"
+                    cat "$responseFile"
                 fi
                 ;;
 
             401)
                 logMe "ERROR: Authentication failed retrieving ${endpoint}, HTTP 401" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
 
             403)
                 logMe "ERROR: Insufficient privilege retrieving ${endpoint}, HTTP 403" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
 
             404)
                 logMe "ERROR: Resource not found: ${endpoint}, HTTP 404" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
 
             *)
                 logMe "ERROR: Unexpected Jamf response for ${endpoint}, HTTP ${http_status}" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
         esac
     } always {
-        rm -f -- "$response_file"
+        rm -f -- "$responseFile"
         }
 }
 
 function Jamf_get_bulk_inventory_record ()
 {
-    # PURPOSE: Uses the Jamf modern API to retrieve inventory info
-    # NOTE: You can change the JAMF_INVENTORY_PAGE_SIZE to control how many results are return in a single API call.
-    #       This can be adjusted to suit your environment / performance results
-    # RETURN: JSON blob of inventory records
-    # PARMS:  None
-    # EXPECTED: jamfpro_url, api_token
-
     local results
     local results_count
-    local line
-    local response_file
+    local responseFile
     local http_status
     local curl_status
-    local JAMF_API_KEY="api/v3/computers-inventory"
+    local inventory_lines
+    local inventory_line
+    local JAMF_API_KEY="api/v4/computers-inventory"
     local page=0
     local first_item=true
+    local -a curlArgs
 
     "$SW_DIALOG" --notification --style banner --identifier "inventory" --title "Retrieving Jamf Inventory Records" --message "Please be patient" --button1text "Dismiss" >/dev/null 2>&1
 
@@ -1134,15 +1239,22 @@ function Jamf_get_bulk_inventory_record ()
     }
 
     while :; do
-        response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.inventory.XXXXX") || {
+        responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.inventory.XXXXX") || {
             logMe "ERROR: Unable to create inventory response file" >&2
             return 1
         }
 
-        {
-            http_status=$(curl -sS -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" \
-            "${jamfpro_url}/${JAMF_API_KEY}?page=${page}&page-size=${JAMF_INVENTORY_PAGE_SIZE}")
-            curl_status=$?
+    Jamf_build_curl_args "$responseFile"
+    curlArgs=("${CURL_ARGS[@]}")
+    curlArgs+=(
+        --write-out "%{http_code}"
+        --header "Accept: application/json"
+        --header "Authorization: Bearer ${api_token}"
+    )
+
+    {
+        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url}/${JAMF_API_KEY}?page=${page}&page-size=${JAMF_INVENTORY_PAGE_SIZE}")
+        curl_status=$?
 
             if (( curl_status != 0 )); then
                 logMe "ERROR: Inventory page ${page} failed, curl exit ${curl_status}" >&2
@@ -1151,35 +1263,42 @@ function Jamf_get_bulk_inventory_record ()
 
             if [[ "$http_status" != "200" ]]; then
                 logMe "ERROR: Inventory page ${page} returned HTTP ${http_status}" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
             fi
 
-            if ! jq -e '.results | arrays' "$response_file" >/dev/null 2>&1; then
+            if ! jq -e '.results | arrays' "$responseFile" >/dev/null 2>&1; then
                 logMe "ERROR: Invalid inventory response on page ${page}" >&2
                 return 1
             fi
 
-            results=$(<"$response_file")
+            results=$(<"$responseFile")
         } always {
-            rm -f -- "$response_file"
+            rm -f -- "$responseFile"
         }
 
-        results_count=$(jq -r '.results | length' <<< "$results") || {
-            logMe "ERROR: Unable to count inventory page ${page}" >&2
+        if ! results_count=$(jq -er '.results | arrays | length' <<< "$results"); then
+            logMe "ERROR: Unable to count inventory page ${page}"
             return 1
-        }
+        fi
 
         (( results_count == 0 )) && break
 
-        while IFS= read -r line; do
+        if ! inventory_lines=$(jq -c '.results[] | {id: .id, name: .general.name, managementId: .general.managementId}' <<< "$results"); then
+            logMe "ERROR: Unable to parse inventory records on page ${page}" >&2
+            return 1
+        fi
+
+        for inventory_line in "${(@f)inventory_lines}"; do
+            [[ -z "$inventory_line" ]] && continue
+
             if [[ "$first_item" == true ]]; then
-                printf '  %s\n' "$line" >> "$TMP_FILE_STORAGE"
+                printf '  %s\n' "$inventory_line" >> "$TMP_FILE_STORAGE"
                 first_item=false
             else
-                printf '  ,%s\n' "$line" >> "$TMP_FILE_STORAGE"
+                printf '  ,%s\n' "$inventory_line" >> "$TMP_FILE_STORAGE"
             fi
-        done < <(jq -c '.results[] | {id: .id, name: .general.name, managementId: .general.managementId}' <<< "$results")
+        done
 
         (( page++ ))
     done
@@ -1200,9 +1319,10 @@ function Jamf_get_deviceID ()
     local search_value="$2"
     local jq_filter="$3"
     local type
-    local response_file
+    local responseFile
     local http_status
     local curl_status
+    local curlArgs
     local total
     local id
 
@@ -1221,20 +1341,29 @@ function Jamf_get_deviceID ()
         return 1
     fi
 
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.device.XXXXX") || {
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.device.XXXXX") || {
         logMe "ERROR: Unable to create device lookup response file" >&2
         return 1
         }
 
+    local escaped_search_value
+
+    escaped_search_value="${search_value//\\/\\\\}"
+    escaped_search_value="${escaped_search_value//\'/\\\'}"
+
+    Jamf_build_curl_args "$responseFile"
+    curlArgs=("${CURL_ARGS[@]}")
+    curlArgs+=(
+        --write-out "%{http_code}"
+        --get
+        --header "Accept: application/json"
+        --header "Authorization: Bearer ${api_token}"
+        --data-urlencode "section=GENERAL"
+        --data-urlencode "filter=${type}=='${escaped_search_value}'"
+    )
+
     {
-        local escaped_search_value
-
-        escaped_search_value="${search_value//\\/\\\\}"
-        escaped_search_value="${escaped_search_value//\'/\\\'}"
-
-        http_status=$(curl -sS -L -o "$response_file" -w '%{http_code}' --get -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" \
-            --data-urlencode "section=GENERAL" --data-urlencode "filter=${type}=='${escaped_search_value}'" "${jamfpro_url%/}/api/v3/computers-inventory")
-
+        http_status=$(curl "${curlArgs[@]}"  "${jamfpro_url%/}/api/v3/computers-inventory")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1249,7 +1378,7 @@ function Jamf_get_deviceID ()
 
             400)
                 logMe "ERROR: Jamf rejected the device lookup filter, HTTP 400" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 display_failure_message "Jamf rejected the device search criteria."
                 return 1
                 ;;
@@ -1268,19 +1397,19 @@ function Jamf_get_deviceID ()
 
             *)
                 logMe "ERROR: Device lookup returned HTTP ${http_status}" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 display_failure_message "Jamf returned HTTP ${http_status}."
                 return 1
                 ;;
         esac
 
-        if ! jq -e '(.totalCount | numbers) and (.results | arrays)' "$response_file" >/dev/null 2>&1; then
+        if ! jq -e '(.totalCount | numbers) and (.results | arrays)' "$responseFile" >/dev/null 2>&1; then
             logMe "ERROR: Invalid device lookup JSON structure" >&2
             display_failure_message "Jamf returned an invalid inventory response."
             return 1
         fi
 
-        if ! total=$(jq -er '.totalCount' "$response_file"); then
+        if ! total=$(jq -er '.totalCount' "$responseFile"); then
             logMe "ERROR: Unable to read totalCount from device lookup" >&2
             display_failure_message "Unable to parse the Jamf inventory response."
             return 1
@@ -1298,7 +1427,7 @@ function Jamf_get_deviceID ()
             return 1
         fi
 
-        if ! id=$(jq -er "$jq_filter // empty" "$response_file"); then
+        if ! id=$(jq -er "$jq_filter // empty" "$responseFile"); then
             logMe "ERROR: Matching device did not contain a management ID" >&2
             display_failure_message "The matching inventory record did not contain a management ID."
             return 1
@@ -1313,7 +1442,7 @@ function Jamf_get_deviceID ()
         printf '%s\n' "$id"
         return 0
 
-    } always {rm -f -- "$response_file"
+    } always {rm -f -- "$responseFile"
     }
 }
 
@@ -1327,17 +1456,26 @@ function Jamf_get_DDM_info ()
     #   $1 - Management ID
 
     local management_id="$1"
-    local response_file
+    local responseFile
     local http_status
     local curl_status
+    local curlArgs
 
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.response.XXXXX") || {
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.response.XXXXX") || {
         logMe "ERROR: Unable to create temporary DDM response file" >&2
         return 1
     }
 
+    Jamf_build_curl_args "$responseFile"
+        curlArgs=("${CURL_ARGS[@]}")
+        curlArgs+=(
+            --write-out "%{http_code}"
+            --header "Accept: application/json"
+            --header "Authorization: Bearer ${api_token}"
+    )
+
     {
-        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -H "Authorization: Bearer ${api_token}" -H "Accept: application/json" "${jamfpro_url%/}/api/v1/ddm/${management_id}/status-items")
+        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url%/}/api/v1/ddm/${management_id}/status-items")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1347,25 +1485,25 @@ function Jamf_get_DDM_info ()
 
         case "$http_status" in
             200)
-                if ! jq -e . "$response_file" >/dev/null 2>&1; then
+                if ! jq -e . "$responseFile" >/dev/null 2>&1; then
                     logMe "ERROR: Jamf returned invalid JSON for management ID ${management_id}" >&2
-                    cat "$response_file" >&2
+                    cat "$responseFile" >&2
                     return 1
                 fi
 
-                cat "$response_file"
+                cat "$responseFile"
                 return 0
                 ;;
 
             401)
                 logMe "ERROR: Jamf authentication failed retrieving DDM data, HTTP 401" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 41
                 ;;
 
             403)
                 logMe "ERROR: Insufficient privilege to retrieve DDM data, HTTP 403" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 43
                 ;;
 
@@ -1376,12 +1514,12 @@ function Jamf_get_DDM_info ()
 
             *)
                 logMe "ERROR: Unexpected Jamf response, HTTP ${http_status}" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
         esac
         } always {
-           rm -f "$response_file"
+           rm -f "$responseFile"
         }
 }
 
@@ -1395,17 +1533,27 @@ function Jamf_force_ddm_sync ()
     #   $1 - Management ID
 
     local management_id="$1"
-    local response_file
+    local responseFile
     local http_status
     local curl_status
+    local curlArgs
 
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.response.XXXXX") || {
+    responseFile=$(mktemp "/var/tmp/${SCRIPT_NAME}.response.XXXXX") || {
         logMe "ERROR: Unable to create temporary DDM sync response file" >&2
         return 1
     }
 
+    Jamf_build_curl_args "$responseFile"
+        curlArgs=("${CURL_ARGS[@]}")
+        curlArgs+=(
+            --write-out "%{http_code}"
+            --header "accept: */*"
+             -X 'POST' 
+            --header "Authorization: Bearer ${api_token}"
+    )
+
     {
-        http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -X 'POST' -H "Authorization: Bearer ${api_token}" -H "accept: */*" "${jamfpro_url%/}/api/v1/ddm/${management_id}/sync" -d '')
+        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url%/}/api/v1/ddm/${management_id}/sync" -d '')
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1421,19 +1569,19 @@ function Jamf_force_ddm_sync ()
 
             400)
                 logMe "ERROR: Jamf rejected the DDM sync request, HTTP 400" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
 
             401)
                 logMe "ERROR: Jamf authentication failed sending DDM sync, HTTP 401" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
 
             403)
                 logMe "ERROR: Insufficient privilege to send DDM sync, HTTP 403" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
 
@@ -1444,94 +1592,107 @@ function Jamf_force_ddm_sync ()
 
             500)
                 logMe "ERROR: Jamf server error sending DDM sync, HTTP 500" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
 
             *)
                 logMe "ERROR: Unexpected Jamf DDM sync response, HTTP ${http_status}" >&2
-                cat "$response_file" >&2
+                cat "$responseFile" >&2
                 return 1
                 ;;
         esac
     } always {
-        rm -f "$response_file"
+        rm -f "$responseFile"
     }
 }
 
 function Jamf_retrieve_ddm_blueprint_statuses ()
 {
-    # PURPOSE:
-    #   Retrieve and classify Blueprint UUIDs found in the
-    #   management.declarations.configurations status value.
-    #
-    # NOTES:
-    #   Jamf appends values such as:
-    #     _s1_c1_sys_cfg1
-    #     _s2_c1_sys_cfg8
-    #     _s2_c1_sys_act9
-    #
-    #   Only the embedded UUID is retained.
-    #
-    # RETURN:
-    #   0 - Parsing completed
-    #   1 - Unable to extract the configuration value
     local json="$1"
     local value_str
     local blueprintID
     local record
+    local records
 
     DDMBlueprintSuccess=()
     DDMBlueprintInactive=()
     DDMBlueprintInvalid=()
     DDMBlueprintFailed=()
 
-    if ! value_str=$(printf '%s' "$json" | jq -r '.value // empty'); then
-        logMe "WARNING: Unable to extract blueprint configuration value" >&2
+    if ! jq -e . >/dev/null 2>&1 <<< "$json"; then
+        logMe "WARNING: Invalid JSON while parsing Blueprint statuses" >&2
         return 1
     fi
 
-    while IFS= read -r record; do
+    if ! value_str=$(jq -r '.value // empty' <<< "$json"); then
+        logMe "WARNING: Unable to extract Blueprint configuration value" >&2
+        return 1
+    fi
+
+    [[ -n "$value_str" ]] || return 0
+
+    records=$(printf '%s' "$value_str" | tr '{}' '\n')
+
+    for record in "${(@f)records}"; do
         [[ -z "$record" ]] && continue
+
         blueprintID=$(printf '%s\n' "$record" | grep -Eo '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}' | head -n 1)
 
         [[ -z "$blueprintID" ]] && continue
         blueprintID="${blueprintID:l}"
 
-        # These are intentionally independent tests.
-        # One blueprint can have multiple state indicators.
-
-        if [[ "$record" == *"status=failed"* ]]; then
-            DDMBlueprintFailed+=("$blueprintID")
-        fi
-
-        if [[ "$record" == *"valid=invalid"* ]]; then
-            DDMBlueprintInvalid+=("$blueprintID")
-        fi
-
-        if [[ "$record" == *"active=true"* ]]; then
-            DDMBlueprintSuccess+=("$blueprintID")
-        fi
-
-        if [[ "$record" == *"active=false"* ]] ||
-            [[ "$record" == *"valid=unknown"* ]]
-        then
+        [[ "$record" == *"status=failed"* ]] && DDMBlueprintFailed+=("$blueprintID")
+        [[ "$record" == *"valid=invalid"* ]] && DDMBlueprintInvalid+=("$blueprintID")
+        [[ "$record" == *"active=true"* ]] && DDMBlueprintSuccess+=("$blueprintID")
+        if [[ "$record" == *"active=false"* ]] || [[ "$record" == *"valid=unknown"* ]]; then
             DDMBlueprintInactive+=("$blueprintID")
         fi
+    done
 
-    done < <(printf '%s' "$value_str" | tr '{}' '\n' )
     return 0
 }
 
-function Jamf_retrieve_ddm_softwareupdate_info () 
+function Jamf_retrieve_ddm_softwareupdate_info ()
 {
-    # PURPOSE: extract the DDM Software update info from the computer record
-    # RETURN: array of the DDM software update information
-    # PARMS: $1 - DDM JSON blob of the computer
+    local input_json="$1"
     local results
-    results=$(jq -r '[.statusItems[]? | select(.key | startswith("softwareupdate.pending-version.")) | select(.value != null) | (.key | ltrimstr("softwareupdate.pending-version.")) + ":" + (.value | tostring)] +
-        [.statusItems[]? | select(.key | startswith("softwareupdate.install-")) | .value] | join("\n")' <<< "$1")
-    DDMSoftwareUpdateActive=("${(f)results}")
+
+    DDMSoftwareUpdateActive=()
+
+    if ! jq -e . >/dev/null 2>&1 <<< "$input_json"; then
+        logMe "WARNING: Invalid DDM JSON while parsing software update information" >&2
+        return 1
+    fi
+
+    if ! results=$(jq -r '[.statusItems[]?
+            | select(
+                (.key | type == "string")
+                and (.key | startswith("softwareupdate.pending-version."))
+                and (.value != null)
+            )
+            | (.key | ltrimstr("softwareupdate.pending-version."))
+                + ":"
+                + (.value | tostring)
+        ]
+        +
+        [
+            .statusItems[]?
+            | select(
+                (.key | type == "string")
+                and (.key | startswith("softwareupdate.install-"))
+                and (.value != null)
+            )
+            | (.value | tostring)
+        ]
+        | join("\n")' <<< "$input_json"); then
+        logMe "WARNING: Unable to parse DDM software update information" >&2
+        return 1
+    fi
+
+    [[ -n "$results" ]] && DDMSoftwareUpdateActive=("${(@f)results}")
+
+    return 0
 }
 
 function Jamf_retrieve_ddm_softwareupdate_failures ()
@@ -1547,8 +1708,11 @@ function Jamf_retrieve_ddm_softwareupdate_failures ()
         return 1
     fi
 
-    results=$(jq -r '.statusItems[]? | select((.key | type == "string") and (.key | startswith("softwareupdate.failure-reason.")) and (.value != null))
-            | "\(.key | ltrimstr("softwareupdate.failure-reason.")):\(.value)" ' <<< "$input_json") || return 1
+    if ! results=$(jq -r '.statusItems[]? | select((.key | type == "string") and (.key | startswith("softwareupdate.failure-reason.")) and (.value != null))
+        | "\(.key | ltrimstr("softwareupdate.failure-reason.")):\(.value)"' <<< "$input_json"); then
+        logMe "WARNING: Unable to parse DDM software update failures" >&2
+        return 1
+    fi
 
     [[ -n "$results" ]] && DDMSoftwareUpdateFailures=("${(@f)results}")
     return 0
@@ -1562,9 +1726,17 @@ function Jamf_retrieve_ddm_blueprint_invalid_reason ()
 
     DDMBlueprintInvalidReason=()
 
-    if ! value_str=$(printf '%s' "$json" | jq -er '.value // empty'); then
-        return 0
+    if ! jq -e . >/dev/null 2>&1 <<< "$json"; then
+        logMe "WARNING: Invalid JSON while parsing Blueprint invalid reasons" >&2
+        return 1
     fi
+
+    if ! value_str=$(jq -r '.value // empty' <<< "$json"); then
+        logMe "WARNING: Unable to extract Blueprint configuration value" >&2
+        return 1
+    fi
+
+    [[ -n "$value_str" ]] || return 0
 
     results=$(printf '%s\n' "$value_str" | tr '{}' '\n' | sed -nE 's/.*Error=([^}]+).*/\1/p')
     [[ -n "$results" ]] && DDMBlueprintInvalidReason=("${(@f)results}")
@@ -1592,8 +1764,6 @@ function show_blueprint_condition_misses()
     local input=""
     local activation_data=""
     local parsed_output=""
-    local jq_path=""
-    local perl_path=""
 
     # Accept:
     #   1. A JSON file
@@ -1617,16 +1787,8 @@ function show_blueprint_condition_misses()
         return 2
     fi
 
-    # The sample pasted into chat contains HTML formatting.
-    # These conversions are harmless against a normal API response.
-    input="${input//'<br>'/$'\n'}"
-    input="${input//'&gt;'/'>'}"
-    input="${input//'&lt;'/'<'}"
-    input="${input//'&quot;'/'"'}"
-    input="${input//'&amp;'/'&'}"
-
     # Confirm the outer API response is valid JSON.
-    if ! printf '%s' "$input" | "$jq_path" -e . >/dev/null 2>&1; then
+    if ! printf '%s' "$input" | jq -e . >/dev/null 2>&1; then
         print -u2 -- "ERROR: The supplied DDM status response is not valid JSON."
         print -u2 -- "Ensure the value comes directly from the API and does not contain HTML formatting."
         return 2
@@ -1726,36 +1888,27 @@ function show_blueprint_condition_misses()
     return 0
 }
 
-function Jamf_blueprint_misses ()
-{
-        ddm_status_json="$(curl --silent \
-        --request GET \
-        --header "Authorization: Bearer ${JAMF_TOKEN}" \
-        --header "Accept: application/json" \
-        "${JAMF_URL}/api/your-ddm-status-endpoint")"
-
-    show_blueprint_condition_misses "$ddm_status_json"
-    result=$?
-
-    case "$result" in
-        0)
-            print -- "At least one Blueprint condition evaluated to false."
-            ;;
-        1)
-            print -- "All reported Blueprint conditions matched."
-            ;;
-        *)
-            print -u2 -- "Unable to evaluate the Blueprint condition results."
-            ;;
-    esac
-}
-
 function Jamf_retrieve_ddm_keys ()
 {
     local input_json="$1"
     local requested_key="$2"
 
-    printf '%s' "$input_json" | jq -r --arg requested_key "$requested_key" '.statusItems[]? | select(.key == $requested_key)'
+    if [[ -z "$input_json" || -z "$requested_key" ]]; then
+        logMe "ERROR: Missing input JSON or requested DDM key" >&2
+        return 1
+    fi
+
+    if ! jq -e . >/dev/null 2>&1 <<< "$input_json"; then
+        logMe "ERROR: Invalid DDM JSON while retrieving key: ${requested_key}" >&2
+        return 1
+    fi
+
+    if ! jq -c --arg requested_key "$requested_key" '.statusItems[]? | select(.key == $requested_key)' <<< "$input_json"; then
+        logMe "ERROR: Unable to retrieve DDM key: ${requested_key}" >&2
+        return 1
+    fi
+
+    return 0
 }
 
 function Jamf_which_self_service ()
@@ -1778,9 +1931,11 @@ function Jamf_which_self_service ()
 function welcomemsg ()
 {
     helpmessageurl="https://support.apple.com/guide/deployment/intro-to-declarative-device-management-depb1bab77f8/web"
-    helpmessage="Apple's Declarative Device Management (DDM) is a modern, autonomous management framework that allows Apple devices (iOS, iPadOS, macOS) to proactively apply settings, enforce security policies, and report status changes without constant,"
-    helpmessage+="synchronous polling from an MDM server. It enhances performance and scalability by enabling devices to act independently based on predefined, locally stored declarations.<br><br>"
-    helpmessage+="Apple's official documentation:<br><br>"$helpmessageurl
+    helpmessage="Apple's Declarative Device Management (DDM) is a modern, autonomous management framework<br>"
+    helpmessage+="that allows Apple devices (iOS, iPadOS, macOS) to proactively apply settings, enforce <br>"
+    helpmessage+="security policies, and report status changes without constant, synchronous polling from an<br>"
+    helpmessage+="MDM server. It enhances performance and scalability by enabling devices to act independently<br>"
+    helpmessage+="based on predefined, locally stored declarations.<br><br>Apple's official documentation:<br><br>$helpmessageurl"
 
     message="${SD_DIALOG_GREETING} ${SD_FIRST_NAME}, You can choose to search all of your computers for a Blueprint ID, a single computer's Declarative Device Management (DDM) status, or a smart/static group "
     message+="for each computer's DDM status.<br><br>After your selection, another menu will appear with more options."
@@ -1794,7 +1949,7 @@ function welcomemsg ()
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
-        --infotext "$SCRIPT_VERSION"
+        --infotext "$jamfpro_url"
         --message "$message"
         --messagefont name=Arial,size=17
         --selecttitle "DDM Action (Read / Sync):",radio --selectvalues "Scan Blueprint ID, View Single System, Scan Smart/Static Group, Force Sync Single System, Populate Cross Reference File"
@@ -1808,7 +1963,7 @@ function welcomemsg ()
         --moveable
     )
 
-    message=$("$SW_DIALOG" "${MainDialogBody[@]}" ) #)2>/dev/null )
+    message=$("$SW_DIALOG" "${MainDialogBody[@]}" 2>/dev/null )
 
     buttonpress=$?
     case "$buttonpress" in
@@ -2020,9 +2175,23 @@ function sanitize_filenames ()
 function set_file_ownership ()
 {
     local file="$1"
-    [[ -f "$file" ]] || return 1
-    /usr/sbin/chown "${USER_UID}" "$file" || {logMe "ERROR: Unable to assign ${file} to ${LOGGED_IN_USER}"; return 1;}
-    chmod 600 "$file" || {logMe "ERROR: Unable to secure ${file}"; return 1;}
+
+    [[ -f "$file" ]] || {
+        logMe "ERROR: Output file does not exist: ${file}" >&2
+        return 1
+    }
+
+    /usr/sbin/chown "$USER_UID" "$file" || {
+        logMe "ERROR: Unable to assign ${file} to ${LOGGED_IN_USER}" >&2
+        return 1
+    }
+
+    chmod 600 "$file" || {
+        logMe "ERROR: Unable to secure ${file}" >&2
+        return 1
+    }
+
+    return 0
 }
 
 function get_result_count ()
@@ -2085,7 +2254,7 @@ function welcomemsg_crossreference ()
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
-        --infotext "$SCRIPT_VERSION"
+        --infotext "$jamfpro_url"
         --message "$message"
         --messagefont name=Arial,size=17
         --textfield "DDM Cross Reference,editor",value="$DDMCrossRef",name=crossref
@@ -2210,7 +2379,7 @@ function welcomemsg_blueprint ()
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
-        --infotext "$SCRIPT_VERSION"
+        --infotext "$jamfpro_url"
         --message "$message"
         --messagefont name=Arial,size=17
         --vieworder "textfield,dropdown"
@@ -2313,6 +2482,7 @@ function process_blueprint ()
         display_failure_message "Unable to retrieve Jamf inventory records."
         return 1
     fi
+
     if ! numberOfComputers=$(jq -er 'arrays | length' <<< "$computerList"); then
         display_failure_message "Jamf returned an invalid computer list."
         return 1
@@ -2342,8 +2512,11 @@ function process_blueprint ()
         display_failure_message "One or more inventory records did not contain a valid computer ID."
         return 1
     fi
-    #ids=($(jq -r '.[].id' <<< "$computerList"))
 
+    Jamf_ensure_valid_token || {
+        logMe "ERROR: Unable to obtain a valid Jamf API token" >&2
+        return 1
+    }
     # Execute parallel tasks
 
     local parallel_status=0
@@ -2377,7 +2550,7 @@ function process_blueprint_computer ()
     # RETURN: None
     # EXPECTED: None
 
-    local JAMF_API_KEY2="api/v2/computers-inventory"
+    local JAMF_API_KEY2="api/v4/computers-inventory"
     local ID="$1"
     local statusmessage="BP Installed (Active)"
     local DDMDeviceCurrentOSName
@@ -2406,7 +2579,6 @@ function process_blueprint_computer ()
 
     if ! JSONblob=$(Jamf_retrieve_data_blob "$JAMF_API_KEY2/$ID?section=GENERAL" "json"); then
         logMe "ERROR: Unable to retrieve inventory record for computer ID ${ID}" >&2
-        #update_display_list "Update" "" "$display_name" "Unable to retrieve inventory" "error"
         return 1
     fi
 
@@ -2460,19 +2632,41 @@ function process_blueprint_computer ()
     esac
 
     # Extract the relevant DDM keys and information
-    DDMKeys=$(jq -r '.statusItems[]? |  select(.key == "management.declarations.configurations")' <<< "$DDMInfo")
+    if ! DDMKeys=$(Jamf_retrieve_ddm_keys "$DDMInfo" "management.declarations.configurations"); then
+        logMe "ERROR: Unable to retrieve Blueprint configuration data for ${name}" >&2
+        update_display_list "Update" "" "$name" "Unable to parse BP data" "error"
+        return 1
+    fi
+
+    # A valid DDM response may contain no Blueprint configuration data.
+    # Supply an empty value so the Blueprint parser can treat the requested
+    # Blueprint as Not Found rather than treating the computer as failed.
+    if [[ -z "$DDMKeys" ]]; then
+        logMe "INFO: No Blueprint configuration data reported for ${name}"
+        DDMKeys='{"value":""}'
+    fi
+
     lastUpdateTime=$(jq -r 'first(.statusItems[]? | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"' <<< "$DDMInfo")
     DDMDeviceCurrentOSName=$(jq -r 'first(.statusItems[]? | select(.key == "device.operating-system.marketing-name") | .value) // "N/A"' <<< "$DDMInfo")
 
     if ! Jamf_retrieve_ddm_blueprint_statuses "$DDMKeys"; then
-        logMe "ERROR: Unable to parse blueprint status for $name" >&2
+        logMe "ERROR: Unable to parse Blueprint status for ${name}" >&2
         update_display_list "Update" "" "$name" "Unable to parse BP status" "error"
         return 1
     fi
-    Jamf_retrieve_ddm_softwareupdate_failures "$DDMInfo"
-    Jamf_retrieve_ddm_blueprint_invalid_reason "$DDMKeys"
 
-    # Determine the status of the blueprint for this system, check for failed, then check for not found, then check for invalid.  If none of those, it is active.
+    if ! Jamf_retrieve_ddm_softwareupdate_failures "$DDMInfo"; then
+        logMe "WARNING: Unable to parse software update failures for ${name}" >&2
+        DDMSoftwareUpdateFailures=("Parse Error")
+    fi
+
+    if ! Jamf_retrieve_ddm_blueprint_invalid_reason "$DDMKeys"; then
+        logMe "WARNING: Unable to parse invalid Blueprint reasons for ${name}" >&2
+        DDMBlueprintInvalidReason=("Parse Error")
+    fi
+
+    # Determine the requested Blueprint classification using the following
+    # precedence: Invalid, Failed, Mixed, Active, Inactive, then Not Found.
     array_contains "$blueprintID" "${DDMBlueprintSuccess[@]}" && blueprintIsActive=true
     array_contains "$blueprintID" "${DDMBlueprintInactive[@]}" && blueprintIsInactive=true
     array_contains "$blueprintID" "${DDMBlueprintInvalid[@]}" && blueprintIsInvalid=true
@@ -2617,7 +2811,7 @@ function welcomemsg_individual ()
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
-        --infotext "$SCRIPT_VERSION"
+        --infotext "$jamfpro_url"
         --message "$message"
         --messagefont name=Arial,size=17
         --vieworder "dropdown,textfield"
@@ -2680,12 +2874,10 @@ function process_individual ()
     local invalid_display
     local inactive_display
     local DDMInactiveReason="None"
+    local ID
 
     # First we have to get the Jamf ManagementID of the machine
     echo "Searching for $search_type: $computer_id"
-
-    #ID=$(Jamf_get_deviceID "${search_type}" "${computer_id}" ".results[].general.managementId")
-    local ID
 
     if ! ID=$(Jamf_get_deviceID "$search_type" "$computer_id" 'first(.results[]?.general.managementId)'); then
         logMe "ERROR: Unable to resolve management ID for ${computer_id}" >&2
@@ -2733,11 +2925,12 @@ function process_individual ()
 
     # Third, extract all the DDM info from this JSON blob
 
-    DDMDevicename=$(printf '%s' "$DDMInfo" | jq -r '.statusItems[]? |  select(.key == "device.model.marketing-name").value')
-    DDMDeviceModel=$(printf '%s' "$DDMInfo" | jq -r '.statusItems[]? |  select(.key == "device.model.identifier").value')
-    DDMDeviceCurrentOSName=$(printf '%s' "$DDMInfo" | jq -r '.statusItems[]? |  select(.key == "device.operating-system.marketing-name").value')
-    DDMDeviceCurrentOSBuild=$(printf '%s' "$DDMInfo" | jq -r '.statusItems[]? |  select(.key == "device.operating-system.build-version").value')
-    DDMBatteryHealth=$(printf '%s' "$DDMInfo" | jq -r '.statusItems[]? |  select(.key == "device.power.battery-health").value')
+    DDMDevicename=$(jq -r 'first(.statusItems[]?| select(.key == "device.model.marketing-name")| .value) // "N/A"' <<< "$DDMInfo")
+    DDMDeviceModel=$(jq -r 'first(.statusItems[]?| select(.key == "device.model.identifier")| .value) // "N/A"' <<< "$DDMInfo")
+    DDMDeviceCurrentOSName=$(jq -r 'first(.statusItems[]?| select(.key == "device.operating-system.marketing-name")| .value) // "N/A"' <<< "$DDMInfo")
+    DDMDeviceCurrentOSBuild=$(jq -r 'first(.statusItems[]?| select(.key == "device.operating-system.build-version")| .value) // "N/A"' <<< "$DDMInfo")
+    DDMBatteryHealth=$(jq -r 'first(.statusItems[]?| select(.key == "device.power.battery-health")| .value) // "N/A"' <<< "$DDMInfo")
+
     DDMClientSupportedPayload=$(printf '%s' "$DDMInfo" | jq -r '.statusItems[]? |  select(.key == "management.client-capabilities.supported-payloads.declarations.configurations").value' | tr ',' '\n')
     DDMDeviceSecurityCertificates=$(printf '%s' "$DDMInfo" | jq -r '.statusItems[]? |  select(.key == "security.certificate.list").value')
     [[ -z $DDMDeviceSecurityCertificates ]] && DDMDeviceSecurityCertificates="None"
@@ -2753,16 +2946,37 @@ function process_individual ()
     logMe "INFO: Client Supported Versions: $DDMClientSupportedVersions"
 
     # Fourth, extract the DDM Software Update info for the machine
-    Jamf_retrieve_ddm_softwareupdate_info "$DDMInfo"
-    logMe "INFO: Software Update Info: $DDMSoftwareUpdateActive"
+
+    if ! Jamf_retrieve_ddm_softwareupdate_info "$DDMInfo"; then
+        logMe "WARNING: Unable to parse DDM software update information for ${computer_id}" >&2
+        DDMSoftwareUpdateActive=("Parse Error")
+    elif (( ${#DDMSoftwareUpdateActive[@]} == 0 )); then
+        DDMSoftwareUpdateActive=("None")
+    fi
+
+    logMe "INFO: Software Update Info: ${(j:; :)DDMSoftwareUpdateActive}"
+
 
     # Fifth, see if there are any software update failures
-    Jamf_retrieve_ddm_softwareupdate_failures "${DDMInfo}"
-    (( ${#DDMSoftwareUpdateFailures[@]} == 0 )) && DDMSoftwareUpdateFailures=("None")
-    logMe "INFO: Software Update Failures: $DDMSoftwareUpdateFailures"
+    if ! Jamf_retrieve_ddm_softwareupdate_failures "$DDMInfo"; then
+        logMe "WARNING: Unable to parse software update failures for ${computer_id}" >&2
+        DDMSoftwareUpdateFailures=("Parse Error")
+    elif (( ${#DDMSoftwareUpdateFailures[@]} == 0 )); then
+        DDMSoftwareUpdateFailures=("None")
+    fi
+
+    logMe "INFO: Software Update Failures: ${(j:; :)DDMSoftwareUpdateFailures}"
 
     # Sixth, extract the DDM blueprint IDs assigned to the machine
-    DDMKeys=$(Jamf_retrieve_ddm_keys "$DDMInfo" "management.declarations.configurations")
+    if ! DDMKeys=$(Jamf_retrieve_ddm_keys "$DDMInfo" "management.declarations.configurations"); then
+        logMe "ERROR: Unable to retrieve Blueprint configuration data" >&2
+        return 1
+    fi
+    if [[ -z "$DDMKeys" ]]; then
+        logMe "INFO: No Blueprint configuration data reported for ${computer_id}"
+        DDMKeys='{"value":""}'
+    fi
+
     if ! Jamf_retrieve_ddm_blueprint_statuses "$DDMKeys"; then
         logMe "ERROR: Unable to parse blueprint status for $DDMDevicename" >&2
         return 1
@@ -2832,8 +3046,12 @@ function process_individual ()
         inactive_display="None"
     fi
     # Lastly, see if there are any invalid blueprints
-    Jamf_retrieve_ddm_blueprint_invalid_reason "$DDMKeys"
-    (( ${#DDMBlueprintInvalidReason[@]} == 0 )) && DDMBlueprintInvalidReason=("None")
+    if ! Jamf_retrieve_ddm_blueprint_invalid_reason "$DDMKeys"; then
+        logMe "WARNING: Unable to parse invalid Blueprint reasons for ${computer_id}" >&2
+        DDMBlueprintInvalidReason=("Parse Error")
+    elif (( ${#DDMBlueprintInvalidReason[@]} == 0 )); then
+        DDMBlueprintInvalidReason=("None")
+    fi
 
     logMe "INFO: Invalid Blueprints: ${(j:; :)DDMBlueprintInvalid}"
     logMe "INFO: Invalid Blueprint Reasons: ${(j:; :)DDMBlueprintInvalidReason}"
@@ -2894,6 +3112,7 @@ function display_results ()
         --icon "${SD_ICON_FILE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
+        --infotext "$jamfpro_url"
         --iconsize 128
         --message "Here are the results of the DDM info for this mac:<br><br>$message"
         --messagefont name=Arial,size=14
@@ -2905,7 +3124,6 @@ function display_results ()
         --moveable
     )
 
-    [[ $extractRAWData == "true" ]] && MainDialogBody+=(--infotext "The CSV file will be stored in $USER_DIR/Desktop") || MainDialogBody+=(--infotext "$SCRIPT_VERSION")
     if [[ "$action_type" == "View" ]] && blueprint_links_available; then
         MainDialogBody+=(--button2text "Open BP Links")
     elif [[ "$action_type" == "Sync" ]]; then
@@ -2988,7 +3206,6 @@ function welcomemsg_group ()
     # RETURN: None
     # EXPECTED: None
     local GroupList
-    local xml_blob
     local -a array
     local JAMF_API_KEY="JSSResource/computergroups"
 
@@ -3011,7 +3228,17 @@ function welcomemsg_group ()
         return 1
     fi
     create_dropdown_message_body "" "" "" "first"
-    array=$(construct_dropdown_list_items "$GroupList" '.[]')
+    if ! array=$(construct_dropdown_list_items "$GroupList" '.[]'); then
+        logMe "ERROR: Unable to construct the Jamf group dropdown values" >&2
+        display_failure_message "Unable to construct the Jamf computer group list."
+        return 1
+    fi
+
+    if [[ -z "$array" ]]; then
+        logMe "ERROR: No Jamf computer groups were available for the dropdown" >&2
+        display_failure_message "No Jamf computer groups were available."
+        return 1
+    fi
     create_dropdown_message_body "Select Groups:" "$array"
 
 
@@ -3029,7 +3256,7 @@ function welcomemsg_group ()
         display_failure_message "Unable to construct the group selection dialog."
         return 1
     fi
-	message=$("$SW_DIALOG" --vieworder "dropdown, checkbox" --json --jsonfile "${JSON_DIALOG_BLOB}") 2>/dev/null
+	message=$("$SW_DIALOG" --vieworder "dropdown, checkbox" --json --jsonfile "${JSON_DIALOG_BLOB}" 2>/dev/null)
     buttonpress=$?
     case "$buttonpress" in
         0)
@@ -3046,7 +3273,6 @@ function welcomemsg_group ()
             ;;
     esac
 
-    #jamfGroup=$(printf '%s' "$message" | jq '."Select Groups:" .selectedValue')
     jamfGroup=$(printf '%s' "$message" | jq -r '."Select Groups:".selectedValue // empty')
     displayResults=$(printf '%s' "$message" | jq -r '."Display results".selectedValue // "Everything"')
     writeCSVFile=$(printf '%s' "$message" | jq -r '.exportcsv // false')
@@ -3130,6 +3356,10 @@ function process_group ()
         return 1
     fi
 
+    Jamf_ensure_valid_token || {
+        logMe "ERROR: Unable to obtain a valid Jamf API token" >&2
+        return 1
+    }
     # Execute parallel tasks
 
     execute_in_parallel "group" "${ids[@]}" || parallel_status=$?
@@ -3157,7 +3387,7 @@ function process_group ()
 
 function process_group_computer () 
 {
-    local JAMF_API_KEY2="api/v2/computers-inventory"
+    local JAMF_API_KEY2="api/v4/computers-inventory"
     local ID="$1"
     local statusmessage="No BP errors found"
     local DDMInfo
@@ -3236,17 +3466,39 @@ function process_group_computer ()
             return 1
             ;;
     esac
-    DDMKeys=$(jq -r '.statusItems[]? |  select(.key == "management.declarations.configurations")' <<< "$DDMInfo")
+
+    if ! DDMKeys=$(Jamf_retrieve_ddm_keys "$DDMInfo" "management.declarations.configurations"); then
+        logMe "ERROR: Unable to retrieve Blueprint configuration data for ${name}" >&2
+        update_display_list "Update" "" "$name" "Unable to parse BP data" "error"
+        return 1
+    fi
+
+    # A valid DDM response may contain no Blueprint configuration data.
+    # Supply an empty value so the Blueprint parser returns empty arrays
+    # instead of treating the computer as a failed worker.
+    if [[ -z "$DDMKeys" ]]; then
+        logMe "INFO: No Blueprint configuration data reported for ${name}"
+        DDMKeys='{"value":""}'
+    fi
+
     lastUpdateTime=$(jq -r 'first(.statusItems[]? | select(.key == "softwareupdate.failure-reason.reason") | .lastUpdateTime) // "N/A"' <<< "$DDMInfo")
     DDMDeviceCurrentOSName=$(jq -r 'first(.statusItems[]? | select(.key == "device.operating-system.marketing-name") | .value) // "N/A"' <<< "$DDMInfo")
 
     if ! Jamf_retrieve_ddm_blueprint_statuses "$DDMKeys"; then
-        logMe "ERROR: Unable to parse blueprint status for $name" >&2
+        logMe "ERROR: Unable to parse Blueprint status for ${name}" >&2
         update_display_list "Update" "" "$name" "Unable to parse BP status" "error"
         return 1
     fi
-    Jamf_retrieve_ddm_softwareupdate_failures "$DDMInfo"
-    Jamf_retrieve_ddm_blueprint_invalid_reason "$DDMKeys"
+
+    if ! Jamf_retrieve_ddm_softwareupdate_failures "$DDMInfo"; then
+        logMe "WARNING: Unable to parse software update failures for ${name}" >&2
+        DDMSoftwareUpdateFailures=("Parse Error")
+    fi
+
+    if ! Jamf_retrieve_ddm_blueprint_invalid_reason "$DDMKeys"; then
+        logMe "WARNING: Unable to parse invalid Blueprint reasons for ${name}" >&2
+        DDMBlueprintInvalidReason=("Parse Error")
+    fi
 
     # A Blueprint found in both Active and Inactive is Mixed.
  
@@ -3391,7 +3643,7 @@ function welcomemsg_forcesync ()
         --infobox "${SD_INFO_BOX_MSG}"
         --overlayicon "${OVERLAY_ICON}"
         --iconsize 128
-        --infotext "$SCRIPT_VERSION"
+        --infotext "$jamfpro_url"
         --message "$message"
         --messagefont name=Arial,size=17
         --vieworder "dropdown,textfield"
@@ -3458,9 +3710,6 @@ typeset -g CSV_LOCK_DIR=""
 typeset -g DIALOG_LOCK_DIR=""
 typeset -g DDM_CROSS_REF_FILE=""
 typeset -g CSV_PATH=""
-typeset -g Jamf_PARAMETER_USER="${3:-}"
-typeset -g CLIENT_ID="${4:-}"
-typeset -g CLIENT_SECRET="${5:-}"
 typeset -g CSV_OUTPUT=""
 typeset -g RESULTS_DIR=""
 typeset -g blueprintID=""
@@ -3471,45 +3720,23 @@ typeset -g includeSWUFail=false
 typeset -g writeCSVFile=false
 typeset -g writeTXTFile=""
 typeset -ga reply=()
+typeset -ga CURL_ARGS
+typeset -g DIALOG_PROCESS=""
 
-#typeset -g CSV_HEADER="System,ManagementID,Current OS,SW Update Failure Last Update,Status,Blueprint Failed IDs,Blueprint Inactive IDs,Inactive Reason,Blueprint Invalid IDs,Invalid Reason,Software Update Failures"
 typeset -g CSV_HEADER="System,ManagementID,Current OS,SW Update Failure Last Update,Status,Blueprint Failed IDs,Blueprint Inactive IDs,Blueprint Mixed IDs,Inactive Reason,Blueprint Invalid IDs,Invalid Reason,Software Update Failures"
 
-check_for_sudo
 
-if ! initialize_user_context; then
-    cleanup_and_exit 0
-fi
-
-if ! create_log_directory; then
-    cleanup_and_exit 1
-fi
-
-if ! check_swift_dialog_install; then
-    cleanup_and_exit 1
-fi
-
-if ! check_support_files; then
-    cleanup_and_exit 1
-fi
-
-if ! make_temp_files; then
-    cleanup_and_exit 1
-fi
-
-[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with Jamf credentials we are using
+check_for_sudo || cleanup_and_exit 1
+initialize_user_context || cleanup_and_exit 1
+create_log_directory || cleanup_and_exit 1
+check_swift_dialog_install || cleanup_and_exit 1
+check_support_files || cleanup_and_exit 1
+Jamf_get_server || cleanup_and_exit 1
+Jamf_check_connection || cleanup_and_exit 1
+Jamf_check_credentials || cleanup_and_exit 1
+make_temp_files || cleanup_and_exit 1
 create_infobox_message
-if ! Jamf_check_connection; then
-    cleanup_and_exit 1
-fi
 
-if ! Jamf_check_credentials; then
-    cleanup_and_exit 1
-fi
-
-if ! Jamf_get_server; then
-    cleanup_and_exit 1
-fi
 OVERLAY_ICON=$(Jamf_which_self_service)
 
 # Show the welcome message and give the user some options
@@ -3543,8 +3770,8 @@ while true; do
         welcomemsg_crossreference
         continue
     fi
-    # Check if the Jamf Pro server is using the new API or the classic API
-    # If the client ID is longer than 30 characters, then it is using the new API 
+    # Select OAuth client-credentials authentication when the supplied
+    # Client ID is UUID-formatted; otherwise use Jamf bearer-token authentication.
     case "$JAMF_TOKEN" in
         new)
             if ! Jamf_get_access_token; then

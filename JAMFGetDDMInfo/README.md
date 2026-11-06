@@ -293,3 +293,19 @@ It's important to note that the Jamf API does not offer simple endpoints to:
 ||       Finalized Blueprint and group filtering
 ||       Finalized thread-safe CSV and SwiftDialog output
 ||       Finalized result counters, API validation, cleanup, and error handling
+| 1.1 | Added support for mulitple JAMF servers
+||       Finalized Blueprint and Smart/Static Group filtering and result counts
+||       Improved DDM, Blueprint, and Software Update parsing and error handling
+||       Added handling for missing Blueprint configuration data and DDM status
+||       Added Parse Error reporting to distinguish parsing failures from valid empty results
+||       Updated computer inventory retrieval to the Jamf Pro API v4 endpoint
+||       Improved Jamf API authentication, token validation, renewal, and cleanup
+||       Improved paginated inventory retrieval and parallel processing
+||       Added thread-safe CSV and SwiftDialog command-file writes
+||       Added background worker failure tracking and reliable progress reporting
+||       Improved CSV escaping, filename sanitization, file ownership, and permissions
+||       Improved individual DDM reporting for device, OS, Software Update, and Blueprint information
+||       Improved Blueprint cross-reference, invalid, inactive, and Mixed status reporting
+||       Improved SwiftDialog list, dropdown, progress, and result handling
+||       Added safer temporary files, locking, cleanup, and startup validation
+||       Improved logging and error handling throughout
