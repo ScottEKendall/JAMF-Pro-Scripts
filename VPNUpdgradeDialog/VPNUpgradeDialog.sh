@@ -38,6 +38,15 @@
 # Also verify that get_vpn_client_version() retrieves the correct version
 # from the target VPN application's Info.plist.
 #######################################################################
+# 1.0 - Initial production release
+#       Added configurable VPN client, CLI, version, and connection-state detection
+#       Added SwiftDialog notification for upgrades that interrupt an active VPN connection
+#       Added configurable user deferrals with target-version tracking
+#       Added Jamf Pro custom event support for VPN installation and upgrades
+#       Added post-install version validation and Jamf inventory submission
+#       Added automatic VPN application name, dialog title, and icon detection
+#       Added per-VPN preference storage and deferral management
+#       Added SwiftDialog installation, branding, logging, and error handling
 
 VPN_CLIENT_APP="/Applications/Cisco/Cisco Secure Client.app"
 VPN_CLIENT_BINARY="/opt/cisco/secureclient/bin/vpn"
@@ -113,7 +122,7 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 
 ##################################################
-#
+#JAMF 
 # Passed in variables
 # 
 # Jamf Pro Policy Parameters

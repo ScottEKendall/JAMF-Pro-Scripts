@@ -163,6 +163,8 @@ Parameter 6: 900
 Parameter 7: 5.1.12.113
 ```
 
+![](./VPNUpgradeDialog-Parms.png)
+
 This configuration gives the user up to three deferrals, each lasting 15 minutes.
 
 > Parameter 7 is required. The script stops if a target VPN version is not provided.
