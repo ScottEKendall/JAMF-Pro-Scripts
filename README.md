@@ -1,10 +1,12 @@
 # JAMF Pro Scripts
 
-A categorized collection of macOS administration, remediation, inventory, migration, and Jamf Pro API tools. Many projects use SwiftDialog to provide a polished graphical workflow for administrators and end users.
+A collection of macOS administration, remediation, inventory, migration, security, and Jamf Pro API tools developed over the years while working with Jamf Pro.
 
-> Some projects fit more than one category. They are listed under the category that best represents their primary use.
+Many of these projects use [SwiftDialog](https://github.com/swiftDialog/swiftDialog) to provide polished graphical workflows for Mac administrators and end users.
 
-## Script Categories
+> **Note:** Many of these scripts were originally built for a specific production environment. Review each project's requirements, Jamf Pro privileges, policy triggers, paths, branding, and configurable values before deploying in your environment.
+
+## Browse by Category
 
 <table>
 <tr>
@@ -12,62 +14,62 @@ A categorized collection of macOS administration, remediation, inventory, migrat
 
 ### 👤 End User & Self Service
 
-User-facing tools, notifications, guided fixes, and Self Service workflows.
+User-facing tools, notifications, and guided workflows.
 
-- [Adobe License Transfer](../tree/main/AdobeLicenseTransfer)
-- [Clear Browser Cache](../tree/main/ClearBrowserCache)
-- [Delete Printers](../tree/main/DeletePrinters)
-- [Dialog Message](../tree/main/DialogMsg)
-- [Dialog Progress](../tree/main/DialogProgress)
-- [Force Platform SSO](../tree/main/ForcePlatformSSO)
-- [Mount Network Drive](../tree/main/MountNetworkDrive)
-- [Password Expiration](../tree/main/PasswordExpire)
-- [Reset Keychain](../tree/main/ResetKeychain)
-- [Restart Zscaler](../tree/main/RestartzScaler)
-- [Set Default Apps](../tree/main/SetDefaultApps)
-- [Speed Test](../tree/main/SpeedTest)
-- [Wallpaper Picker](../tree/main/WallpaperPicker)
-- [What's My IP](../tree/main/WhatsMyIP)
+- [Adobe License Transfer](./AdobeLicenseTransfer)
+- [Clear Browser Cache](./ClearBrowserCache)
+- [Delete Printers](./DeletePrinters)
+- [Dialog Message](./DialogMsg)
+- [Dialog Progress](./DialogProgress)
+- [Force Platform SSO](./ForcePlatformSSO)
+- [Mount Network Drive](./MountNetworkDrive)
+- [Password Expiration](./PasswordExpire)
+- [Reset Keychain](./ResetKeychain)
+- [Restart Zscaler](./RestartzScaler)
+- [Set Default Apps](./SetDefaultApps)
+- [Speed Test](./SpeedTest)
+- [Wallpaper Picker](./WallpaperPicker)
+- [What's My IP](./WhatsMyIP)
 
 </td>
 <td width="33%" valign="top">
 
 ### 🩹 First Aid & Remediation
 
-Repair, cleanup, recovery, and common troubleshooting workflows.
+Repair, cleanup, recovery, and troubleshooting workflows.
 
-- [App Delete](../tree/main/AppDelete)
-- [Change FileVault Key](../tree/main/ChangeFVKey)
-- [Delete Expired Certificates](../tree/main/DeleteExpiredCerts)
-- [Escrow Bootstrap Token](../tree/main/EscrowBootStrap)
-- [Fix Profile Owner](../tree/main/FixProfileOwner)
-- [Grant Secure Token](../tree/main/GrantSecureToken)
-- [Low Disk Space](../tree/main/LowDiskSpace)
-- [Nuke Adobe Creative Cloud](../tree/main/NukeAdobeCC)
-- [Nuke Microsoft Office](../tree/main/NukeOffice)
-- [PPPC Nudge](../tree/main/PPPCNudge)
-- [Remove Adobe Apps](../tree/main/RemoveAdobeApps)
-- [SSO Remediation](../tree/main/SSORemediation)
-- [Windows Filename Fix](../tree/main/WindowsFileNameFix)
+- [App Delete](./AppDelete)
+- [Change FileVault Key](./ChangeFVKey)
+- [Delete Expired Certificates](./DeleteExpiredCerts)
+- [Escrow Bootstrap Token](./EscrowBootStrap)
+- [Fix Profile Owner](./FixProfileOwner)
+- [Grant Secure Token](./GrantSecureToken)
+- [Low Disk Space](./LowDiskSpace)
+- [Nuke Adobe Creative Cloud](./NukeAdobeCC)
+- [Nuke Microsoft Office](./NukeOffice)
+- [PPPC Nudge](./PPPCNudge)
+- [Remove Adobe Apps](./RemoveAdobeApps)
+- [SSO Remediation](./SSORemediation)
+- [Windows Filename Fix](./WindowsFileNameFix)
 
 </td>
 <td width="33%" valign="top">
 
 ### 🛡️ Security, Identity & Compliance
 
-FileVault, secure token, SSO, compliance, certificate, and security tools.
+FileVault, Recovery Lock, secure token, SSO, compliance, and security tools.
 
-- [Change FileVault Key](../tree/main/ChangeFVKey)
-- [Device Compliance](../tree/main/DeviceCompliance)
-- [Entra ID Registration](../tree/main/EntraIDRegistration)
-- [Escrow Bootstrap Token](../tree/main/EscrowBootStrap)
-- [Force Platform SSO](../tree/main/ForcePlatformSSO)
-- [Grant Secure Token](../tree/main/GrantSecureToken)
-- [Inspect CrowdStrike](../tree/main/InspectCrowdstrike)
-- [JAMF Recovery Lock](../tree/main/JAMFRecoveryLock)
-- [JAMF Retrieve FileVault](../tree/main/JAMFRetrieveFV)
-- [Password Expiration](../tree/main/PasswordExpire)
-- [SSO Remediation](../tree/main/SSORemediation)
+- [Change FileVault Key](./ChangeFVKey)
+- [Device Compliance](./DeviceCompliance)
+- [Entra ID Registration](./EntraIDRegistration)
+- [Escrow Bootstrap Token](./EscrowBootStrap)
+- [Force Platform SSO](./ForcePlatformSSO)
+- [Grant Secure Token](./GrantSecureToken)
+- [Inspect CrowdStrike](./InspectCrowdstrike)
+- [JAMF Recovery Lock](./JAMFRecoveryLock)
+- [JAMF Retrieve FileVault](./JAMFRetrieveFV)
+- [Password Expiration](./PasswordExpire)
+- [SSO Remediation](./SSORemediation)
 
 </td>
 </tr>
@@ -76,41 +78,41 @@ FileVault, secure token, SSO, compliance, certificate, and security tools.
 
 ### ⚙️ Jamf Pro Administration
 
-API-driven administration, backup, reporting, search, and device-management tools.
+API-driven administration, backup, reporting, search, and device-management utilities.
 
-- [JAMF Backup Email Address](../tree/main/JAMFBackupEmailAddress)
-- [JAMF Backup Self Service Icons](../tree/main/JAMFBackupSSIcons)
-- [JAMF Backup Scripts](../tree/main/JAMFBackupScripts)
-- [JAMF Binary Redeploy](../tree/main/JAMFBinaryRedeploy)
-- [JAMF Branding Manager](../tree/main/JAMFBrandingManager)
-- [JAMF Clear Failed MDM](../tree/main/JAMFClearFailedMDM)
-- [JAMF Config Profile Search](../tree/main/JAMFConfigProfileSearch)
-- [JAMF Get DDM Info](../tree/main/JAMFGetDDMInfo)
-- [JAMF Recovery Lock](../tree/main/JAMFRecoveryLock)
-- [JAMF Retrieve Expiration Dates](../tree/main/JAMFRetrieveExpireDates)
-- [JAMF Retrieve FileVault](../tree/main/JAMFRetrieveFV)
-- [JAMF Static Group Utility](../tree/main/JAMFStaticGroupUtility)
-- [JAMF System Utilities](../tree/main/JAMFSystemUtilities)
+- [JAMF Backup Email Address](./JAMFBackupEmailAddress)
+- [JAMF Backup Self Service Icons](./JAMFBackupSSIcons)
+- [JAMF Backup Scripts](./JAMFBackupScripts)
+- [JAMF Binary Redeploy](./JAMFBinaryRedeploy)
+- [JAMF Branding Manager](./JAMFBrandingManager)
+- [JAMF Clear Failed MDM](./JAMFClearFailedMDM)
+- [JAMF Config Profile Search](./JAMFConfigProfileSearch)
+- [JAMF Get DDM Info](./JAMFGetDDMInfo)
+- [JAMF Recovery Lock](./JAMFRecoveryLock)
+- [JAMF Retrieve Expiration Dates](./JAMFRetrieveExpireDates)
+- [JAMF Retrieve FileVault](./JAMFRetrieveFV)
+- [JAMF Static Group Utility](./JAMFStaticGroupUtility)
+- [JAMF System Utilities](./JAMFSystemUtilities)
 
 </td>
 <td width="33%" valign="top">
 
 ### 🔎 Inventory & Diagnostics
 
-Device inventory, health, status, logs, networking, and troubleshooting data.
+Inventory, device health, logs, networking, and troubleshooting information.
 
-- [Architecture Scan](../tree/main/ArchitectureScan)
-- [Battery Info](../tree/main/BatteryInfo)
-- [Device Compliance](../tree/main/DeviceCompliance)
-- [Dialog Inventory](../tree/main/DialogInventory)
-- [Disk Usage](../tree/main/DiskUsage)
-- [Inspect CrowdStrike](../tree/main/InspectCrowdstrike)
-- [Read DDM Software Update](../tree/main/ReadDDMSoftwareUpdate)
-- [Speed Test](../tree/main/SpeedTest)
-- [UpTime](../tree/main/UpTime)
-- [View Inventory](../tree/main/ViewInventory)
-- [View Logs](../tree/main/ViewLogs)
-- [What's My IP](../tree/main/WhatsMyIP)
+- [Architecture Scan](./ArchitectureScan)
+- [Battery Info](./BatteryInfo)
+- [Device Compliance](./DeviceCompliance)
+- [Dialog Inventory](./DialogInventory)
+- [Disk Usage](./DiskUsage)
+- [Inspect CrowdStrike](./InspectCrowdstrike)
+- [Read DDM Software Update](./ReadDDMSoftwareUpdate)
+- [Speed Test](./SpeedTest)
+- [UpTime](./UpTime)
+- [View Inventory](./ViewInventory)
+- [View Logs](./ViewLogs)
+- [What's My IP](./WhatsMyIP)
 
 </td>
 <td width="33%" valign="top">
@@ -119,12 +121,12 @@ Device inventory, health, status, logs, networking, and troubleshooting data.
 
 Account migration, device setup, shared Mac, and data-movement workflows.
 
-- [Entra ID Registration](../tree/main/EntraIDRegistration)
-- [Migrate User Account](../tree/main/MigrateUserAccount)
-- [Migration Wizard](../tree/main/MigrationWizard)
-- [Move Desktop and Documents](../tree/main/MoveDesktopDocs)
-- [Multi-User Macs](../tree/main/Multi-User%20Macs)
-- [Set Default Apps](../tree/main/SetDefaultApps)
+- [Entra ID Registration](./EntraIDRegistration)
+- [Migrate User Account](./MigrateUserAccount)
+- [Migration Wizard](./MigrationWizard)
+- [Move Desktop and Documents](./MoveDesktopDocs)
+- [Multi-User Macs](./Multi-User%20Macs)
+- [Set Default Apps](./SetDefaultApps)
 
 </td>
 </tr>
@@ -135,14 +137,14 @@ Account migration, device setup, shared Mac, and data-movement workflows.
 
 Install, remove, inspect, and manage applications and packages.
 
-- [Adobe Detect Multiple](../tree/main/AdobeDetectMultiple)
-- [Adobe License Transfer](../tree/main/AdobeLicenseTransfer)
-- [App Delete](../tree/main/AppDelete)
-- [Brew Package Removal](../tree/main/BrewPkgRemoval)
-- [Nuke Adobe Creative Cloud](../tree/main/NukeAdobeCC)
-- [Nuke Microsoft Office](../tree/main/NukeOffice)
-- [Remove Adobe Apps](../tree/main/RemoveAdobeApps)
-- [Set Default Apps](../tree/main/SetDefaultApps)
+- [Adobe Detect Multiple](./AdobeDetectMultiple)
+- [Adobe License Transfer](./AdobeLicenseTransfer)
+- [App Delete](./AppDelete)
+- [Brew Package Removal](./BrewPkgRemoval)
+- [Nuke Adobe Creative Cloud](./NukeAdobeCC)
+- [Nuke Microsoft Office](./NukeOffice)
+- [Remove Adobe Apps](./RemoveAdobeApps)
+- [Set Default Apps](./SetDefaultApps)
 
 </td>
 <td width="33%" valign="top">
@@ -151,26 +153,25 @@ Install, remove, inspect, and manage applications and packages.
 
 Tools for administrators, script authors, packaging, and SwiftDialog development.
 
-- [Dialog Icon Creator](../tree/main/DialogIconCreator)
-- [Get Bundle ID](../tree/main/GetBundleID)
-- [Text File Search](../tree/main/TextFileSearch)
-- [Default Postflight Script](../blob/main/Default_post.sh)
-- [Main Library](../blob/main/MainLibrary.sh)
-- [Wiki Assets](../tree/main/WikiPages)
+- [Dialog Icon Creator](./DialogIconCreator)
+- [Get Bundle ID](./GetBundleID)
+- [Text File Search](./TextFileSearch)
+- [Default Postflight Script](./Default_post.sh)
+- [Main Library](./MainLibrary.sh)
 
 </td>
 <td width="33%" valign="top">
 
 ### 🎨 SwiftDialog Examples
 
-Reusable examples that demonstrate messages, progress, inventory, icons, and branded workflows.
+Reusable examples demonstrating notifications, progress, inventory, icons, and branded workflows.
 
-- [Dialog Icon Creator](../tree/main/DialogIconCreator)
-- [Dialog Inventory](../tree/main/DialogInventory)
-- [Dialog Message](../tree/main/DialogMsg)
-- [Dialog Progress](../tree/main/DialogProgress)
-- [JAMF Branding Manager](../tree/main/JAMFBrandingManager)
-- [Wallpaper Picker](../tree/main/WallpaperPicker)
+- [Dialog Icon Creator](./DialogIconCreator)
+- [Dialog Inventory](./DialogInventory)
+- [Dialog Message](./DialogMsg)
+- [Dialog Progress](./DialogProgress)
+- [JAMF Branding Manager](./JAMFBrandingManager)
+- [Wallpaper Picker](./WallpaperPicker)
 
 </td>
 </tr>
@@ -178,40 +179,56 @@ Reusable examples that demonstrate messages, progress, inventory, icons, and bra
 
 ## Featured Jamf Pro Tools
 
-| Project | Primary use |
+A few of the larger utilities in the repository:
+
+| Project | What it does |
 | --- | --- |
-| [JAMF Get DDM Info](../tree/main/JAMFGetDDMInfo) | Review Declarative Device Management and Blueprint information. |
-| [JAMF Static Group Utility](../tree/main/JAMFStaticGroupUtility) | View, add, remove, and migrate static-group membership. |
-| [JAMF Retrieve Expiration Dates](../tree/main/JAMFRetrieveExpireDates) | Report on Jamf Pro certificates, tokens, invitations, and expiration dates. |
-| [JAMF Recovery Lock](../tree/main/JAMFRecoveryLock) | View, set, and clear Recovery Lock on Apple silicon Macs. |
-| [JAMF Branding Manager](../tree/main/JAMFBrandingManager) | Manage Jamf Self Service branding through a SwiftDialog workflow. |
-| [JAMF Clear Failed MDM](../tree/main/JAMFClearFailedMDM) | Review and clear failed MDM commands. |
-| [JAMF Config Profile Search](../tree/main/JAMFConfigProfileSearch) | Search configuration profiles for keys and configuration data. |
-| [JAMF Backup Scripts](../tree/main/JAMFBackupScripts) | Export and back up Jamf Pro scripts. |
+| [JAMF Get DDM Info](./JAMFGetDDMInfo) | Investigates Declarative Device Management status, Blueprint information, software updates, and device-reported DDM data. |
+| [JAMF Static Group Utility](./JAMFStaticGroupUtility) | View and modify static group membership, including bulk and migration-style operations. |
+| [JAMF Retrieve Expiration Dates](./JAMFRetrieveExpireDates) | Audits expiration dates for Jamf Pro certificates, tokens, invitations, and related services. |
+| [JAMF Recovery Lock](./JAMFRecoveryLock) | Provides a graphical workflow to view, set, and clear Recovery Lock on Apple silicon Macs. |
+| [JAMF Branding Manager](./JAMFBrandingManager) | Manage Jamf Self Service branding records and banner images through SwiftDialog. |
+| [JAMF Clear Failed MDM](./JAMFClearFailedMDM) | Review and clear failed MDM commands from managed devices. |
+| [JAMF Config Profile Search](./JAMFConfigProfileSearch) | Search Jamf Pro configuration profiles for specific keys or configuration data. |
+| [JAMF Backup Scripts](./JAMFBackupScripts) | Export and back up scripts stored in Jamf Pro. |
 
 ## Getting Started
 
-1. Select the category that best matches the task.
-2. Open the project folder.
-3. Review the project README and version history.
-4. Confirm Jamf Pro API privileges, script parameters, dependencies, and branding requirements.
-5. Test the workflow in a non-production Jamf Pro environment before broad deployment.
+1. Choose a category above or browse the repository folders.
+2. Open the project you want to use.
+3. Review its README, source comments, version history, parameters, and dependencies.
+4. Configure any environment-specific paths, Jamf Pro custom events, API credentials, branding, or other required values.
+5. Test in a non-production environment before broad deployment.
 
-## Common Dependencies
+## Common Technologies
 
-Depending on the project, scripts may use:
+Depending on the project, these scripts may use:
 
 - [Jamf Pro](https://www.jamf.com/products/jamf-pro/)
 - [SwiftDialog](https://github.com/swiftDialog/swiftDialog)
-- `zsh`
+- macOS `zsh`
 - `jq`
-- Jamf Pro API credentials or OAuth client credentials
+- Jamf Pro APIs
+- OAuth client credentials or other Jamf Pro API authentication
 - Jamf Pro policies and custom event triggers
 
-Always review the project-specific documentation before deployment.
+## About the Repository
+
+These scripts have been developed over the years while working with Jamf Pro and macOS. Many started as solutions to specific support or administration problems and evolved into reusable SwiftDialog-based workflows.
+
+The repository includes both end-user tools and administrator-focused utilities. Some scripts may require adaptation before they are appropriate for another environment, particularly those involving API credentials, internal paths, Jamf Pro policy names, branding resources, or organization-specific defaults.
+
+## Documentation
+
+More detailed notes, screenshots, and supporting documentation can be maintained in the repository Wiki, while this README serves as the main directory for the projects in the repository.
+
+## Support the Projects
+
+If you find these scripts useful, consider supporting the caffeine fund. ☕
 
 ## License
 
-This repository is licensed under the [GNU General Public License v3.0](../blob/main/LICENSE).
+This repository is licensed under the [GNU General Public License v3.0](./LICENSE).
+
 
 <a href="https://www.buymeacoffee.com/scottekendall" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" style="height: 60px !important;width: 217px !important;" ></a>
