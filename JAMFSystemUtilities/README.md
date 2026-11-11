@@ -146,3 +146,21 @@ JAMF Roles
 ||       Fixed function to check which SS/SS+ is being used (again)
 | 2.11 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 3.0 | Migrated Jamf API retrieval and evaluation workflows from mixed XML parsing to JSON and jq.
+||       Added complete computer-inventory pagination for workflows that process inventory-wide data.
+||       Added support for retrieving all inventory pages and validating the combined result against Jamf totalCount.
+||       Updated Failed MDM processing to use stable Jamf computer IDs instead of computer names.
+||       Reworked Failed MDM evaluation to count actual failed-command objects and avoid false positives from empty containers.
+||       Added JSON-based exports for Computer Policies, Computer Extension Attributes, Computer Groups, Application Usage,
+||       Jamf users, and Self Service policy metadata.
+||       Retained XML processing only for embedded Configuration Profile payloads and deployable .mobileconfig output.
+||       Added bounded parallel execution with worker failure propagation to the final application exit status.
+||       Added shared curl arguments, transport retries, timeout handling, HTTP-status validation, and conditional support for curl --retry-all-errors.
+||       Added a dedicated Extension Attribute concurrency setting.
+||       Hardened temporary-file creation, permissions, cleanup, JSON validation, and output-file validation.
+||       Hardened SwiftDialog JSON construction by encoding dynamic values with jq and validating completed dialog documents.
+||       Reworked group-based VCF exports to resolve and deduplicate Jamf users before starting parallel exports.
+||       Added locked concurrent writes for exported email recipient lists.
+||       Improved Smart Group criteria and Static Group member exports by processing each JSON object directly instead of maintaining parallel shell arrays.
+||       Improved final reporting so processed-item counts and generated file counts are reported accurately for workflows where they are not one-to-one.
+||       Improved token acquisition, expiration validation, renewal, invalidation, and cleanup for OAuth and user-account authentication.
