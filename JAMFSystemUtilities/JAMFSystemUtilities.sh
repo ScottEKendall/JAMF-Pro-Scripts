@@ -1,3 +1,4 @@
+#!/bin/zsh
 #
 # JAMFSystemUtilities
 #
@@ -193,26 +194,63 @@ function check_for_sudo ()
 
 function create_log_directory ()
 {
-    # Ensure that the log directory and the log files exist. If they
-    # do not then create them and set the permissions.
-    #
-    # RETURN: None
+    # PURPOSE:
+    #   Ensure the log directory and log file exist and have
+    #   appropriate permissions.
 
-	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
     local LOG_DIR="${LOG_FILE%/*}"
+
+    #
+    # Logging to disk is only required when running as root.
+    #
 
     admin_user || return 0
 
-    if [[ ! -d "$LOG_DIR" ]]; then
-        mkdir -p "$LOG_DIR" || {print -u2 "ERROR: Unable to create log directory: ${LOG_DIR}"; return 1; }
-    fi
-    chmod 755 "$LOG_DIR" || {print -u2 "ERROR: Unable to set permissions on: ${LOG_DIR}"; return 1; }
-    # If the log file does not exist - create it and set the permissions
-    if [[ ! -f "$LOG_FILE" ]]; then
-        touch "$LOG_FILE" || {print -u2 "ERROR: Unable to create log file: ${LOG_FILE}"; return 1;}
+    if [[ -z "$LOG_DIR" || "$LOG_DIR" == "$LOG_FILE" ]]; then
+        print -u2 -r -- "ERROR: Unable to determine log directory from: ${LOG_FILE}"
+        return 1
     fi
 
-    chmod 640 "$LOG_FILE" || {print -u2 "ERROR: Unable to secure log file: ${LOG_FILE}"; return 1;}
+    #
+    # Create the log directory when necessary.
+    #
+
+    if [[ ! -d "$LOG_DIR" ]]; then
+        if ! /bin/mkdir -p "$LOG_DIR"; then
+            print -u2 -r -- "ERROR: Unable to create log directory: ${LOG_DIR}"
+            return 1
+        fi
+    fi
+
+    #
+    # Set directory permissions.
+    #
+
+    if ! /bin/chmod 755 "$LOG_DIR"; then
+        print -u2 -r -- "ERROR: Unable to set permissions on log directory: ${LOG_DIR}"
+        return 1
+    fi
+
+    #
+    # Create the log file when necessary.
+    #
+
+    if [[ ! -f "$LOG_FILE" ]]; then
+        if ! /usr/bin/touch "$LOG_FILE"; then
+            print -u2 -r -- "ERROR: Unable to create log file: ${LOG_FILE}"
+            return 1
+        fi
+    fi
+
+    #
+    # Restrict the log file itself.
+    #
+
+    if ! /bin/chmod 640 "$LOG_FILE"; then
+        print -u2 -r -- "ERROR: Unable to secure log file: ${LOG_FILE}"
+        return 1
+    fi
+
     return 0
 }
 
