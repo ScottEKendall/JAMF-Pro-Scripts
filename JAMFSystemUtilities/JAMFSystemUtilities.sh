@@ -144,7 +144,9 @@ SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 JQ_INSTALL_POLICY="install_jq"
 
 BACKGROUND_TASKS=20                 # Number of background tasks to run in parallel
-EA_BACKGROUND_TASKS=8
+EA_BACKGROUND_TASKS=8               # Number of background tasks to run in parallel for EA checks
+INVENTORY_PAGE_SIZE=1000            # Number of inventory records to retrieve per page
+
 EMAIL_APP='com.microsoft.outlook'   # Use the bundle identifier of your email app. you can find it by this command "osascript -e 'id of app "<appname>"' "
 
 ##################################################
@@ -2016,6 +2018,255 @@ function JAMF_retrieve_data_blob_global ()
         }
 }
 
+function JAMF_get_all_inventory_records ()
+{
+    # PURPOSE:
+    #   Retrieve all matching Jamf Pro computer inventory records
+    #   across every available page.
+    #
+    #   JAMF_get_inventory_record handles retrieval of a single page.
+    #   This function repeatedly calls that helper and combines the
+    #   results into one normalized JSON response.
+    #
+    # PARAMETERS:
+    #   $1 = Inventory section
+    #   $2 = Optional filter condition
+    #   $3 = Optional page size
+    #        Defaults to INVENTORY_PAGE_SIZE, then 1000
+    #
+    # OUTPUT:
+    #   {
+    #       "totalCount": <count>,
+    #       "results": [...]
+    #   }
+    #
+    # RETURNS:
+    #   0 = All inventory records retrieved successfully
+    #   1 = Retrieval, validation, pagination, or aggregation failure
+
+    local inventorySection="${1:-}"
+    local filterCondition="${2:-}"
+    local pageSize="${3:-${INVENTORY_PAGE_SIZE:-1000}}"
+
+    local page=0
+    local pageCount=0
+    local totalCount=0
+    local retrievedCount=0
+    local currentPageCount=0
+
+    local pageJSON=""
+    local combinedJSON='{"totalCount":0,"results":[]}'
+
+    #
+    # Validate input.
+    #
+    if [[ -z "$inventorySection" ]]; then
+        logMe "ERROR: JAMF_get_all_inventory_records called without an inventory section."
+        return 1
+    fi
+
+    if [[ "$pageSize" != <-> ]] || (( pageSize < 1 )); then
+        logMe "ERROR: Invalid inventory page size: ${pageSize}"
+        return 1
+    fi
+
+    #
+    # Retrieve the first page.
+    #
+    if ! pageJSON=$(JAMF_get_inventory_record "$inventorySection" "$filterCondition" "$page" "$pageSize"); then
+        logMe "ERROR: Unable to retrieve inventory page ${page} for section ${inventorySection}."
+        return 1
+    fi
+
+    #
+    # Validate the expected Jamf inventory structure.
+    #
+    if ! print -r -- "$pageJSON" |
+        jq -e '
+            type == "object"
+            and (.totalCount != null)
+            and (.totalCount | type == "number")
+            and (.totalCount >= 0)
+            and (.results | type == "array")
+        ' >/dev/null 2>&1
+    then
+        logMe "ERROR: Invalid inventory JSON returned for section ${inventorySection}, page ${page}."
+        return 1
+    fi
+
+    totalCount=$(print -r -- "$pageJSON" | jq -r '.totalCount')
+    currentPageCount=$(print -r -- "$pageJSON" | jq -r '.results | length')
+
+    if [[ "$totalCount" != <-> ]]; then
+        logMe "ERROR: Invalid inventory totalCount returned for section ${inventorySection}: ${totalCount}"
+        return 1
+    fi
+
+    if [[ "$currentPageCount" != <-> ]]; then
+        logMe "ERROR: Invalid inventory result count returned for section ${inventorySection}, page ${page}."
+        return 1
+    fi
+
+    #
+    # No inventory records is a valid result.
+    #
+    if (( totalCount == 0 )); then
+        logMe "INFO: No inventory records found for section ${inventorySection}."
+        print -r -- "$combinedJSON"
+        return 0
+    fi
+
+    #
+    # Calculate the expected number of pages.
+    #
+    # Jamf inventory pages are zero-based:
+    #
+    #   2567 records / page size 1000
+    #
+    #   page 0 = 1000
+    #   page 1 = 1000
+    #   page 2 =  567
+    #
+    pageCount=$(( (totalCount + pageSize - 1) / pageSize ))
+
+    logMe "Retrieving ${totalCount} Jamf inventory record(s) from ${pageCount} page(s) for section ${inventorySection}."
+
+    #
+    # Start the aggregate with the first page.
+    #
+    if ! combinedJSON=$(print -r -- "$pageJSON" | jq -c --argjson totalCount "$totalCount" '{totalCount: $totalCount, results: .results}'); then
+        logMe "ERROR: Unable to initialize inventory aggregation for section ${inventorySection}."
+        return 1
+    fi
+
+    retrievedCount="$currentPageCount"
+
+    logMe "Retrieved ${retrievedCount} of ${totalCount} inventory record(s)."
+
+    #
+    # If everything fit on page zero, we're already finished.
+    #
+    if (( retrievedCount == totalCount )); then
+        print -r -- "$combinedJSON"
+        return 0
+    fi
+
+    #
+    # An empty first page while totalCount is nonzero indicates an
+    # inconsistent Jamf response.
+    #
+    if (( currentPageCount == 0 )); then
+        logMe "ERROR: Jamf reported ${totalCount} inventory records but page ${page} contained no results."
+        return 1
+    fi
+
+    #
+    # Retrieve the remaining pages.
+    #
+    for (( page = 1; page < pageCount; page++ )); do
+
+        if ! pageJSON=$(JAMF_get_inventory_record "$inventorySection" "$filterCondition" "$page" "$pageSize"); then
+            logMe "ERROR: Unable to retrieve inventory page ${page} for section ${inventorySection}."
+            return 1
+        fi
+
+        #
+        # Validate every page independently before adding it to the
+        # aggregate.
+        #
+        if ! print -r -- "$pageJSON" | jq -e 'type == "object" and (.results | type == "array")' >/dev/null 2>&1; then
+            logMe "ERROR: Invalid inventory JSON returned for section ${inventorySection}, page ${page}."
+            return 1
+        fi
+
+        currentPageCount=$(print -r -- "$pageJSON" | jq -r '.results | length')
+
+        if [[ "$currentPageCount" != <-> ]]; then
+            logMe "ERROR: Invalid inventory result count returned for section ${inventorySection}, page ${page}."
+            return 1
+        fi
+
+        #
+        # We have not yet reached totalCount, so an empty page means
+        # pagination terminated unexpectedly.
+        #
+        if (( currentPageCount == 0 )); then
+            logMe "ERROR: Inventory page ${page} was empty before all expected records were retrieved."
+            logMe "ERROR: Expected ${totalCount} inventory records but retrieved ${retrievedCount}."
+            return 1
+        fi
+
+        #
+        # Append this page's results to the aggregate.
+        #
+        if ! combinedJSON=$(printf '%s\n%s\n' "$combinedJSON" "$pageJSON" | jq -cs '
+                {
+                    totalCount: .[0].totalCount,
+                    results: (
+                        .[0].results
+                        + .[1].results
+                    )
+                }
+            '); then
+            logMe "ERROR: Unable to aggregate inventory page ${page} for section ${inventorySection}."
+            return 1
+        fi
+
+        retrievedCount=$(print -r -- "$combinedJSON" | jq -r '.results | length')
+
+        if [[ "$retrievedCount" != <-> ]]; then
+            logMe "ERROR: Invalid aggregate inventory count after page ${page}."
+            return 1
+        fi
+
+        logMe "Retrieved ${retrievedCount} of ${totalCount} inventory record(s)."
+
+        #
+        # Protect against Jamf unexpectedly returning more records
+        # than advertised by totalCount.
+        #
+        if (( retrievedCount > totalCount )); then
+            logMe "ERROR: Retrieved ${retrievedCount} inventory records, exceeding Jamf totalCount of ${totalCount}."
+            return 1
+        fi
+    done
+
+    #
+    # Final completeness check.
+    #
+    retrievedCount=$(print -r -- "$combinedJSON" | jq -r '.results | length')
+
+    if [[ "$retrievedCount" != <-> ]]; then
+        logMe "ERROR: Unable to determine final inventory record count."
+        return 1
+    fi
+
+    if (( retrievedCount != totalCount )); then
+        logMe "ERROR: Incomplete Jamf inventory retrieval."
+        logMe "ERROR: Expected ${totalCount} record(s), but retrieved ${retrievedCount}."
+        return 1
+    fi
+
+    #
+    # Perform one final structural validation before returning data
+    # to the caller.
+    #
+    if ! print -r -- "$combinedJSON" | jq -e --argjson expected "$totalCount" '
+            type == "object"
+            and (.totalCount == $expected)
+            and (.results | type == "array")
+            and ((.results | length) == $expected)
+            ' >/dev/null 2>&1; then
+        logMe "ERROR: Final inventory aggregation failed validation."
+        return 1
+    fi
+
+    logMe "Complete Jamf inventory retrieved successfully: ${retrievedCount} record(s)."
+
+    print -r -- "$combinedJSON"
+    return 0
+}
+
 function JAMF_get_inventory_record ()
 {
     # PURPOSE:
@@ -2025,12 +2276,13 @@ function JAMF_get_inventory_record ()
     #   $1 = Inventory section
     #   $2 = Optional filter condition
     #   $3 = Optional page number (default: 0)
-    #   $4 = Optional page size (default: 1000)
+    #   $4 = Optional page size
+    #         Defaults to INVENTORY_PAGE_SIZE, then 1000
 
     local inventorySection="${1:-}"
     local filterCondition="${2:-}"
     local page="${3:-0}"
-    local pageSize="${4:-1000}"
+    local pageSize="${4:-${INVENTORY_PAGE_SIZE:-1000}}"
 
     local responseFile=""
     local responseBody=""
@@ -2854,7 +3106,7 @@ function export_failed_mdm_devices ()
     # Retrieve the Jamf computer inventory.
     #
 
-    if ! DeviceList=$(JAMF_get_inventory_record "GENERAL" "" 0 1000); then
+    if ! DeviceList=$(JAMF_get_all_inventory_records "GENERAL" "" "$INVENTORY_PAGE_SIZE"); then
         logMe "ERROR: Unable to retrieve the Jamf Pro computer inventory list."
         return 1
     fi
@@ -5456,7 +5708,8 @@ function export_user_multiple ()
     # Retrieve USER_AND_LOCATION inventory data.
     #
 
-    if ! UserList=$(JAMF_get_inventory_record "USER_AND_LOCATION"); then
+    if ! UserList=$(JAMF_get_all_inventory_records "USER_AND_LOCATION" "" "$INVENTORY_PAGE_SIZE"); then
+    
         logMe "ERROR: Unable to retrieve USER_AND_LOCATION inventory records."
         return 1
     fi
