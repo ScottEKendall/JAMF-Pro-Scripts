@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 06/03/2025
-# Last updated: 11/11/2026
+# Last updated: 11/12/2026
 #
 # Script Purpose:
 #   Provide an interactive SwiftDialog-based utility for exporting,
@@ -73,6 +73,16 @@
 #       Improved Smart Group criteria and Static Group member exports by processing each JSON object directly instead of maintaining parallel shell arrays.
 #       Improved final reporting so processed-item counts and generated file counts are reported accurately for workflows where they are not one-to-one.
 #       Improved token acquisition, expiration validation, renewal, invalidation, and cleanup for OAuth and user-account authentication.
+# 3.1 - Added complete pagination for Jamf Pro computer inventory requests.
+#       Added configurable INVENTORY_PAGE_SIZE with a default of 1000 records per page.
+#       Added totalCount validation to detect incomplete inventory retrieval.
+#       Hardened large inventory JSON aggregation to avoid command-line argument-size limits.
+#       Added shared API token caching and atomic renewal locking for parallel workers.
+#       Prevented parallel workers from independently requesting replacement API tokens.
+#       Updated progress dialogs to wait for user acknowledgement before continuing.
+#       Added cleanup handling for active SwiftDialog processes and shared token-cache resources.
+#       Added a preparation dialog while resolving users during group-based VCF exports.
+#       Improved scalability and user feedback for long-running Jamf Pro operations.
 
 ######################################################################################################
 #
@@ -82,6 +92,7 @@
 #set -x 
 SCRIPT_NAME="JAMFSystemUtilities"
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin
+SCRIPT_VERSION="3.1"
 
 FREE_DISK_SPACE=$(/bin/df -g / | awk 'NR == 2 { print $4 }')
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
@@ -347,6 +358,47 @@ function install_swift_dialog ()
     return 0
 }
 
+function wait_for_progress_dialog ()
+{
+    # PURPOSE:
+    #   Wait for the active SwiftDialog progress window to close.
+    #
+    #   Normally this occurs after the user clicks the enabled
+    #   completion button.
+    #
+    # RETURNS:
+    #   SwiftDialog exit status.
+
+    local dialogStatus=0
+
+    if [[ "${DIALOG_PID:-0}" != <-> ]] ||
+       (( DIALOG_PID <= 0 ))
+    then
+        logMe "WARNING: No active SwiftDialog progress PID is available."
+        return 0
+    fi
+
+    #
+    # The dialog may already have exited before we reach this point.
+    # wait still reaps the background process and returns its status.
+    #
+    wait "$DIALOG_PID"
+    dialogStatus=$?
+
+    DIALOG_PID=0
+
+    case "$dialogStatus" in
+        0)
+            return 0
+            ;;
+
+        *)
+            logMe "WARNING: SwiftDialog progress window exited with code ${dialogStatus}."
+            return "$dialogStatus"
+            ;;
+    esac
+}
+
 function check_support_files ()
 {
     if [[ -f "$SD_BANNER_IMAGE" ]]; then
@@ -408,7 +460,8 @@ function create_infobox_message()
 	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br><br>"
+	SD_INFO_BOX_MSG+="Script Version: ${SCRIPT_VERSION}<br>"
 }
 
 function cleanup_and_exit ()
@@ -427,6 +480,14 @@ function cleanup_and_exit ()
     [[ -n "${DIALOG_COMMAND_FILE:-}" ]] && /bin/rm -f -- "$DIALOG_COMMAND_FILE"
     [[ -n "${DIALOG_COMMAND_FILE:-}" ]] && /bin/rm -rf -- "${DIALOG_COMMAND_FILE}.lock"
 
+    if [[ "${DIALOG_PID:-0}" == <-> ]] && (( DIALOG_PID > 0 )) && /bin/kill -0 "$DIALOG_PID" 2>/dev/null; then
+        /bin/kill "$DIALOG_PID" 2>/dev/null
+        wait "$DIALOG_PID" 2>/dev/null
+    fi
+
+    DIALOG_PID=0
+    [[ -n "${TOKEN_CACHE_FILE:-}" ]] && /bin/rm -f -- "$TOKEN_CACHE_FILE"
+    [[ -n "${TOKEN_LOCK_DIR:-}" ]] && /bin/rm -rf -- "$TOKEN_LOCK_DIR"
     exit "$exit_code"
 }
 
@@ -591,8 +652,6 @@ function update_display_list ()
             ;;
 
         create)
-            local dialogPID=0
-
             "$SW_DIALOG" \
                 --progress \
                 --jsonfile "$JSON_DIALOG_BLOB" \
@@ -600,12 +659,13 @@ function update_display_list ()
                 --height 800 \
                 --width 920 &
 
-            dialogPID=$!
+            DIALOG_PID=$!
 
             /bin/sleep 0.2
 
-            if ! /bin/kill -0 "$dialogPID" 2>/dev/null; then
+            if ! /bin/kill -0 "$DIALOG_PID" 2>/dev/null; then
                 logMe "ERROR: SwiftDialog progress process exited immediately."
+                DIALOG_PID=0
                 return 1
             fi
 
@@ -1289,6 +1349,34 @@ function update_dialog_json ()
     }
 }
 
+function show_preparation_dialog ()
+{
+    local message="${1:-Preparing data...}"
+
+    "$SW_DIALOG" \
+        --title "$SD_WINDOW_TITLE" \
+        --message "$message" \
+        --icon "$SD_ICON_FILE" \
+        --progress \
+        --button1disabled \
+        --ontop \
+        --moveable &
+
+    PREPARATION_DIALOG_PID=$!
+}
+
+function close_preparation_dialog ()
+{
+    if [[ "${PREPARATION_DIALOG_PID:-0}" == <-> ]] &&
+       (( PREPARATION_DIALOG_PID > 0 ))
+    then
+        /bin/kill "$PREPARATION_DIALOG_PID" 2>/dev/null
+        wait "$PREPARATION_DIALOG_PID" 2>/dev/null
+    fi
+
+    PREPARATION_DIALOG_PID=0
+}
+
 ###########################
 #
 # JAMF functions
@@ -1604,56 +1692,242 @@ function JAMF_get_classic_api_token ()
     }
 }
 
-function JAMF_ensure_valid_token ()
+function JAMF_load_cached_token ()
 {
-    local -i renewal_buffer=60
+    # PURPOSE:
+    #   Load a valid Jamf API token from the shared token cache.
+    #
+    # RETURNS:
+    #   0 = Valid cached token loaded
+    #   1 = Cache missing, invalid, or nearing expiration
 
-    if [[ -n "$api_token" ]] &&
-       (( api_token_expires_epoch > 0 )) &&
-       (( EPOCHSECONDS + renewal_buffer < api_token_expires_epoch )); then
-        return 0
+    local -i renewal_buffer=60
+    local cachedToken=""
+    local cachedExpiration=""
+
+    if [[ -z "${TOKEN_CACHE_FILE:-}" || ! -s "$TOKEN_CACHE_FILE" ]]; then
+        return 1
     fi
 
-    logMe "Jamf API token is missing or nearing expiration. Requesting a new token."
+    if ! jq -e '
+        type == "object"
+        and (.token | type == "string")
+        and (.token | length > 0)
+        and (.expiresEpoch | type == "number")
+    ' "$TOKEN_CACHE_FILE" >/dev/null 2>&1
+    then
+        return 1
+    fi
 
-    api_token=""
-    api_token_expires_epoch=0
+    cachedToken=$(jq -r '.token // empty' "$TOKEN_CACHE_FILE")
+    cachedExpiration=$(jq -r '.expiresEpoch // 0 | floor' "$TOKEN_CACHE_FILE")
 
-    case "$JAMF_TOKEN" in
-        new)
-            if ! JAMF_get_access_token; then
-                logMe "ERROR: Unable to obtain a new OAuth access token." >&2
-                return 1
-            fi
-            ;;
+    if [[ -z "$cachedToken" ||
+          "$cachedExpiration" != <-> ]]
+    then
+        return 1
+    fi
 
-        classic)
-            if ! JAMF_get_classic_api_token; then
-                logMe "ERROR: Unable to obtain a new Classic API bearer token." >&2
-                return 1
-            fi
-            ;;
+    if (( EPOCHSECONDS + renewal_buffer >= cachedExpiration )); then
+        return 1
+    fi
 
-        *)
-            logMe "ERROR: Unknown authentication type: ${JAMF_TOKEN}" >&2
-            return 1
-            ;;
-    esac
+    api_token="$cachedToken"
+    api_token_expires_epoch="$cachedExpiration"
 
-    if [[ -z "$api_token" ]]; then
-        logMe "ERROR: Token request completed without returning an API token." >&2
-        api_token_expires_epoch=0
+    return 0
+}
+
+function JAMF_save_cached_token ()
+{
+    # PURPOSE:
+    #   Save the current Jamf API token and expiration to the shared
+    #   token cache.
+    #
+    # The caller must hold TOKEN_LOCK_DIR before calling this function.
+
+    local temporaryCache=""
+
+    if [[ -z "${api_token:-}" ]]; then
+        logMe "ERROR: Cannot cache an empty Jamf API token."
         return 1
     fi
 
     if (( api_token_expires_epoch <= EPOCHSECONDS )); then
-        logMe "ERROR: Token request returned an invalid expiration epoch: ${api_token_expires_epoch}" >&2
-        api_token=""
-        api_token_expires_epoch=0
+        logMe "ERROR: Cannot cache an expired Jamf API token."
         return 1
     fi
 
-    return 0
+    temporaryCache=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.token-cache-write.XXXXX") || {
+        logMe "ERROR: Unable to create temporary token-cache file."
+        return 1
+    }
+
+    {
+        if ! /bin/chmod 600 "$temporaryCache"; then
+            logMe "ERROR: Unable to secure temporary token-cache file."
+            return 1
+        fi
+
+        if ! jq -cn --arg token "$api_token" --argjson expiresEpoch "$api_token_expires_epoch" '{token: $token, expiresEpoch: $expiresEpoch}' > "$temporaryCache"; then
+            logMe "ERROR: Unable to construct the shared token cache."
+            return 1
+        fi
+
+        if ! jq -e 'type == "object" and (.token | type == "string") and (.token | length > 0) and (.expiresEpoch | type == "number")' "$temporaryCache" >/dev/null 2>&1; then
+            logMe "ERROR: Shared token-cache validation failed."
+            return 1
+        fi
+
+        if ! /bin/mv -f "$temporaryCache" "$TOKEN_CACHE_FILE"; then
+            logMe "ERROR: Unable to install the shared token cache."
+            return 1
+        fi
+
+        temporaryCache=""
+
+        if ! /bin/chmod 600 "$TOKEN_CACHE_FILE"; then
+            logMe "ERROR: Unable to secure the shared token cache."
+            return 1
+        fi
+
+        return 0
+
+    } always {
+        [[ -n "$temporaryCache" ]] &&
+            /bin/rm -f -- "$temporaryCache"
+    }
+}
+
+function JAMF_ensure_valid_token ()
+{
+    # PURPOSE:
+    #   Ensure that the current process has a valid Jamf Pro API token.
+    #
+    #   Parallel workers coordinate token renewal through a shared
+    #   token cache and atomic directory lock.
+    #
+    # RETURNS:
+    #   0 = Valid token available
+    #   1 = Token retrieval or synchronization failure
+
+    local -i renewal_buffer=60
+    local -i lockAttempts=0
+    local -i maxLockAttempts=600
+
+    #
+    # First check the token already available to this process.
+    #
+    if [[ -n "${api_token:-}" ]] && (( api_token_expires_epoch > 0 )) && (( EPOCHSECONDS + renewal_buffer < api_token_expires_epoch )); then
+        return 0
+    fi
+
+    #
+    # Check whether another process has already renewed the token
+    # and stored it in the shared cache.
+    #
+    if JAMF_load_cached_token; then
+        return 0
+    fi
+
+    #
+    # Acquire the shared token-renewal lock.
+    #
+    while ! /bin/mkdir "$TOKEN_LOCK_DIR" 2>/dev/null; do
+
+        (( lockAttempts++ ))
+
+        #
+        # The process holding the lock may have completed token
+        # renewal while this process was waiting.
+        #
+        if JAMF_load_cached_token; then
+            return 0
+        fi
+
+        if (( lockAttempts >= maxLockAttempts )); then
+            logMe "ERROR: Timed out waiting for the Jamf token-renewal lock."
+            return 1
+        fi
+
+        /bin/sleep 0.05
+    done
+
+    {
+        #
+        # Recheck the shared cache after acquiring the lock.
+        #
+        # Another worker may have renewed the token immediately
+        # before this process acquired the lock.
+        #
+        if JAMF_load_cached_token; then
+            return 0
+        fi
+
+        logMe "Jamf API token is missing or nearing expiration. Requesting a new token."
+
+        api_token=""
+        api_token_expires_epoch=0
+
+        case "$JAMF_TOKEN" in
+
+            new)
+                if ! JAMF_get_access_token; then
+                    logMe "ERROR: Unable to obtain a new OAuth access token."
+                    return 1
+                fi
+                ;;
+
+            classic)
+                if ! JAMF_get_classic_api_token; then
+                    logMe "ERROR: Unable to obtain a new Classic API bearer token."
+                    return 1
+                fi
+                ;;
+
+            *)
+                logMe "ERROR: Unknown authentication type: ${JAMF_TOKEN}"
+                return 1
+                ;;
+
+        esac
+
+        #
+        # Validate the newly returned token.
+        #
+        if [[ -z "${api_token:-}" ]]; then
+            logMe "ERROR: Token request completed without returning an API token."
+            api_token_expires_epoch=0
+            return 1
+        fi
+
+        if (( api_token_expires_epoch <= EPOCHSECONDS )); then
+            logMe "ERROR: Token request returned an invalid expiration epoch: ${api_token_expires_epoch}"
+            api_token=""
+            api_token_expires_epoch=0
+            return 1
+        fi
+
+        #
+        # Publish the new token for the other parallel workers.
+        #
+        if ! JAMF_save_cached_token; then
+            logMe "ERROR: Unable to update the shared Jamf token cache."
+            api_token=""
+            api_token_expires_epoch=0
+            return 1
+        fi
+
+        return 0
+
+    } always {
+
+        #
+        # Always release the token-renewal lock.
+        #
+        /bin/rmdir "$TOKEN_LOCK_DIR" 2>/dev/null ||
+            /bin/rm -rf -- "$TOKEN_LOCK_DIR"
+    }
 }
 
 function JAMF_get_access_token ()
@@ -2640,6 +2914,8 @@ function backup_ss_icons ()
 
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
+    wait_for_progress_dialog
+    
     return "$parallelStatus"
 }
 
@@ -3164,7 +3440,7 @@ function export_failed_mdm_devices ()
     logMe "$logMsg"
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
-
+    wait_for_progress_dialog
     return "$parallelStatus"
 }
 
@@ -3225,7 +3501,7 @@ function backup_jamf_scripts ()
     logMe "${logMsg}" 
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
-    wait
+    wait_for_progress_dialog
     return "$parallelStatus"
 }
 
@@ -3354,8 +3630,7 @@ function backup_computer_extensions ()
     logMe "$logMsg"
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
-    wait
-
+    wait_for_progress_dialog
     return "$parallelStatus"
 }
 
@@ -3538,7 +3813,7 @@ function backup_configuration_profiles ()
     logMe "${logMsg}" 
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
-    wait
+    wait_for_progress_dialog
     return "$parallelStatus"
 }
 
@@ -3703,6 +3978,8 @@ function backup_computer_policies ()
     logMe "$logMsg"
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
+    wait_for_progress_dialog
+    
     return "$parallelStatus"
 }
 
@@ -4313,14 +4590,8 @@ function create_vcf_cards ()
 
         logMe "Found ${#ComputerIDs[@]} computers in ${GroupName}."
 
-        #
-        # Resolve each group computer to an assigned email, then
-        # resolve that email to a Jamf user.
-        #
-        # Do not create the progress dialog yet. The dialog must use
-        # Jamf usernames because extract_user_details updates rows
-        # using userShortName.
-        #
+        show_preparation_dialog "Retrieving user information for ${#ComputerIDs[@]} computers in ${GroupName}..."
+        
 
         for item in "${ComputerIDs[@]}"; do
 
@@ -4394,6 +4665,9 @@ function create_vcf_cards ()
 
             done < <(print -r -- "$userData" | jq -r '.users[]? |[(.id // empty),(.name // ("User ID " + ((.id // "") | tostring)))]| @tsv')
         done
+
+        close_preparation_dialog
+        
 
         #
         # No resolved Jamf users is a successful empty result.
@@ -4525,7 +4799,7 @@ function create_vcf_cards ()
 
     update_display_list "buttonenable"
 
-    wait
+    wait_for_progress_dialog
 
     #
     # Open the selected email application with the exported addresses.
@@ -4951,6 +5225,8 @@ function export_computer_groups ()
 
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
+    wait_for_progress_dialog
+    
     return "$parallelStatus"
 }
 
@@ -5436,6 +5712,8 @@ function export_usage ()
 
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
+    wait_for_progress_dialog
+    
     return "$parallelStatus"
 }
 
@@ -5823,6 +6101,8 @@ function export_user_multiple ()
 
     update_display_list "progress" "" "" "" "$logMsg" 100
     update_display_list "buttonenable"
+    wait_for_progress_dialog
+    
     return "$parallelStatus"
 }
 
@@ -6354,15 +6634,21 @@ function run_selected_operation ()
 }
 
 
+
 ####################################################################################################
 #
 # Main Script
 #
 ####################################################################################################
 
-typeset -gx api_token=""
 typeset -g jamfpro_url=""
 typeset -ga CURL_ARGS=()
+typeset -g DIALOG_PID=0
+typeset -g api_token=""
+typeset -gi api_token_expires_epoch=0
+
+typeset -g TOKEN_CACHE_FILE="/var/tmp/${SCRIPT_NAME}.token-cache.$$"
+typeset -g TOKEN_LOCK_DIR="${TOKEN_CACHE_FILE}.lock"
 
 typeset -g menu_backupJAMFScripts=""
 typeset -g menu_backupSSIcons=""

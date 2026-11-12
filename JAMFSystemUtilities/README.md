@@ -1,58 +1,83 @@
 ## JAMF System Utilities    
 
-This script is designed to backup/extract several items from your JAMF server.  Why do you want to do this?
+JAMF System Utilities is an interactive administration, backup, reporting, and troubleshooting utility for Jamf Pro.
+
+The utility provides a SwiftDialog-based interface for exporting Jamf Pro configuration data, generating inventory and user reports, backing up Self Service resources, reviewing failed MDM commands, comparing configuration profiles, and performing other common Jamf administrative tasks.
+
+Version 3.0 modernizes the underlying API workflows with JSON/jq processing, complete computer-inventory pagination, bounded parallel processing, improved authentication and token handling, and hardened API error handling.
+  
+Why do you want to do this?
 
 1.  Make a backup of your scripts, configurations & icons in case your existing backup files is missing/corrupted (or you don't have one!)
-2.  You inhereited a JAMF server from another person, and this can do a "brain dump" so you can review the settings.
+2.  You inheritted a JAMF server from another person, and this can do a "brain dump" so you can review the settings.
 3.  Why not?  It is another example of what you can do with API scripts..
 
-The following items are available to be backed up:
+## Available Operations
 
---- Computer Based Actions ---
+### Computer Operations
 
-1.  Backup Computer Policies - Export all of the computer policies
-2.  Computer Extension Attributes - Export all of the computer extension attributes
-3.  Configuration Profiles - Export all of the configuration profiles to .mobileconfig files
+- **Backup Computer Policies** - Export computer policies.
+- **Computer Extension Attributes** - Export computer Extension Attributes.
+- **Configuration Profiles** - Export configuration profiles as `.mobileconfig`.
+- **Smart / Static Computer Groups** - Export group configuration and membership.
+- **Failed MDM Commands** - Report computers containing failed MDM commands
+  and optionally clear those failures.
+- **Compare Two Configuration Profiles** - Compare configuration profiles
+  and generate a report showing their differences.
 
-4.  Smart / Static Computer Groups - Export all of the members of a smart / static computer groups:
-   - Smart Computer Groups will export the paramaters and criteria to a .txt file
-   - Static Computer Groups will export the members to a .txt file
-5.  Failed MDM Commands - Export systems that have failed MDM commands so you can review them and optionally clear the failures
-6.  Compare Two Configuation Profiles - Useful to see exact the differences between the two
+### User Operations
 
+- **Export Emails to VCF** - Generate VCF contacts from Jamf user records.
+- **Group VCF Export** - Generate contacts for members of a Smart or Static
+  Computer Group.
+- **Compose Group Email** - Create an email addressed to members of a selected group.
+- **Application Usage** - Export application usage history for a selected period.
+- **Users with Multiple Systems** - Report users assigned to multiple computers.
 
---- User Based Actions ---
+### System Operations
 
-7.  Export Emails to VCF - Export all of the email addresses to a VCF file, which can be imported into Contacts.app or other applications. 
-   - Export VCF cards of the members of a Smart / Static Computer Group.
-   - Compose an email to the members of a Smart / Static Computer Group.
-8.  Application Usage - Export log history from a given time period from any group
-9.  Export list of users with multiple systems assigned to them
+- **Self Service Icons** - Back up Self Service / Self Service+ policy icons.
+- **System Scripts** - Export scripts stored in Jamf Pro.
 
---- System Based Actions ---
+## Performance and Scalability
 
-10. Self Service Icons - Great to have a backup when JAMF starts showing generic icons in Self Service.
-11. System Scripts - Everything that is stored in Settings > Scripts
+JAMF System Utilities uses bounded parallel processing for operations that
+can safely run concurrently.
 
-This script is fully multitasking, so it will execute each task pretty quickly.  It will create the folder structure for you and then download the items to the appropriate folders. 
+Computer inventory operations use automatic pagination rather than assuming
+that the complete Jamf inventory is available in a single API response.
+
+The default inventory page size is 1000 records. There is no fixed
+10,000-computer limit imposed by the pagination implementation.
+
+Progress dialogs remain responsive during processing and wait for user
+acknowledgement before proceeding to the next selected operation.
 
 **File Formats**
 
 1. Icons have a .png extension.
 2. Scripts have a .sh extension.
 3. Computer Extension Attributes have a .sh extension.
-4. Computer Poiicies will have a .xml extension
-5. Comparison fils will have a .txt extension
+4. Computer Policies will have a .xml extension
+5. Comparison files will have a .txt extension
 6. Configuration Profiles have a .mobileconfig extension.
 7. Emails have a .vcf extension.
 8. Smart / Static Computer Groups have a .txt extension.
-9. Applicaiton Usage will have a .csv extension
+9. Application Usage will have a .csv extension
 
 **Folder Structure**
 
 The subfolder locations can be customized by editing the ```function check_directories```
 
-**JAMF Pro OAuth API Support**
+## Jamf Pro Authentication
+
+JAMF System Utilities supports both Jamf Pro API authentication methods:
+
+- OAuth API Client ID and Client Secret
+- Username and password
+
+The account or API role must be granted the Jamf Pro privileges required
+for the operations you intend to use.
 
 When creating the roles, you can now use the OAuth API to create the roles.  This is useful if you are using JAMF Pro 10.32 or later, and have enabled OAuth API access.  You need to have at least these permissions:
 
@@ -69,6 +94,32 @@ When creating the roles, you can now use the OAuth API to create the roles.  Thi
 - Send MDM command information in Jamf Pro API
 - Flush MDM Commands
 ```
+
+## Configuration
+
+Several settings near the beginning of the script can be customized for
+your environment.
+
+| Setting | Default | Description |
+|---|---:|---|
+| `BACKGROUND_TASKS` | `20` | Maximum number of general background workers |
+| `EA_BACKGROUND_TASKS` | `8` | Maximum number of concurrent Extension Attribute workers |
+| `INVENTORY_PAGE_SIZE` | `1000` | Number of Jamf computer inventory records requested per API page |
+| `EMAIL_APP` | `com.microsoft.outlook` | Bundle identifier of the application used when composing email |
+
+### Inventory Pagination
+
+Computer inventory operations automatically retrieve all required Jamf Pro
+inventory pages.
+
+`INVENTORY_PAGE_SIZE` controls the number of records requested per page.
+The production default is `1000`.
+
+For example, an inventory containing 10,001 computers requires 11 API
+pages at the default page size.
+
+The utility validates the final combined record count against Jamf Pro's
+reported `totalCount` and treats incomplete pagination as an error.
 
 ------------------------------------
 
@@ -129,10 +180,10 @@ JAMF Roles
 ||     Better error log report during failures
 | 2.5 | used modern API for computer EAs
 | 2.6 | Added option for export of multiple users per system
-||     Added option for export of Computer Policie
+||     Added option for export of Computer Policies
 | 2.7 | Added option to compare two configuration profiles
 | 2.8 | Changed variable declarations around for better readability
-| 2.9 | Verified working agains JAMF API 11.20
+| 2.9 | Verified working against Pro API 11.20
 ||       Added option to detect which SS/SS+ we are using and grab the appropriate icon
 ||       Now works with JAMF Client/Secret or Username/password authentication
 ||       Change variable declare section around for better readability
@@ -164,3 +215,13 @@ JAMF Roles
 ||       Improved Smart Group criteria and Static Group member exports by processing each JSON object directly instead of maintaining parallel shell arrays.
 ||       Improved final reporting so processed-item counts and generated file counts are reported accurately for workflows where they are not one-to-one.
 ||       Improved token acquisition, expiration validation, renewal, invalidation, and cleanup for OAuth and user-account authentication.
+| 3.1 | Added complete pagination for Jamf Pro computer inventory requests.
+||       Added configurable INVENTORY_PAGE_SIZE with a default of 1000 records per page.
+||       Added totalCount validation to detect incomplete inventory retrieval.
+||       Hardened large inventory JSON aggregation to avoid command-line argument-size limits.
+||       Added shared API token caching and atomic renewal locking for parallel workers.
+||       Prevented parallel workers from independently requesting replacement API tokens.
+||       Updated progress dialogs to wait for user acknowledgement before continuing.
+||       Added cleanup handling for active SwiftDialog processes and shared token-cache resources.
+||       Added a preparation dialog while resolving users during group-based VCF exports.
+||       Improved scalability and user feedback for long-running Jamf Pro operations.
