@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 04/22/2026
-# Last updated: 10/08/2026
+# Last updated: 11/19/2026
 #
 # Script Purpose: This script is designed to retrieve the expiration dates of PKI, ADE, VPP & APNS tokens and Configuration Profiles from JAMF Pro 
 #
@@ -30,6 +30,13 @@
 #     - Improved SwiftDialog user experience and progress reporting
 #     - Expanded logging, diagnostics, and recovery handling
 #     - Significant security, reliability, and performance improvements
+# 2.1 - Added silent monitoring and Microsoft Teams webhook notifications
+#     - Added Adaptive Card reporting for warning, critical, and operational errors
+#     - Added configurable success, warning, and critical notifications
+#     - Added centralized monitoring-result collection
+#     - Added configuration profile certificate details to Teams reporting
+#     - Added reusable Jamf curl argument handling to simplify and standardize API requests
+#     - Improved silent-mode handling and SwiftDialog command updates
 
 ######################################################################################################
 #
@@ -39,7 +46,7 @@
 #set -x 
 SCRIPT_NAME="JAMFRetrieveExpireDates"
 export PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
-SCRIPT_VERSION="2.0"
+SCRIPT_VERSION="2.1"
 
 FREE_DISK_SPACE=$(/bin/df -g / | /usr/bin/awk 'NR == 2 { print $4 }')
 MACOS_NAME=$(sw_vers -productName)
@@ -108,6 +115,13 @@ JAMF_PARAMETER_USER="${3:-}"     # Passed in by JAMF automatically
 CLIENT_ID="${4:-}"               # credentials  for JAMF Pro login
 CLIENT_SECRET="${5:-}"
 JAMF_SERVER="${6:-}"            # JAMF server to check again...leave it blank for active PROD server
+RUN_MODE="${7:-interactive}"    # Silent / Teams monitoring
+TEAMS_WEBHOOK_URL="${8:-}"
+
+TEAMS_NOTIFY_SUCCESS="true"
+TEAMS_NOTIFY_WARNING="true"
+TEAMS_NOTIFY_CRITICAL="true"
+
                             
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF credentials we are using 
 
@@ -300,7 +314,6 @@ function create_infobox_message()
 
 function cleanup_files ()
 {
-    # Perform a clean-up on all of the temp files that were created at run-time
     (( ZSH_SUBSHELL == 0 )) || return 0
     [[ "$$" == "$MAIN_PID" ]] || return 0
 
@@ -310,8 +323,9 @@ function cleanup_files ()
         "${JSON_DIALOG_BLOB:-}" \
         "${DIALOG_COMMAND_FILE:-}"
     do
-        [[ -n "$file" && -e "$file" ]] &&
-            /bin/rm -f -- "$file"
+        if [[ -n "$file" && -e "$file" ]]; then
+            rm -f -- "$file"
+        fi
     done
 }
 
@@ -361,14 +375,21 @@ function handle_exit ()
 
 function make_temp_files ()
 {
-    # Make some temp files    
-    JSON_DIALOG_BLOB=$(mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX") || {
-        logMe "ERROR: Unable to create SwiftDialog JSON file" >&2
+    if is_silent_mode; then
+        return 0
+    fi
+
+    JSON_DIALOG_BLOB=$(
+        mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX"
+    ) || {
+        logMe "ERROR: Unable to create SwiftDialog JSON file." >&2
         return 1
     }
 
-    DIALOG_COMMAND_FILE=$(mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX") || {
-        logMe "ERROR: Unable to create SwiftDialog command file" >&2
+    DIALOG_COMMAND_FILE=$(
+        mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX"
+    ) || {
+        logMe "ERROR: Unable to create SwiftDialog command file." >&2
         return 1
     }
 
@@ -376,15 +397,15 @@ function make_temp_files ()
         "$JSON_DIALOG_BLOB" \
         "$DIALOG_COMMAND_FILE"
     then
-        logMe "ERROR: Unable to set temporary dialog-file ownership" >&2
+        logMe "ERROR: Unable to set temporary dialog-file ownership." >&2
         return 1
     fi
 
-    if ! chmod 600 \
+    if ! /bin/chmod 600 \
         "$JSON_DIALOG_BLOB" \
         "$DIALOG_COMMAND_FILE"
     then
-        logMe "ERROR: Unable to secure temporary dialog files" >&2
+        logMe "ERROR: Unable to secure temporary dialog files." >&2
         return 1
     fi
 
@@ -422,6 +443,9 @@ function update_display_list ()
     #      integer   - Set progress to the specified value
     # The :l modifier converts the action parameter to lowercase.
 
+    is_silent_mode && return 0
+
+
     case "${1:l}" in
  
         "create" | "show" )
@@ -440,14 +464,13 @@ function update_display_list ()
 
             status_text="${status_text//$'\r'/}"
             status_text="${status_text//$'\n'/<br>}"
-
-            print -r -- "listitem: add, title: ${title_text}, status: ${3}, statustext: ${status_text}" >> "$DIALOG_COMMAND_FILE"
+            update_dialog_overlay_icon "listitem: add, title: ${title_text}, status: ${3}, statustext: ${status_text}"
             ;;
 
         "buttonenable" )
 
             # Enable button 1
-            print -r -- "button1: enable" >> "${DIALOG_COMMAND_FILE}"
+            update_dialog_overlay_icon "button1: enable"
             ;;
 
         "update" | "change" )
@@ -461,19 +484,40 @@ function update_display_list ()
             status_text="${status_text//$'\r'/}"
             status_text="${status_text//$'\n'/<br>}"
 
-            print -r -- "listitem: title: ${3}, status: ${5}, statustext: ${status_text}" >> "$DIALOG_COMMAND_FILE"
+            update_dialog_overlay_icon "listitem: title: ${3}, status: ${5}, statustext: ${status_text}"    
 
-            [[ -n "${6:-}" ]] && print -r -- "progress: ${6}" >> "$DIALOG_COMMAND_FILE"
+            update_dialog_overlay_icon "progress: ${6}"
 
             /bin/sleep 0.1
             ;;
   
         "progress" )
-            [[ -n "${6:-}" ]] && print -r -- "progress: ${6}" >> "$DIALOG_COMMAND_FILE"
-            [[ -n "${5:-}" ]] && print -r -- "progresstext: ${5}" >> "$DIALOG_COMMAND_FILE"
+            [[ -n "${6:-}" ]] && update_dialog_overlay_icon "progress: ${6}"
+            [[ -n "${5:-}" ]] && update_dialog_overlay_icon "progresstext: ${5}"
             ;;
   
     esac
+}
+
+function update_dialog_overlay_icon ()
+{
+    local command="${1:-}"
+
+    is_silent_mode && return 0
+    [[ -n "$command" ]] || return 0
+
+    if [[ -z "${DIALOG_COMMAND_FILE:-}" ||
+          ! -e "$DIALOG_COMMAND_FILE" ]]; then
+        return 0
+    fi
+
+    if [[ "$command" == "SF="* ]]; then
+        command="overlayicon: ${command}"
+    fi
+
+    print -r -- "$command" >> "$DIALOG_COMMAND_FILE"
+
+    return 0
 }
 
 function display_failure_message ()
@@ -503,11 +547,45 @@ function display_failure_message ()
     return "$buttonpress"
 }
 
+function is_silent_mode ()
+{
+    [[ "${RUN_MODE:l}" == "silent" ]]
+}
+
 ###########################
 #
 # JAMF functions
 #
 ###########################
+
+
+function create_jamf_curl_args ()
+{
+    local method="${1:-GET}"
+    local response_file="${2:-}"
+    local accept_type="${3:-application/json}"
+    local content_type="${4:-}"
+
+    typeset -ga curl_args=(
+        --silent
+        --show-error
+        --location
+        --connect-timeout 15
+        --max-time 120
+        --request "$method"
+    )
+
+    if [[ -n "$response_file" ]]; then
+        curl_args+=(
+            --output "$response_file"
+            --write-out '%{http_code}'
+        )
+    fi
+
+    [[ -n "${api_token:-}" ]] && curl_args+=(--header "Authorization: Bearer ${api_token}")
+    [[ -n "$accept_type" ]] && curl_args+=(--header "Accept: ${accept_type}")
+    [[ -n "$content_type" ]] && curl_args+=(--header "Content-Type: ${content_type}")
+}
 
 function JAMF_check_credentials ()
 {
@@ -531,7 +609,7 @@ function JAMF_check_connection ()
     local http_status=""
     local curl_status=0
 
-    http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 30 --output /dev/null --write-out '%{http_code}' "${jamfpro_url}/healthCheck.html")
+    http_status=$(curl --silent --show-error --location --connect-timeout 15 --max-time 30 --output /dev/null --write-out '%{http_code}' "${jamfpro_url}/healthCheck.html")
     curl_status=$?
 
     if (( curl_status != 0 )); then
@@ -630,7 +708,13 @@ function JAMF_get_access_token ()
         logMe "ERROR: Unable to create OAuth response file" >&2
         return 1
     }
-    /bin/chmod 600 "$response_file"
+
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure OAuth response file." >&2
+        rm -f -- "$response_file"
+        return 1
+    fi
+
 
     {
         http_status=$(curl -s -S -L -o "$response_file" -w '%{http_code}' -X POST -H "Content-Type: application/x-www-form-urlencoded" \
@@ -682,19 +766,19 @@ function JAMF_get_classic_api_token ()
     local expires=""
     local expiration_epoch=""
 
-    response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.classic-token.XXXXX") || {
+    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.classic-token.XXXXX") || {
         logMe "ERROR: Unable to create Classic API token response file." >&2
         return 1
     }
 
     if ! /bin/chmod 600 "$response_file"; then
         logMe "ERROR: Unable to secure Classic API token response file." >&2
-        /bin/rm -f -- "$response_file"
+        rm -f -- "$response_file"
         return 1
     fi
 
     {
-        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
+        http_status=$(curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
             --request POST --user "${CLIENT_ID}:${CLIENT_SECRET}" --header "Accept: application/json" "${jamfpro_url}/api/v1/auth/token")
         curl_status=$?
 
@@ -720,17 +804,17 @@ function JAMF_get_classic_api_token ()
             return 1
         fi
 
-        if ! /usr/bin/jq -e 'type == "object"' "$response_file" >/dev/null 2>&1; then
+        if ! jq -e 'type == "object"' "$response_file" >/dev/null 2>&1; then
             logMe "ERROR: Classic API token response was not valid JSON." >&2
             return 1
         fi
 
-        if ! token=$(/usr/bin/jq -er '.token | strings | select(length > 0)' "$response_file"); then
+        if ! token=$(jq -er '.token | strings | select(length > 0)' "$response_file"); then
             logMe "ERROR: Classic API response did not contain a bearer token." >&2
             return 1
         fi
 
-        if ! expires=$(/usr/bin/jq -er '.expires | strings | select(length > 0)' "$response_file"); then
+        if ! expires=$(jq -er '.expires | strings | select(length > 0)' "$response_file"); then
             logMe "ERROR: Classic API response did not contain a token expiration date." >&2
             return 1
         fi
@@ -759,7 +843,7 @@ function JAMF_get_classic_api_token ()
         return 0
 
     } always {
-        /bin/rm -f -- "$response_file"
+        rm -f -- "$response_file"
     }
 }
 
@@ -817,15 +901,15 @@ function JAMF_ensure_valid_token ()
 
 function JAMF_invalidate_token ()
 {
-    local response_file
-    local http_status
-    local curl_status
+    local response_file=""
+    local http_status=""
+    local curl_status=0
 
-    if [[ -z "$api_token" ]]; then
+    if [[ -z "${api_token:-}" ]]; then
         logMe "INFO: No Jamf token is available to invalidate."
         return 0
     fi
-    
+
     if [[ "$JAMF_TOKEN" == "new" ]]; then
         api_token=""
         api_token_expires_epoch=0
@@ -833,15 +917,20 @@ function JAMF_invalidate_token ()
         return 0
     fi
 
-    response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.invalidate.XXXXX") || {
+    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.invalidate.XXXXX") || {
         logMe "ERROR: Unable to create token-invalidation response file." >&2
         return 1
     }
 
-    /bin/chmod 600 "$response_file"
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure token-invalidation response file." >&2
+        rm -f -- "$response_file"
+        return 1
+    fi
+
     {
-        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
-                --request POST --header "Authorization: Bearer ${api_token}" "${jamfpro_url}/api/v1/auth/invalidate-token")
+        create_jamf_curl_args "POST" "$response_file" ""
+        http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/api/v1/auth/invalidate-token")
         curl_status=$?
 
         api_token=""
@@ -849,7 +938,6 @@ function JAMF_invalidate_token ()
 
         if (( curl_status != 0 )); then
             logMe "ERROR: Token invalidation failed. curl exit code: ${curl_status}" >&2
-            /bin/rm -f -- "$response_file"
             return 1
         fi
 
@@ -864,15 +952,22 @@ function JAMF_invalidate_token ()
 
             *)
                 logMe "WARNING: Unexpected token invalidation response: HTTP ${http_status}" >&2
-                /bin/rm -f -- "$response_file"
+
+                if [[ -s "$response_file" ]]; then
+                    logMe "WARNING: Response begins with:" >&2
+                    /usr/bin/head -c 500 "$response_file" >&2
+                    /usr/bin/printf '\n' >&2
+                fi
+
                 return 1
                 ;;
         esac
-        # Request and status handling
-        } always {
-            /bin/rm -f -- "$response_file"
+
+        return 0
+
+    } always {
+        rm -f -- "$response_file"
     }
-    return 0
 }
 
 ###########################
@@ -942,19 +1037,22 @@ function JAMF_api_getpki ()
     pki_expire_date=""
     expireDays="unknown"
 
-    response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.pki.XXXXX") || {
+    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.pki.XXXXX") || {
         logMe "ERROR: Unable to create temporary PKI response file." >&2
         return 1
     }
 
-    /bin/chmod 600 "$response_file"
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure temporary PKI response file." >&2
+        rm -f -- "$response_file"
+        return 1
+    fi
 
     {
         
         JAMF_ensure_valid_token || return 1
-        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 60 --output "$response_file" --write-out '%{http_code}' \
-                --request GET --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/api/v1/pki/certificate-authority/active")
-
+        create_jamf_curl_args "GET" "$response_file"
+        http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/api/v1/pki/certificate-authority/active")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1001,7 +1099,7 @@ function JAMF_api_getpki ()
         return 0
 
     } always {
-        /bin/rm -f -- "$response_file"
+        rm -f -- "$response_file"
     }
 }
 
@@ -1025,18 +1123,22 @@ function JAMF_api_getvpp ()
     vpp_return_dates=""
     expireDays=99999
 
-    list_response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.vpp-list.XXXXX") || {
+    list_response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.vpp-list.XXXXX") || {
         logMe "ERROR: Unable to create VPP list response file." >&2
         return 1
     }
 
-    detail_response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.vpp-detail.XXXXX") || {
+    detail_response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.vpp-detail.XXXXX") || {
         logMe "ERROR: Unable to create VPP detail response file." >&2
-        /bin/rm -f -- "$list_response_file"
+        rm -f -- "$list_response_file"
         return 1
     }
 
-    /bin/chmod 600 "$list_response_file" "$detail_response_file"
+    if ! /bin/chmod 600 "$list_response_file" "$detail_response_file"; then
+        logMe "ERROR: Unable to secure temporary VPP response files." >&2
+        rm -f -- "$list_response_file" "$detail_response_file"
+        return 1
+    fi
 
     {
         #
@@ -1046,9 +1148,8 @@ function JAMF_api_getvpp ()
             logMe "ERROR: Unable to ensure a valid Jamf Pro API token before retrieving VPP accounts." >&2
             return 1
         }
-        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 120 --output "$list_response_file" --write-out '%{http_code}' \
-                --request GET --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/vppaccounts")
-
+        create_jamf_curl_args "GET" "$list_response_file"
+        http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/JSSResource/vppaccounts")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1103,10 +1204,8 @@ function JAMF_api_getvpp ()
                 logMe "ERROR: Unable to clear the VPP detail response file." >&2
                 return 1
             }
-
-            http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 120 --output "$detail_response_file" --write-out '%{http_code}' \
-                    --request GET --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/vppaccounts/id/${id}")
-
+            create_jamf_curl_args "GET" "$detail_response_file"
+            http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/JSSResource/vppaccounts/id/${id}")
             curl_status=$?
 
             if (( curl_status != 0 )); then
@@ -1211,7 +1310,7 @@ function JAMF_api_getvpp ()
         return 0
 
     } always {
-        /bin/rm -f -- \
+        rm -f -- \
             "$list_response_file" \
             "$detail_response_file"
     }
@@ -1239,14 +1338,14 @@ function JAMF_api_getade ()
     ade_return_dates=""
     expireDays=99999
 
-    list_response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.ade-list.XXXXX") || {
+    list_response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.ade-list.XXXXX") || {
         logMe "ERROR: Unable to create ADE list response file." >&2
         return 1
     }
 
-    detail_response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.ade-detail.XXXXX") || {
+    detail_response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.ade-detail.XXXXX") || {
         logMe "ERROR: Unable to create ADE detail response file." >&2
-        /bin/rm -f -- "$list_response_file"
+        rm -f -- "$list_response_file"
         return 1
     }
 
@@ -1255,15 +1354,15 @@ function JAMF_api_getade ()
         "$detail_response_file"
     then
         logMe "ERROR: Unable to secure ADE response files." >&2
-        /bin/rm -f -- "$list_response_file" "$detail_response_file"
+        rm -f -- "$list_response_file" "$detail_response_file"
         return 1
     fi
 
     {
         JAMF_ensure_valid_token || return 1
 
-        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 120 --output "$list_response_file" --write-out '%{http_code}' \
-        --request GET --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/api/v1/device-enrollments?page=0&page-size=100&sort=id%3Aasc")
+        create_jamf_curl_args "GET" "$list_response_file"
+        http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/api/v1/device-enrollments?page=0&page-size=100&sort=id%3Aasc")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1330,8 +1429,9 @@ function JAMF_api_getade ()
                 return 1
             }
 
-            http_status=$(curl --silent --show-error --location --connect-timeout 15 --max-time 120 --output "$detail_response_file" --write-out '%{http_code}' \
-                --request GET --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/api/v1/device-enrollments/${id}")
+            create_jamf_curl_args "GET" "$detail_response_file"
+
+            http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/api/v1/device-enrollments/${id}")
             curl_status=$?
 
             if (( curl_status != 0 )); then
@@ -1428,7 +1528,7 @@ function JAMF_api_getade ()
         return 0
 
     } always {
-        /bin/rm -f -- "$list_response_file" "$detail_response_file"
+        rm -f -- "$list_response_file" "$detail_response_file"
     }
 }
 
@@ -1447,22 +1547,21 @@ function JAMF_api_getade_last_sync ()
 
     JAMF_ensure_valid_token || return 1
 
-    list_response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.ade-list.XXXXX") || {
+    list_response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.ade-list.XXXXX") || {
         logMe "ERROR: Unable to create ADE list response file." >&2
         return 1
     }
 
     if ! /bin/chmod 600 "$list_response_file"; then
         logMe "ERROR: Unable to secure ADE last-sync response file." >&2
-        /bin/rm -f -- "$list_response_file"
+        rm -f -- "$list_response_file"
         return 1
     fi
 
     {
 
-        http_status=$(curl --silent --show-error --location --connect-timeout 15 --max-time 120 --output "$list_response_file" --write-out '%{http_code}' \
-            -H "Authorization: Bearer $api_token" -H "Accept: application/json" "${jamfpro_url}/api/v1/device-enrollments/syncs") 
-
+        create_jamf_curl_args "GET" "$list_response_file"
+        http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/api/v1/device-enrollments/syncs")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1516,7 +1615,7 @@ function JAMF_api_getade_last_sync ()
         return 0
 
         } always {
-            /bin/rm -f -- "$list_response_file"
+            rm -f -- "$list_response_file"
     }
     
     #echo "$ade_last_sync" > /dev/null
@@ -1541,20 +1640,20 @@ function JAMF_api_getapns ()
 
     JAMF_ensure_valid_token || return 1
 
-    apns_response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.apns-list.XXXXX") || {
+    apns_response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.apns-list.XXXXX") || {
         logMe "ERROR: Unable to create APNS response file." >&2
         return 1
     }
 
     if ! /bin/chmod 600 "$apns_response_file"; then
         logMe "ERROR: Unable to secure APNS response file." >&2
-        /bin/rm -f -- "$apns_response_file"
+        rm -f -- "$apns_response_file"
         return 1
     fi
 
     {
-        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 120 --output "$apns_response_file" --write-out '%{http_code}' \
-            --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/api/v1/apns-client-push-status")
+        create_jamf_curl_args "GET" "$apns_response_file"
+        http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/api/v1/apns-client-push-status")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1609,7 +1708,7 @@ function JAMF_api_getapns ()
         return 0
 
     } always {
-        /bin/rm -f -- "$apns_response_file"
+        rm -f -- "$apns_response_file"
     }
 }
 
@@ -1637,8 +1736,9 @@ function JAMF_api_getcomputer-profiles ()
     # 1. Get the list of all profiles using the Classic API (JSON format)
     JAMF_ensure_valid_token || return 1
 
-    if ! ALL_PROFILES=$(/usr/bin/curl --silent --show-error --fail-with-body --connect-timeout 15 --max-time 120 \
-        --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/osxconfigurationprofiles"); then
+    create_jamf_curl_args "GET"
+    curl_args+=(--fail-with-body)
+    if ! ALL_PROFILES=$(curl "${curl_args[@]}" "${jamfpro_url}/JSSResource/osxconfigurationprofiles"); then
         logMe "ERROR: Unable to retrieve computer configuration profiles." >&2
         return 1
     fi
@@ -1670,8 +1770,9 @@ function JAMF_api_getcomputer-profiles ()
         # Fetch details for each individual profile
 
                 
-        if ! DETAIL=$(/usr/bin/curl --silent --show-error --fail-with-body --connect-timeout 15 --max-time 120 \
-            --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/osxconfigurationprofiles/id/${ID}"); then
+        create_jamf_curl_args "GET"
+        curl_args+=(--fail-with-body)
+        if ! DETAIL=$(curl "${curl_args[@]}" "${jamfpro_url}/JSSResource/osxconfigurationprofiles/id/${ID}"); then
             logMe "WARNING: Unable to retrieve computer configuration profile ${ID}." >&2
             ((failed_count++))
             continue
@@ -1721,7 +1822,7 @@ function JAMF_api_getcomputer-profiles ()
             check_warning_threshold "$expireDays"
 
             update_display_list "update" "" "Computer - ${NAME} - Cert ${certificate_index}" "$FINAL_DATE" "$liststatus"
-
+            record_expiration_result "Computer Profile: ${NAME} - Certificate ${certificate_index}" "$expireDays" "$FINAL_DATE"
             logMe "Computer Profile ${NAME} (${ID}) expires on ${FINAL_DATE} (${expireDays} days remaining)."
         done
     done
@@ -1758,8 +1859,9 @@ function JAMF_api_getdevice-profiles ()
     # 1. Get the list of all profiles using the Classic API (JSON format)
     JAMF_ensure_valid_token || return 1
 
-    if ! ALL_PROFILES=$(/usr/bin/curl --silent --show-error --fail-with-body --connect-timeout 15 --max-time 120 \
-        --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/mobiledeviceconfigurationprofiles"); then
+    create_jamf_curl_args "GET"
+    curl_args+=(--fail-with-body)
+    if ! ALL_PROFILES=$(curl "${curl_args[@]}" "${jamfpro_url}/JSSResource/mobiledeviceconfigurationprofiles"); then
         logMe "ERROR: Unable to retrieve device configuration profiles." >&2
         return 1
     fi
@@ -1790,9 +1892,9 @@ function JAMF_api_getdevice-profiles ()
         update_display_list "progress" "" "" "" "Scanning $counter/${#PROFILE_IDS[@]} Device Configuration Profiles"
 
         # Fetch details for each individual profile
-                        
-        if ! DETAIL=$(/usr/bin/curl --silent --show-error --fail-with-body --connect-timeout 15 --max-time 120 \
-            --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/mobiledeviceconfigurationprofiles/id/${ID}"); then
+        create_jamf_curl_args "GET"
+        curl_args+=(--fail-with-body)
+        if ! DETAIL=$(curl "${curl_args[@]}" "${jamfpro_url}/JSSResource/mobiledeviceconfigurationprofiles/id/${ID}"); then
             logMe "WARNING: Unable to retrieve device configuration profile ${ID}." >&2
             ((failed_count++))
             continue
@@ -1842,7 +1944,7 @@ function JAMF_api_getdevice-profiles ()
             check_warning_threshold "$expireDays"
 
             update_display_list "update" "" "Device - ${NAME} - Cert ${certificate_index}" "$FINAL_DATE" "$liststatus"
-
+            record_expiration_result "Device Profile: ${NAME} - Certificate ${certificate_index}" "$expireDays" "$FINAL_DATE"
             logMe "Device Profile ${NAME} (${ID}) expires on ${FINAL_DATE} (${expireDays} days remaining)."
         done
 
@@ -1890,19 +1992,23 @@ function JAMF_api_get_computer_enrollment_invitations ()
     JAMF_ensure_valid_token || return 1
 
     list_response_file=$(
-        /usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.computer_invitation-list.XXXXX") || {
+        mktemp "/var/tmp/${SCRIPT_NAME}.computer_invitation-list.XXXXX") || {
         logMe "ERROR: Unable to create computer invitation list response file." >&2
         return 1
     }
 
-    detail_response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.computer_invitation-detail.XXXXX"
+    detail_response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.computer_invitation-detail.XXXXX"
     ) || {
         logMe "ERROR: Unable to create computer invitation detail response file." >&2
-        /bin/rm -f -- "$list_response_file"
+        rm -f -- "$list_response_file"
         return 1
     }
 
-    /bin/chmod 600 "$list_response_file" "$detail_response_file"
+    if ! /bin/chmod 600 "$list_response_file" "$detail_response_file"; then
+        logMe "ERROR: Unable to secure computer invitation response files." >&2
+        rm -f -- "$list_response_file" "$detail_response_file"
+        return 1
+    fi
 
     {
 
@@ -1911,8 +2017,8 @@ function JAMF_api_get_computer_enrollment_invitations ()
             return 1
         }
 
-        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 120 --output "$list_response_file" --write-out '%{http_code}' \
-            --request GET --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/computerinvitations")
+        create_jamf_curl_args "GET" "$list_response_file"
+        http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/JSSResource/computerinvitations")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1966,8 +2072,8 @@ function JAMF_api_get_computer_enrollment_invitations ()
                 return 1
             }
 
-            http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 120 --output "$detail_response_file" --write-out '%{http_code}' \
-                --request GET --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/computerinvitations/id/${id}")
+            create_jamf_curl_args "GET" "$detail_response_file"
+            http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/JSSResource/computerinvitations/id/${id}")
             curl_status=$?
 
             if (( curl_status != 0 )); then
@@ -2036,7 +2142,7 @@ function JAMF_api_get_computer_enrollment_invitations ()
             fi
 
             check_warning_threshold "$current_expire_days" "cert"
-
+            record_expiration_result "Computer Enrollment Invitation ${invitation_id}" "$current_expire_days" "$formatted_expiration_date"
             update_display_list "add" "Computer Enrollment Invitation (${invitation_id})" "$liststatus" "$formatted_expiration_date"
             logMe "Computer invitation ${invitation_id} expires on ${formatted_expiration_date} (${current_expire_days} days remaining)."
 
@@ -2052,7 +2158,7 @@ function JAMF_api_get_computer_enrollment_invitations ()
         return 0
 
     } always {
-        /bin/rm -f -- "$list_response_file" "$detail_response_file"
+        rm -f -- "$list_response_file" "$detail_response_file"
     }
 }
 
@@ -2089,19 +2195,23 @@ function JAMF_api_get_device_enrollment_invitations ()
     JAMF_ensure_valid_token || return 1
 
     list_response_file=$(
-        /usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.mobile-invitation-list.XXXXX") || {
+        mktemp "/var/tmp/${SCRIPT_NAME}.mobile-invitation-list.XXXXX") || {
         logMe "ERROR: Unable to create mobile invitation list response file." >&2
         return 1
     }
 
-    detail_response_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.mobile-invitation-detail.XXXXX"
+    detail_response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.mobile-invitation-detail.XXXXX"
     ) || {
         logMe "ERROR: Unable to create mobile invitation detail response file." >&2
-        /bin/rm -f -- "$list_response_file"
+        rm -f -- "$list_response_file"
         return 1
     }
 
-    /bin/chmod 600 "$list_response_file" "$detail_response_file"
+    if ! /bin/chmod 600 "$list_response_file" "$detail_response_file"; then
+        logMe "ERROR: Unable to secure mobile invitation response files." >&2
+        rm -f -- "$list_response_file" "$detail_response_file"
+        return 1
+    fi
 
     {
 
@@ -2110,8 +2220,8 @@ function JAMF_api_get_device_enrollment_invitations ()
             return 1
         }
 
-        http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 120 --output "$list_response_file" --write-out '%{http_code}' \
-            --request GET --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/mobiledeviceinvitations")
+        create_jamf_curl_args "GET" "$list_response_file"
+        http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/JSSResource/mobiledeviceinvitations")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -2165,8 +2275,8 @@ function JAMF_api_get_device_enrollment_invitations ()
                 return 1
             }
 
-            http_status=$(/usr/bin/curl --silent --show-error --location --connect-timeout 15 --max-time 120 --output "$detail_response_file" --write-out '%{http_code}' \
-                --request GET --header "Authorization: Bearer ${api_token}" --header "Accept: application/json" "${jamfpro_url}/JSSResource/mobiledeviceinvitations/id/${id}")
+            create_jamf_curl_args "GET" "$detail_response_file"
+            http_status=$(curl "${curl_args[@]}" "${jamfpro_url}/JSSResource/mobiledeviceinvitations/id/${id}")
             curl_status=$?
 
             if (( curl_status != 0 )); then
@@ -2234,7 +2344,7 @@ function JAMF_api_get_device_enrollment_invitations ()
             fi
 
             check_warning_threshold "$current_expire_days" "cert"
-
+            record_expiration_result "Device Enrollment Invitation ${invitation_id}" "$current_expire_days" "$formatted_expiration_date"
             update_display_list "add" "Device Enrollment Invitation (${invitation_id})" "$liststatus" "$formatted_expiration_date"
             logMe "Device invitation ${invitation_id} expires on ${formatted_expiration_date} (${current_expire_days} days remaining)."
 
@@ -2250,7 +2360,7 @@ function JAMF_api_get_device_enrollment_invitations ()
         return 0
 
     } always {
-        /bin/rm -f -- "$list_response_file" "$detail_response_file"
+        rm -f -- "$list_response_file" "$detail_response_file"
     }
 }
 
@@ -2265,7 +2375,7 @@ function check_warning_threshold ()
         if (( ICON_OVERLAY_STATUS < 1 )); then
             ICON_OVERLAY_STATUS=1
             OVERLAY_ICON="SF=exclamationmark.triangle.fill,weight=heavy,color=yellow,bgcolor=none"
-            print -r -- "overlayicon: ${OVERLAY_ICON}" >> "$DIALOG_COMMAND_FILE"
+            update_dialog_overlay_icon "$OVERLAY_ICON"
         fi
 
         return 1
@@ -2281,7 +2391,7 @@ function check_warning_threshold ()
             if (( ICON_OVERLAY_STATUS < 2 )); then
                 ICON_OVERLAY_STATUS=2
                 OVERLAY_ICON="SF=xmark.app.fill,weight=heavy,color=red,bgcolor=none"
-                print -r -- "overlayicon: ${OVERLAY_ICON}" >> "$DIALOG_COMMAND_FILE"
+                update_dialog_overlay_icon "$OVERLAY_ICON"
             fi
         fi
 
@@ -2295,7 +2405,7 @@ function check_warning_threshold ()
         if (( ICON_OVERLAY_STATUS < 2 )); then
             ICON_OVERLAY_STATUS=2
             OVERLAY_ICON="SF=xmark.app.fill,weight=heavy,color=red,bgcolor=none"
-            print -r -- "overlayicon: ${OVERLAY_ICON}" >> "$DIALOG_COMMAND_FILE"
+            update_dialog_overlay_icon "$OVERLAY_ICON"
         fi
     elif (( days_until <= THRESHOLD_DAYS_WARNING )); then
         liststatus="error"
@@ -2303,7 +2413,7 @@ function check_warning_threshold ()
         if (( ICON_OVERLAY_STATUS < 1 )); then
             ICON_OVERLAY_STATUS=1
             OVERLAY_ICON="SF=exclamationmark.triangle.fill,weight=heavy,color=yellow,bgcolor=none"
-            print -r -- "overlayicon: ${OVERLAY_ICON}" >> "$DIALOG_COMMAND_FILE"
+            update_dialog_overlay_icon "$OVERLAY_ICON"
         fi
     else
         liststatus="success"
@@ -2318,10 +2428,68 @@ function mark_operational_warning ()
         ICON_OVERLAY_STATUS=1
         OVERLAY_ICON="SF=exclamationmark.triangle.fill,weight=heavy,color=yellow,bgcolor=none"
 
-        print -r -- "overlayicon: ${OVERLAY_ICON}" >> "$DIALOG_COMMAND_FILE"
+        update_dialog_overlay_icon "$OVERLAY_ICON"
     fi
 
     (( SCRIPT_FAILURE_COUNT++ ))
+}
+
+function add_monitor_result ()
+{
+    local severity="${1:-info}"
+    local name="${2:-Unknown item}"
+    local detail="${3:-}"
+
+    case "$severity" in
+        warning)
+            (( MONITOR_WARNING_COUNT++ ))
+            MONITOR_WARNING_ITEMS+=("${name}: ${detail}")
+            ;;
+        critical)
+            (( MONITOR_CRITICAL_COUNT++ ))
+            MONITOR_CRITICAL_ITEMS+=("${name}: ${detail}")
+            ;;
+        error)
+            (( MONITOR_ERROR_COUNT++ ))
+            MONITOR_ERROR_ITEMS+=("${name}: ${detail}")
+            ;;
+    esac
+}
+
+function record_expiration_result ()
+{
+    local name="${1:-Unknown item}"
+    local days_until="${2:-}"
+    local detail="${3:-}"
+
+    if [[ "$days_until" != <-> && "$days_until" != -<-> ]]; then
+        add_monitor_result "error" "$name" "${detail:-Unable to determine expiration}"
+        return 1
+    fi
+    if (( days_until <= THRESHOLD_DAYS_CRITICAL )); then
+        add_monitor_result "critical" "$name" "${detail} (${days_until} days remaining)"
+    elif (( days_until <= THRESHOLD_DAYS_WARNING )); then
+        add_monitor_result "warning" "$name" "${detail} (${days_until} days remaining)"
+    fi
+
+    return 0
+}
+
+function record_ade_sync_result ()
+{
+    local days_since="${1:-}"
+    local detail="${2:-}"
+
+    if [[ "$days_since" != <-> ]]; then
+        add_monitor_result "error" "ADE Last Sync" "${detail:-Unable to determine last synchronization}"
+        return 1
+    fi
+
+    if (( days_since >= ADE_SYNC_WARNING_THRESHOLD )); then
+        add_monitor_result "warning" "ADE Last Sync" "${detail} (${days_since} days ago)"
+    fi
+
+    return 0
 }
 
 function welcomemsg ()
@@ -2404,6 +2572,267 @@ function welcomemsg ()
     update_display_list "create"
 }
 
+function send_teams_webhook ()
+{
+    local webhook_url="${TEAMS_WEBHOOK_URL:-}"
+    local response_file=""
+    local payload=""
+    local http_status=""
+    local curl_status=0
+
+    local warning_text=""
+    local critical_text=""
+    local error_text=""
+    local overall_status=""
+    local overall_color="Good"
+
+    [[ -n "$webhook_url" ]] || {
+        logMe "INFO: No Teams webhook URL configured."
+        return 0
+    }
+
+    #
+    # Determine whether notification should be sent
+    #
+
+    if (( MONITOR_CRITICAL_COUNT > 0 || MONITOR_ERROR_COUNT > 0 )); then
+
+        [[ "${TEAMS_NOTIFY_CRITICAL:l}" == "true" ]] || return 0
+
+        overall_status="Action Required"
+        overall_color="Attention"
+
+    elif (( MONITOR_WARNING_COUNT > 0 )); then
+
+        [[ "${TEAMS_NOTIFY_WARNING:l}" == "true" ]] || return 0
+
+        overall_status="Warning"
+        overall_color="Warning"
+
+    else
+
+        [[ "${TEAMS_NOTIFY_SUCCESS:l}" == "true" ]] || return 0
+
+        overall_status="Healthy"
+        overall_color="Good"
+    fi
+
+    #
+    # Convert arrays into readable Adaptive Card text
+    #
+
+    (( ${#MONITOR_CRITICAL_ITEMS[@]} > 0 )) && critical_text="${(F)MONITOR_CRITICAL_ITEMS}"
+    (( ${#MONITOR_WARNING_ITEMS[@]} > 0 )) && warning_text="${(F)MONITOR_WARNING_ITEMS}"
+    (( ${#MONITOR_ERROR_ITEMS[@]} > 0 )) && error_text="${(F)MONITOR_ERROR_ITEMS}"
+
+    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.teams.XXXXX") || {
+        logMe "ERROR: Unable to create Teams webhook response file." >&2
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "ERROR: Unable to secure Teams webhook response file." >&2
+        rm -f -- "$response_file"
+        return 1
+    fi
+
+    {
+        payload=$(
+            jq -n \
+                --arg server "$jamfpro_url" \
+                --arg script "$SCRIPT_NAME" \
+                --arg version "$SCRIPT_VERSION" \
+                --arg date "$(/bin/date '+%Y-%m-%d %H:%M:%S')" \
+                --arg overall_status "$overall_status" \
+                --arg overall_color "$overall_color" \
+                --arg warnings "$MONITOR_WARNING_COUNT" \
+                --arg critical "$MONITOR_CRITICAL_COUNT" \
+                --arg errors "$MONITOR_ERROR_COUNT" \
+                --arg warning_text "$warning_text" \
+                --arg critical_text "$critical_text" \
+                --arg error_text "$error_text" \
+                '{
+                    type: "message",
+                    attachments: [
+                        {
+                            contentType: "application/vnd.microsoft.card.adaptive",
+                            contentUrl: null,
+                            content: {
+                                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                                type: "AdaptiveCard",
+                                version: "1.4",
+                                body: (
+                                    [
+                                        {
+                                            type: "TextBlock",
+                                            text: "Jamf Pro Maintenance Report",
+                                            size: "Large",
+                                            weight: "Bolder"
+                                        },
+                                        {
+                                            type: "TextBlock",
+                                            text: $overall_status,
+                                            size: "Medium",
+                                            weight: "Bolder",
+                                            color: $overall_color
+                                        },
+                                        {
+                                            type: "FactSet",
+                                            facts: [
+                                                {
+                                                    title: "Server:",
+                                                    value: $server
+                                                },
+                                                {
+                                                    title: "Script:",
+                                                    value: ($script + " " + $version)
+                                                },
+                                                {
+                                                    title: "Critical:",
+                                                    value: $critical
+                                                },
+                                                {
+                                                    title: "Warnings:",
+                                                    value: $warnings
+                                                },
+                                                {
+                                                    title: "Errors:",
+                                                    value: $errors
+                                                },
+                                                {
+                                                    title: "Checked:",
+                                                    value: $date
+                                                }
+                                            ]
+                                        }
+                                    ]
+
+                                    +
+
+                                    (
+                                        if ($critical_text | length) > 0 then
+                                            [
+                                                {
+                                                    type: "TextBlock",
+                                                    text: "Critical",
+                                                    weight: "Bolder",
+                                                    color: "Attention",
+                                                    spacing: "Large"
+                                                },
+                                                {
+                                                    type: "TextBlock",
+                                                    text: $critical_text,
+                                                    wrap: true
+                                                }
+                                            ]
+                                        else
+                                            []
+                                        end
+                                    )
+
+                                    +
+
+                                    (
+                                        if ($warning_text | length) > 0 then
+                                            [
+                                                {
+                                                    type: "TextBlock",
+                                                    text: "Warnings",
+                                                    weight: "Bolder",
+                                                    color: "Warning",
+                                                    spacing: "Large"
+                                                },
+                                                {
+                                                    type: "TextBlock",
+                                                    text: $warning_text,
+                                                    wrap: true
+                                                }
+                                            ]
+                                        else
+                                            []
+                                        end
+                                    )
+
+                                    +
+
+                                    (
+                                        if ($error_text | length) > 0 then
+                                            [
+                                                {
+                                                    type: "TextBlock",
+                                                    text: "Operational Errors",
+                                                    weight: "Bolder",
+                                                    color: "Attention",
+                                                    spacing: "Large"
+                                                },
+                                                {
+                                                    type: "TextBlock",
+                                                    text: $error_text,
+                                                    wrap: true
+                                                }
+                                            ]
+                                        else
+                                            []
+                                        end
+                                    )
+                                )
+                            }
+                        }
+                    ]
+                }'
+        ) || {
+            logMe "ERROR: Unable to construct Teams Adaptive Card." >&2
+            return 1
+        }
+
+        if ! print -r -- "$payload" | jq -e . >/dev/null 2>&1; then
+            logMe "ERROR: Generated Teams payload is invalid JSON." >&2
+            return 1
+        fi
+
+        http_status=$(
+            curl \
+                --silent \
+                --show-error \
+                --location \
+                --connect-timeout 15 \
+                --max-time 30 \
+                --output "$response_file" \
+                --write-out '%{http_code}' \
+                --header "Content-Type: application/json" \
+                --request POST \
+                --data "$payload" \
+                "$webhook_url"
+        )
+
+        curl_status=$?
+
+        if (( curl_status != 0 )); then
+            logMe "ERROR: Teams webhook request failed. curl exit ${curl_status}." >&2
+            return 1
+        fi
+
+        if [[ "$http_status" != 2* ]]; then
+            logMe "ERROR: Teams webhook returned HTTP ${http_status}." >&2
+
+            if [[ -s "$response_file" ]]; then
+                logMe "Teams webhook response:"
+                /usr/bin/head -c 1000 "$response_file" >&2
+                /usr/bin/printf '\n' >&2
+            fi
+
+            return 1
+        fi
+
+        logMe "Teams maintenance notification successfully sent."
+
+        return 0
+
+    } always {
+        rm -f -- "$response_file"
+    }
+}
+
 ####################################################################################################
 #
 # Main Script
@@ -2419,8 +2848,18 @@ typeset -g api_token=""
 typeset -gi api_token_expires_epoch=0
 typeset -g jamfpro_url=""
 typeset -g liststatus=""
+typeset -ga curl_args
 typeset -gi ICON_OVERLAY_STATUS=0
 typeset -gi SCRIPT_FAILURE_COUNT=0
+typeset -gi MONITOR_WARNING_COUNT=0
+typeset -gi MONITOR_CRITICAL_COUNT=0
+typeset -gi MONITOR_ERROR_COUNT=0
+
+typeset -ga MONITOR_WARNING_ITEMS
+typeset -ga MONITOR_CRITICAL_ITEMS
+typeset -ga MONITOR_ERROR_ITEMS
+typeset -gi WEBHOOK_FAILURE=0
+
 
 autoload -Uz is-at-least
 
@@ -2431,17 +2870,23 @@ fi
 
 check_for_sudo || cleanup_and_exit 1
 create_log_directory || cleanup_and_exit 1
-initialize_user_context || cleanup_and_exit 1
-check_swift_dialog_install || cleanup_and_exit 1
+if ! is_silent_mode; then
+    initialize_user_context || cleanup_and_exit 1
+    check_swift_dialog_install || cleanup_and_exit 1
+fi
 check_support_files || cleanup_and_exit 1
 JAMF_get_server || cleanup_and_exit 1
 JAMF_check_credentials || cleanup_and_exit 1
-make_temp_files || cleanup_and_exit 1
+if ! is_silent_mode; then
+    make_temp_files || cleanup_and_exit 1
+    create_infobox_message
+fi
 
-
-create_infobox_message
 if ! JAMF_check_connection; then
-    display_failure_message "Problems determining the JAMF connection"
+    logMe "ERROR: Problems determining the Jamf Pro connection." >&2
+    if ! is_silent_mode; then
+        display_failure_message "Problems determining the Jamf Pro connection"
+    fi
     cleanup_and_exit 1
 fi
 
@@ -2468,7 +2913,12 @@ esac
 # Set the icon overlay status to 0 (no icon) by default, this will be updated if any items are within the warning threshold
 # 0 = normal, 1 = warning, 2 = critical
 
-welcomemsg || {logMe "ERROR: Unable to create or launch the Swift Dialog interface." >&2; cleanup_and_exit 1;}
+if ! is_silent_mode; then
+    welcomemsg || {
+        logMe "ERROR: Unable to create or launch the Swift Dialog interface." >&2
+        cleanup_and_exit 1
+    }
+fi
 
 # Get PKI Expiration Date and check if it is within the warning threshold.
 update_display_list "progress" "" "" "" "Checking for PKI expiration..." 0
@@ -2476,33 +2926,39 @@ logMe "Retrieving PKI certificate information..."
 
 if JAMF_api_getpki; then
     check_warning_threshold "$expireDays" "cert"
+    record_expiration_result "PKI Certificate" "$expireDays" "$pki_expire_date"
     update_display_list "update" "" "PKI Token" "$pki_expire_date" "$liststatus"
 else
     mark_operational_warning
+    add_monitor_result "error" "PKI Certificate" "${pki_expire_date:-Unable to retrieve PKI information}"
     update_display_list "update" "" "PKI Token" "${pki_expire_date:-Unable to retrieve PKI information}" "error"
 fi
-#JAMF_api_getpki || cleanup_and_exit 1
-check_warning_threshold "$expireDays" "cert"
-update_display_list "update" "" "PKI Token" "$pki_expire_date" "$liststatus"
 
 # Get VPP Expiration Date and check if it is within the warning threshold.
 update_display_list "progress" "" "" "" "Checking for VPP expiration..." 10
 logMe "Retrieving VPP license information..."
-if ! JAMF_api_getvpp; then
-    display_failure_message "Retrieve VPP tokens returned a value of $vpp_return_dates<br><br>Please make sure you have access rights for this function"
-    cleanup_and_exit 1
+if JAMF_api_getvpp; then
+    check_warning_threshold "$expireDays" "cert"
+    record_expiration_result "VPP Token" "$expireDays" "$vpp_return_dates"
+    update_display_list "update" "" "VPP Token" "$vpp_return_dates" "$liststatus"
+else
+    mark_operational_warning
+    add_monitor_result "error" "VPP Token" "${vpp_return_dates:-Unable to retrieve VPP information}"
+    update_display_list "update" "" "VPP Token" "${vpp_return_dates:-Unable to retrieve VPP information}" "error"
 fi
-check_warning_threshold "$expireDays" "cert"
-update_display_list "update" "" "VPP Token" "$vpp_return_dates" "$liststatus"
+
+
 
 # Get ADE Expiration Date(s) and check if it is within the warning threshold.
 update_display_list "progress" "" "" "" "Checking for ADE expiration..." 20
 logMe "Retrieving ADE license information..."
 if JAMF_api_getade; then
     check_warning_threshold "$expireDays" "cert"
+    record_expiration_result "ADE Token" "$expireDays" "$ade_return_dates"
     update_display_list "update" "" "ADE Token" "$ade_return_dates" "$liststatus"
 else
     mark_operational_warning
+    add_monitor_result "error" "ADE Token" "${ade_return_dates:-Unable to retrieve ADE information}"
     update_display_list "update" "" "ADE Token" "${ade_return_dates:-Unable to retrieve ADE information}" "error"
 fi
 
@@ -2512,9 +2968,11 @@ update_display_list "progress" "" "" "" "Checking for ADE last sync expiration..
 logMe "Retrieving ADE last sync information..."
 if JAMF_api_getade_last_sync; then
     check_warning_threshold "$expireDays" "ade_sync"
+    record_ade_sync_result "$expireDays" "$ade_last_sync"
     update_display_list "update" "" "ADE Last Sync" "$ade_last_sync" "$liststatus" 
 else
     mark_operational_warning
+    add_monitor_result "error" "ADE Last Sync" "${ade_last_sync:-Unable to retrieve ADE last-sync information}"
     update_display_list "update" "" "ADE Last Sync" "${ade_last_sync:-Unable to retrieve ADE information}" "error"
 fi
 
@@ -2524,9 +2982,11 @@ update_display_list "progress" "" "" "" "Checking for APNS expiration..." 40
 logMe "Retrieving APNS certificate information..."
 if JAMF_api_getapns; then
     check_warning_threshold "$expireDays" "cert"
+    record_expiration_result "APNS Certificate" "$expireDays" "$apns_expire_date"
     update_display_list "update" "" "APNS Certificate" "$apns_expire_date" "$liststatus"
 else
     mark_operational_warning
+    add_monitor_result "error" "APNS Certificate" "${apns_expire_date:-Unable to retrieve APNS information}"
     update_display_list "update" "" "APNS Certificate" "${apns_expire_date:-Unable to retrieve APNS information}" "error"
 fi
 
@@ -2541,10 +3001,12 @@ case "$computer_invitation_status" in
         ;;
     2)
         update_display_list "add" "Computer Enrollment Invitations" "error" "Some invitations could not be evaluated"
+        add_monitor_result "error" "Computer Enrollment Invitations" "Some invitations could not be evaluated"
         mark_operational_warning
         ;;
     *)
         update_display_list "add" "Computer Enrollment Invitations" "error" "Unable to retrieve invitation information"
+        add_monitor_result "error" "Computer Enrollment Invitations" "Unable to retrieve invitation information"
         mark_operational_warning
         ;;
 esac
@@ -2560,10 +3022,12 @@ case "$device_invitation_status" in
         ;;
     2)
         update_display_list "add" "Device Enrollment Invitations" "error" "Some invitations could not be evaluated"
+        add_monitor_result "error" "Device Enrollment Invitations" "Some invitations could not be evaluated"
         mark_operational_warning
         ;;
     *)
         update_display_list "add" "Device Enrollment Invitations" "error" "Unable to retrieve invitation information"
+        add_monitor_result "error" "Device Enrollment Invitations" "Unable to retrieve invitation information"
         mark_operational_warning
         ;;
 esac
@@ -2573,6 +3037,7 @@ update_display_list "progress" "" "" "" "Checking for Configuration Profile expi
 logMe "Retrieving computer configuration profile certificate information..."
 if ! JAMF_api_getcomputer-profiles; then
     logMe "ERROR: Unable to evaluate computer configuration profile certificates." >&2
+    add_monitor_result "error" "Computer Configuration Profiles" "Unable to evaluate one or more certificate expirations"
     mark_operational_warning
     update_display_list "add" "Computer Configuration Profiles" "error" "Unable to evaluate one or more certificate expirations"
 fi
@@ -2582,24 +3047,50 @@ logMe "Retrieving device configuration profile certificate information..."
 
 if ! JAMF_api_getdevice-profiles; then
     logMe "ERROR: Unable to evaluate device configuration profile certificates." >&2
+    add_monitor_result "error" "Device Configuration Profiles" "Unable to evaluate one or more certificate expirations"
     mark_operational_warning
     update_display_list "add" "Device Configuration Profiles" "error" "Unable to evaluate one or more certificate expirations"
 fi
 
-# All done, enable the button so the user can exit the dialog
-update_display_list "progress" "" "" "" "Done!" 100
-update_display_list "buttonenable" "OK"
+#
+# Complete interactive UI
+#
 
-wait "$DIALOG_PROCESS"
-dialog_exit_status=$?
+if ! is_silent_mode; then
+    update_display_list "progress" "" "" "" "Done!" 100
+    update_display_list "buttonenable" "OK"
 
-if (( dialog_exit_status != 0 )); then
-    logMe "WARNING: Swift Dialog exited with status ${dialog_exit_status}." >&2
+    wait "$DIALOG_PROCESS"
+    dialog_exit_status=$?
+
+    if (( dialog_exit_status != 0 )); then
+        logMe "WARNING: Swift Dialog exited with status ${dialog_exit_status}." >&2
+    fi
 fi
+
+#
+# Send Teams monitoring report
+#
+
+if [[ -n "${TEAMS_WEBHOOK_URL:-}" ]]; then
+    if ! send_teams_webhook; then
+        logMe "ERROR: Unable to send Teams maintenance notification." >&2
+        WEBHOOK_FAILURE=1
+    fi
+fi
+
+#
+# Determine final script status
+#
 
 if (( SCRIPT_FAILURE_COUNT > 0 )); then
     logMe "WARNING: Script completed with ${SCRIPT_FAILURE_COUNT} retrieval or evaluation issue(s)." >&2
     cleanup_and_exit 1
+fi
+
+if (( WEBHOOK_FAILURE > 0 )); then
+    logMe "WARNING: The Jamf scan completed, but Teams notification delivery failed." >&2
+    cleanup_and_exit 2
 fi
 
 cleanup_and_exit 0
