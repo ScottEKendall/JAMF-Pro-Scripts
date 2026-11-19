@@ -2665,7 +2665,7 @@ function send_teams_webhook ()
                                     [
                                         {
                                             type: "TextBlock",
-                                            text: "Jamf Pro Maintenance Report",
+                                            text: "Jamf Pro Certificate Report",
                                             size: "Large",
                                             weight: "Bolder"
                                         },
