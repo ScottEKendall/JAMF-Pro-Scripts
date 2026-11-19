@@ -37,6 +37,7 @@
 #     - Added configuration profile certificate details to Teams reporting
 #     - Added reusable Jamf curl argument handling to simplify and standardize API requests
 #     - Improved silent-mode handling and SwiftDialog command updates
+#     - Added optional HTTPS-hosted icon support for Teams Adaptive Card notifications
 
 ######################################################################################################
 #
@@ -121,6 +122,7 @@ TEAMS_WEBHOOK_URL="${8:-}"
 TEAMS_NOTIFY_SUCCESS="true"
 TEAMS_NOTIFY_WARNING="true"
 TEAMS_NOTIFY_CRITICAL="true"
+TEAMS_WEBHOOK_ICON_URL="https://your-server.example.com/images/JAMFRetrieveExpireDates.png"
 
                             
 [[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF credentials we are using 
@@ -2575,25 +2577,64 @@ function welcomemsg ()
 function send_teams_webhook ()
 {
     local webhook_url="${TEAMS_WEBHOOK_URL:-}"
+    local icon_url="${TEAMS_WEBHOOK_ICON_URL:-}"
     local response_file=""
     local payload=""
     local http_status=""
     local curl_status=0
-
     local warning_text=""
     local critical_text=""
     local error_text=""
     local overall_status=""
     local overall_color="Good"
+    local response_message=""
+    local -i connect_timeout=15
+    local -i max_time=30
+    local -a curlArgs
 
-    [[ -n "$webhook_url" ]] || {
+    ####################
+    #
+    # Verify Teams webhook configuration
+    #
+    ####################
+
+    if [[ -z "$webhook_url" ]]; then
         logMe "INFO: No Teams webhook URL configured."
         return 0
-    }
+    fi
 
+    case "$webhook_url" in
+        https://*)
+            ;;
+        *)
+            logMe "ERROR: Microsoft Teams webhook URL is invalid."
+            return 1
+            ;;
+    esac
+
+    ####################
+    #
+    # Validate optional Adaptive Card icon
+    #
+    ####################
+
+    if [[ -n "$icon_url" ]]; then
+        case "$icon_url" in
+            https://*)
+                logMe "Microsoft Teams Webhook: Adaptive Card icon enabled."
+                ;;
+            *)
+                logMe "WARNING: Microsoft Teams webhook icon URL is invalid. Sending notification without an icon."
+                icon_url=""
+                ;;
+        esac
+    fi
+
+    ####################
     #
     # Determine whether notification should be sent
     #
+    ####################
 
     if (( MONITOR_CRITICAL_COUNT > 0 || MONITOR_ERROR_COUNT > 0 )); then
 
@@ -2617,28 +2658,52 @@ function send_teams_webhook ()
         overall_color="Good"
     fi
 
+    ####################
     #
-    # Convert arrays into readable Adaptive Card text
+    # Convert monitoring arrays into Adaptive Card text
     #
+    ####################
 
-    (( ${#MONITOR_CRITICAL_ITEMS[@]} > 0 )) && critical_text="${(F)MONITOR_CRITICAL_ITEMS}"
-    (( ${#MONITOR_WARNING_ITEMS[@]} > 0 )) && warning_text="${(F)MONITOR_WARNING_ITEMS}"
-    (( ${#MONITOR_ERROR_ITEMS[@]} > 0 )) && error_text="${(F)MONITOR_ERROR_ITEMS}"
+    if (( ${#MONITOR_CRITICAL_ITEMS[@]} > 0 )); then
+        critical_text="${(F)MONITOR_CRITICAL_ITEMS}"
+    fi
 
-    response_file=$(mktemp "/var/tmp/${SCRIPT_NAME}.teams.XXXXX") || {
-        logMe "ERROR: Unable to create Teams webhook response file." >&2
+    if (( ${#MONITOR_WARNING_ITEMS[@]} > 0 )); then
+        warning_text="${(F)MONITOR_WARNING_ITEMS}"
+    fi
+
+    if (( ${#MONITOR_ERROR_ITEMS[@]} > 0 )); then
+        error_text="${(F)MONITOR_ERROR_ITEMS}"
+    fi
+
+    ####################
+    #
+    # Create temporary Teams response file
+    #
+    ####################
+
+    response_file=$(
+        /usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.teams.XXXXX"
+    ) || {
+        logMe "ERROR: Unable to create Teams webhook response file."
         return 1
     }
 
     if ! /bin/chmod 600 "$response_file"; then
-        logMe "ERROR: Unable to secure Teams webhook response file." >&2
-        rm -f -- "$response_file"
+        logMe "ERROR: Unable to secure Teams webhook response file."
+        /bin/rm -f -- "$response_file"
         return 1
     fi
 
     {
-        payload=$(
-            jq -n \
+        ####################
+        #
+        # Construct Adaptive Card
+        #
+        ####################
+
+        if ! payload=$(
+            /usr/bin/jq -n \
                 --arg server "$jamfpro_url" \
                 --arg script "$SCRIPT_NAME" \
                 --arg version "$SCRIPT_VERSION" \
@@ -2651,7 +2716,50 @@ function send_teams_webhook ()
                 --arg warning_text "$warning_text" \
                 --arg critical_text "$critical_text" \
                 --arg error_text "$error_text" \
-                '{
+                --arg iconUrl "$icon_url" \
+                '
+                def title_block:
+                    {
+                        type: "TextBlock",
+                        text: "Jamf Pro Certificate Report",
+                        size: "Large",
+                        weight: "Bolder",
+                        wrap: true
+                    };
+
+                def header:
+                    if ($iconUrl | length) > 0 then
+                        {
+                            type: "ColumnSet",
+                            columns: [
+                                {
+                                    type: "Column",
+                                    width: "auto",
+                                    verticalContentAlignment: "Center",
+                                    items: [
+                                        {
+                                            type: "Image",
+                                            url: $iconUrl,
+                                            size: "Small",
+                                            altText: "Jamf Pro Certificate Report"
+                                        }
+                                    ]
+                                },
+                                {
+                                    type: "Column",
+                                    width: "stretch",
+                                    verticalContentAlignment: "Center",
+                                    items: [
+                                        title_block
+                                    ]
+                                }
+                            ]
+                        }
+                    else
+                        title_block
+                    end;
+
+                {
                     type: "message",
                     attachments: [
                         {
@@ -2661,175 +2769,230 @@ function send_teams_webhook ()
                                 "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                                 type: "AdaptiveCard",
                                 version: "1.4",
-                                body: (
-                                    [
-                                        {
-                                            type: "TextBlock",
-                                            text: "Jamf Pro Certificate Report",
-                                            size: "Large",
-                                            weight: "Bolder"
-                                        },
-                                        {
-                                            type: "TextBlock",
-                                            text: $overall_status,
-                                            size: "Medium",
-                                            weight: "Bolder",
-                                            color: $overall_color
-                                        },
-                                        {
-                                            type: "FactSet",
-                                            facts: [
-                                                {
-                                                    title: "Server:",
-                                                    value: $server
-                                                },
-                                                {
-                                                    title: "Script:",
-                                                    value: ($script + " " + $version)
-                                                },
-                                                {
-                                                    title: "Critical:",
-                                                    value: $critical
-                                                },
-                                                {
-                                                    title: "Warnings:",
-                                                    value: $warnings
-                                                },
-                                                {
-                                                    title: "Errors:",
-                                                    value: $errors
-                                                },
-                                                {
-                                                    title: "Checked:",
-                                                    value: $date
-                                                }
-                                            ]
-                                        }
-                                    ]
-
-                                    +
-
+                                msteams: {
+                                    width: "Full"
+                                },
+                                body:
                                     (
-                                        if ($critical_text | length) > 0 then
-                                            [
-                                                {
-                                                    type: "TextBlock",
-                                                    text: "Critical",
-                                                    weight: "Bolder",
-                                                    color: "Attention",
-                                                    spacing: "Large"
-                                                },
-                                                {
-                                                    type: "TextBlock",
-                                                    text: $critical_text,
-                                                    wrap: true
-                                                }
-                                            ]
-                                        else
-                                            []
-                                        end
+                                        [
+                                            header,
+                                            {
+                                                type: "TextBlock",
+                                                text: $overall_status,
+                                                size: "Medium",
+                                                weight: "Bolder",
+                                                color: $overall_color,
+                                                wrap: true
+                                            },
+                                            {
+                                                type: "FactSet",
+                                                facts: [
+                                                    {
+                                                        title: "Server:",
+                                                        value: $server
+                                                    },
+                                                    {
+                                                        title: "Script:",
+                                                        value: ($script + " " + $version)
+                                                    },
+                                                    {
+                                                        title: "Critical:",
+                                                        value: $critical
+                                                    },
+                                                    {
+                                                        title: "Warnings:",
+                                                        value: $warnings
+                                                    },
+                                                    {
+                                                        title: "Errors:",
+                                                        value: $errors
+                                                    },
+                                                    {
+                                                        title: "Checked:",
+                                                        value: $date
+                                                    }
+                                                ]
+                                            }
+                                        ]
+                                        +
+                                        (
+                                            if ($critical_text | length) > 0 then
+                                                [
+                                                    {
+                                                        type: "TextBlock",
+                                                        text: "Critical",
+                                                        weight: "Bolder",
+                                                        color: "Attention",
+                                                        spacing: "Large"
+                                                    },
+                                                    {
+                                                        type: "TextBlock",
+                                                        text: $critical_text,
+                                                        wrap: true
+                                                    }
+                                                ]
+                                            else
+                                                []
+                                            end
+                                        )
+                                        +
+                                        (
+                                            if ($warning_text | length) > 0 then
+                                                [
+                                                    {
+                                                        type: "TextBlock",
+                                                        text: "Warnings",
+                                                        weight: "Bolder",
+                                                        color: "Warning",
+                                                        spacing: "Large"
+                                                    },
+                                                    {
+                                                        type: "TextBlock",
+                                                        text: $warning_text,
+                                                        wrap: true
+                                                    }
+                                                ]
+                                            else
+                                                []
+                                            end
+                                        )
+                                        +
+                                        (
+                                            if ($error_text | length) > 0 then
+                                                [
+                                                    {
+                                                        type: "TextBlock",
+                                                        text: "Operational Errors",
+                                                        weight: "Bolder",
+                                                        color: "Attention",
+                                                        spacing: "Large"
+                                                    },
+                                                    {
+                                                        type: "TextBlock",
+                                                        text: $error_text,
+                                                        wrap: true
+                                                    }
+                                                ]
+                                            else
+                                                []
+                                            end
+                                        )
                                     )
-
-                                    +
-
-                                    (
-                                        if ($warning_text | length) > 0 then
-                                            [
-                                                {
-                                                    type: "TextBlock",
-                                                    text: "Warnings",
-                                                    weight: "Bolder",
-                                                    color: "Warning",
-                                                    spacing: "Large"
-                                                },
-                                                {
-                                                    type: "TextBlock",
-                                                    text: $warning_text,
-                                                    wrap: true
-                                                }
-                                            ]
-                                        else
-                                            []
-                                        end
-                                    )
-
-                                    +
-
-                                    (
-                                        if ($error_text | length) > 0 then
-                                            [
-                                                {
-                                                    type: "TextBlock",
-                                                    text: "Operational Errors",
-                                                    weight: "Bolder",
-                                                    color: "Attention",
-                                                    spacing: "Large"
-                                                },
-                                                {
-                                                    type: "TextBlock",
-                                                    text: $error_text,
-                                                    wrap: true
-                                                }
-                                            ]
-                                        else
-                                            []
-                                        end
-                                    )
-                                )
                             }
                         }
                     ]
-                }'
-        ) || {
-            logMe "ERROR: Unable to construct Teams Adaptive Card." >&2
-            return 1
-        }
-
-        if ! print -r -- "$payload" | jq -e . >/dev/null 2>&1; then
-            logMe "ERROR: Generated Teams payload is invalid JSON." >&2
+                }
+                '
+        ); then
+            logMe "ERROR: Unable to construct Teams Adaptive Card."
             return 1
         fi
 
-        http_status=$(
-            curl \
-                --silent \
-                --show-error \
-                --location \
-                --connect-timeout 15 \
-                --max-time 30 \
-                --output "$response_file" \
-                --write-out '%{http_code}' \
-                --header "Content-Type: application/json" \
-                --request POST \
-                --data "$payload" \
-                "$webhook_url"
+        ####################
+        #
+        # Validate generated JSON
+        #
+        ####################
+
+        if ! print -r -- "$payload" |
+            /usr/bin/jq -e . >/dev/null 2>&1
+        then
+            logMe "ERROR: Generated Teams payload is invalid JSON."
+            return 1
+        fi
+
+        ####################
+        #
+        # Build curl arguments
+        #
+        ####################
+
+        curlArgs=(
+            --silent
+            --show-error
+            --location
+            --connect-timeout "$connect_timeout"
+            --max-time "$max_time"
+            --output "$response_file"
+            --write-out "%{http_code}"
+            --request POST
+            --header "Content-Type: application/json"
+            --data "$payload"
         )
 
+        ####################
+        #
+        # Send Teams notification
+        #
+        ####################
+
+        logMe "Microsoft Teams Webhook: POST maintenance notification."
+
+        http_status=$(
+            /usr/bin/curl \
+                "${curlArgs[@]}" \
+                "$webhook_url"
+        )
         curl_status=$?
 
         if (( curl_status != 0 )); then
-            logMe "ERROR: Teams webhook request failed. curl exit ${curl_status}." >&2
+            logMe "ERROR: Teams webhook request failed. curl exit ${curl_status}."
             return 1
         fi
 
-        if [[ "$http_status" != 2* ]]; then
-            logMe "ERROR: Teams webhook returned HTTP ${http_status}." >&2
+        ####################
+        #
+        # Validate Teams response
+        #
+        ####################
 
-            if [[ -s "$response_file" ]]; then
-                logMe "Teams webhook response:"
-                /usr/bin/head -c 1000 "$response_file" >&2
-                /usr/bin/printf '\n' >&2
-            fi
+        case "$http_status" in
+            200|201|202|204)
+                logMe "Teams maintenance notification successfully sent. HTTP ${http_status}"
+                return 0
+                ;;
 
-            return 1
-        fi
+            *)
+                logMe "ERROR: Teams webhook returned HTTP ${http_status}."
 
-        logMe "Teams maintenance notification successfully sent."
+                if [[ -s "$response_file" ]]; then
 
-        return 0
+                    response_message=$(
+                        /usr/bin/jq -er \
+                            '.error.message //
+                             .message //
+                             .error_description //
+                             .error //
+                             empty' \
+                            "$response_file" 2>/dev/null
+                    ) || response_message=""
+
+                    if [[ -n "$response_message" ]]; then
+
+                        logMe "Microsoft Teams Webhook: ${response_message}"
+
+                    else
+
+                        response_message=$(
+                            /usr/bin/head -c 500 "$response_file" |
+                                /usr/bin/tr '\r\n' ' '
+                        )
+
+                        if [[ -n "$response_message" ]]; then
+                            logMe "Microsoft Teams Webhook response: ${response_message}"
+                        else
+                            logMe "Microsoft Teams Webhook: response body was empty."
+                        fi
+                    fi
+                fi
+
+                return 1
+                ;;
+        esac
 
     } always {
-        rm -f -- "$response_file"
+        payload=""
+        /bin/rm -f -- "$response_file"
     }
 }
 
