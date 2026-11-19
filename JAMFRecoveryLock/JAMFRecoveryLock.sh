@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 03/31/2025
-# Last updated: 10/26/2026
+# Last updated: 11/19/2026
 
 # Script to View, Set, or Clear Recovery Lock on managed Apple Silicon Macs.
 #
@@ -21,15 +21,19 @@
 # - Submits Set or Clear Recovery Lock MDM commands.
 # - Uses the Recovery Lock password supplied through parameter 6 for Set.
 # - Invalidates user-account API tokens and clears OAuth tokens from memory.
+# - Optionally sends Recovery Lock success and failure notifications to Microsoft Teams.
+# - Excludes Recovery Lock passwords, API credentials, tokens, and raw API payloads from Teams notifications.
 # 
 # Requirements:
 # - The target computer must be an Apple Silicon Mac running macOS 11.5 or later.
 # - Jamf Pro 11.30 or later is required by the v4 computer-inventory endpoints.
-# - Jamf Pro API permissions: 
+# - Jamf Pro API permissions:
 #   - Send Set Recovery Lock Command
 #   - View MDM Command Information
 #   - Read Computers
 #   - View Recovery Lock
+# - Optional Microsoft Teams workflow configured to accept an Adaptive Card
+#   message payload over HTTPS.
 #
 # Usage:
 #
@@ -37,6 +41,8 @@
 # - Parameter 4: Jamf API Client ID or username
 # - Parameter 5: Jamf API Client Secret or password
 # - Parameter 6: Recovery Lock password used by the Set action
+# - Parameter 7: Jamf Pro server URL; leave empty to use the default Jamf Pro server.
+# - Parameter 8: Microsoft Teams workflow webhook URL; leave empty to disable notifications.
 # - The operator selects View, Set, or Clear in SwiftDialog.
 
 # - For details, refer: 
@@ -81,6 +87,14 @@
 #       Improved SwiftDialog response validation and error handling
 #       Enhanced support file and banner image detection logic
 #       General code cleanup, optimization, and stability improvements
+# 2.2 - Added optional Microsoft Teams webhook notifications for successful and failed Recovery Lock actions
+#       Added Adaptive Card notifications with action, device, operator, Jamf Pro server, script, and timestamp details
+#       Added optional HTTPS-hosted icon support for Teams Adaptive Card notifications
+#       Prevented Recovery Lock passwords, credentials, API tokens, and raw API responses from being included in Teams notifications
+#       Added non-fatal webhook error handling so Teams failures do not alter Recovery Lock operation results
+#       Improved device lookup failure notifications for no-match and multiple-match conditions
+#       Corrected the Classic API token request endpoint
+
 ######################################################################################################
 #
 # Global "Common" variables (do not change these!)
@@ -154,6 +168,18 @@ JQ_FILE_INSTALL_POLICY="install_jq"
 
 ####################
 #
+# Microsoft Teams Webhook
+#
+####################
+
+TEAMS_WEBHOOK_ENABLED="true"
+TEAMS_WEBHOOK_CONNECT_TIMEOUT=15
+TEAMS_WEBHOOK_MAX_TIME=30
+TEAMS_WEBHOOK_ICON_URL="https://usw2.ics.services.jamfcloud.com/icon/hash_827c2a20bac63b2106bae960ff4ff212aa9e88c3c1f11b3575e4c13f129d5cd3"
+
+
+####################
+#
 # JAMF API Keys Used
 #
 ####################
@@ -172,6 +198,7 @@ CLIENT_ID="${4:-}"              #Client ID for Jamf API authentication (if using
 CLIENT_SECRET="${5:-}"          #Client Secret for Jamf API authentication (if using Client ID/Secret)
 LOCK_CODE="$6"
 JAMF_SERVER="${7:-}"            #Override the Jamf server URL if needed (if not passed, will use the defaults file or the local Jamf binary to determine the server URL)
+TEAMS_WEBHOOK_URL="${8:-}"
 
 CLIENT_ID_REGEX='^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$'
 [[ "$CLIENT_ID" =~ ${CLIENT_ID_REGEX} ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic"
@@ -415,11 +442,12 @@ function JAMF_check_credentials ()
     # RETURN: None
     # EXPECTED: None
 
-    if [[ -z $CLIENT_ID ]] || [[ -z $CLIENT_SECRET ]]; then
-        logMe "Client/Secret info is not valid"
+    if [[ -z "$CLIENT_ID" ]] || [[ -z "$CLIENT_SECRET" ]]; then
+        logMe "ERROR: Jamf Pro API credentials were not supplied."
         return 1
     fi
-    logMe "Valid credentials passed"
+
+    logMe "Jamf Pro API credentials supplied."
     return 0
 }
 
@@ -565,7 +593,7 @@ function JAMF_get_classic_api_token ()
     )
 
     {
-        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url}/$JAMF_API_MDM_KEY")
+        http_status=$(curl "${curlArgs[@]}" "${jamfpro_url}/api/v1/auth/token")
         curl_status=$?
 
         if (( curl_status != 0 )); then
@@ -1219,9 +1247,9 @@ function display_welcome_message ()
         --moveable
      )
 	
-     message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
+    message=$($SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null )
 
-     buttonpress=$?
+    buttonpress=$?
     case "$buttonpress" in
         0)
             ;;
@@ -1230,24 +1258,20 @@ function display_welcome_message ()
             cleanup_and_exit 0
             ;;
         *)
-            logMe "ERROR: SwiftDialog exited with code ${buttonpress}."
-            cleanup_and_exit 1
+            display_failure_message "SwiftDialog exited unexpectedly with code ${buttonpress}."
             ;;
     esac
 
     if ! search_type=$(printf '%s' "$message" | jq -er '.Serial.selectedValue'); then
-        logMe "ERROR: Unable to parse the selected search type."
-        cleanup_and_exit 1
+        display_failure_message "Unable to parse the selected device search type."
     fi
 
     if ! computer_id=$(printf '%s' "$message" | jq -er '.Device | strings | select(length > 0)'); then
-        logMe "ERROR: Unable to parse the target device."
-        cleanup_and_exit 1
+        display_failure_message "Unable to parse the target device."
     fi
 
     if ! lockMode=$(printf '%s' "$message" | jq -er '.Action.selectedValue'); then
-        logMe "ERROR: Unable to parse the selected action."
-        cleanup_and_exit 1
+        display_failure_message "Unable to parse the selected Recovery Lock action."
     fi
 }
 
@@ -1289,7 +1313,12 @@ function display_status_message ()
 function display_failure_message ()
 {
     local failure_message="${1:-Device ID ${computer_id} was not found. Please try again.}"
-     MainDialogBody=(
+
+    logMe "ERROR: ${failure_message}"
+
+    send_teams_webhook "FAILURE" "${lockMode:-Initialization}" "${computer_id:-Not available}" "$failure_message" || true
+
+    MainDialogBody=(
         --bannerimage "${SD_BANNER_IMAGE}"
         --bannertitle "${SD_WINDOW_TITLE}"
         --subtitle "${BANNER_SUBTITLE}"
@@ -1307,8 +1336,388 @@ function display_failure_message ()
         --moveable
     )
 
-    $SW_DIALOG "${MainDialogBody[@]}" 2>/dev/null
+    "$SW_DIALOG" "${MainDialogBody[@]}" 2>/dev/null
     cleanup_and_exit 1
+}
+
+function send_teams_webhook ()
+{
+    local notification_status="${1:-}"
+    local notification_action="${2:-Unknown}"
+    local notification_device="${3:-Unknown}"
+    local notification_details="${4:-}"
+    local notification_title=""
+    local notification_color=""
+    local notification_status_text=""
+    local notification_time=""
+    local operator_name=""
+    local jamf_server_name=""
+    local icon_url="${TEAMS_WEBHOOK_ICON_URL:-}"
+    local payload=""
+    local response_file=""
+    local http_status=""
+    local curl_status=0
+    local response_message=""
+    local -i connect_timeout=15
+    local -i max_time=30
+    local -a curlArgs
+
+    ####################
+    #
+    # Verify Teams webhook configuration
+    #
+    ####################
+
+    if [[ "${TEAMS_WEBHOOK_ENABLED:l}" != "true" ]]; then
+        logMe "INFO: Microsoft Teams webhook notifications are disabled."
+        return 0
+    fi
+
+    if [[ -z "$TEAMS_WEBHOOK_URL" ]]; then
+        logMe "INFO: No Microsoft Teams webhook URL was supplied. Notification skipped."
+        return 0
+    fi
+
+    case "$TEAMS_WEBHOOK_URL" in
+        https://*)
+            ;;
+        *)
+            logMe "WARNING: Microsoft Teams webhook URL is invalid. Notification skipped."
+            return 1
+            ;;
+    esac
+
+    ####################
+    #
+    # Validate optional icon URL
+    #
+    ####################
+
+    if [[ -n "$icon_url" ]]; then
+        case "$icon_url" in
+            https://*)
+                ;;
+            *)
+                logMe "WARNING: Microsoft Teams webhook icon URL is invalid. Sending notification without an icon."
+                icon_url=""
+                ;;
+        esac
+    fi
+
+    ####################
+    #
+    # Validate timeout settings
+    #
+    ####################
+
+    if [[ "$TEAMS_WEBHOOK_CONNECT_TIMEOUT" == <-> ]] &&
+       (( TEAMS_WEBHOOK_CONNECT_TIMEOUT >= 1 )); then
+        connect_timeout="$TEAMS_WEBHOOK_CONNECT_TIMEOUT"
+    fi
+
+    if [[ "$TEAMS_WEBHOOK_MAX_TIME" == <-> ]] &&
+       (( TEAMS_WEBHOOK_MAX_TIME >= connect_timeout )); then
+        max_time="$TEAMS_WEBHOOK_MAX_TIME"
+    fi
+
+    ####################
+    #
+    # Build notification properties
+    #
+    ####################
+
+    case "$notification_status" in
+        SUCCESS)
+            notification_title="Recovery Lock action completed"
+            notification_color="Good"
+            notification_status_text="Completed"
+            ;;
+        FAILURE)
+            notification_title="Recovery Lock action failed"
+            notification_color="Attention"
+            notification_status_text="Failed"
+            ;;
+        *)
+            logMe "WARNING: Unsupported Microsoft Teams notification status: ${notification_status}"
+            return 1
+            ;;
+    esac
+
+    case "$notification_action" in
+        View|Set|Clear|Initialization)
+            ;;
+        *)
+            notification_action="Unknown"
+            ;;
+    esac
+
+    [[ -n "$notification_device" ]] ||
+        notification_device="Unknown"
+
+    [[ -n "$notification_details" ]] ||
+        notification_details="No additional information was provided."
+
+    notification_time=$(/bin/date '+%Y-%m-%d %H:%M:%S %Z')
+    operator_name="${JAMF_LOGGED_IN_USER:-${LOGGED_IN_USER:-Unknown}}"
+    jamf_server_name="${jamfpro_url:-${JAMF_SERVER:-Unknown}}"
+
+    ####################
+    #
+    # Build Adaptive Card payload
+    #
+    ####################
+
+    if ! payload=$(
+        /usr/bin/jq -n \
+            --arg title "$notification_title" \
+            --arg color "$notification_color" \
+            --arg status "$notification_status_text" \
+            --arg action "$notification_action" \
+            --arg device "$notification_device" \
+            --arg operator "$operator_name" \
+            --arg server "$jamf_server_name" \
+            --arg script "$SCRIPT_NAME" \
+            --arg timestamp "$notification_time" \
+            --arg details "$notification_details" \
+            --arg iconUrl "$icon_url" \
+            '
+            def title_block:
+                {
+                    type: "TextBlock",
+                    text: $title,
+                    weight: "Bolder",
+                    size: "Large",
+                    wrap: true,
+                    color: $color
+                };
+
+            def header:
+                if ($iconUrl | length) > 0 then
+                    {
+                        type: "ColumnSet",
+                        columns: [
+                            {
+                                type: "Column",
+                                width: "auto",
+                                verticalContentAlignment: "Center",
+                                items: [
+                                    {
+                                        type: "Image",
+                                        url: $iconUrl,
+                                        size: "Small",
+                                        altText: "JAMF Recovery Lock"
+                                    }
+                                ]
+                            },
+                            {
+                                type: "Column",
+                                width: "stretch",
+                                verticalContentAlignment: "Center",
+                                items: [
+                                    title_block
+                                ]
+                            }
+                        ]
+                    }
+                else
+                    title_block
+                end;
+
+            {
+                type: "message",
+                attachments: [
+                    {
+                        contentType: "application/vnd.microsoft.card.adaptive",
+                        contentUrl: null,
+                        content: {
+                            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                            type: "AdaptiveCard",
+                            version: "1.4",
+                            msteams: {
+                                width: "Full"
+                            },
+                            body: [
+                                header,
+                                {
+                                    type: "FactSet",
+                                    facts: [
+                                        {
+                                            title: "Status",
+                                            value: $status
+                                        },
+                                        {
+                                            title: "Action",
+                                            value: $action
+                                        },
+                                        {
+                                            title: "Device",
+                                            value: $device
+                                        },
+                                        {
+                                            title: "Operator",
+                                            value: $operator
+                                        },
+                                        {
+                                            title: "Jamf Pro",
+                                            value: $server
+                                        },
+                                        {
+                                            title: "Script",
+                                            value: $script
+                                        },
+                                        {
+                                            title: "Time",
+                                            value: $timestamp
+                                        }
+                                    ]
+                                },
+                                {
+                                    type: "TextBlock",
+                                    text: $details,
+                                    wrap: true,
+                                    spacing: "Medium"
+                                }
+                            ]
+                        }
+                    }
+                ]
+            }
+            '
+    ); then
+        logMe "WARNING: Unable to construct the Microsoft Teams webhook payload."
+        return 1
+    fi
+
+    ####################
+    #
+    # Create response file
+    #
+    ####################
+
+    response_file=$(
+        /usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}.teams.XXXXX"
+    ) || {
+        logMe "WARNING: Unable to create the Microsoft Teams response file."
+        return 1
+    }
+
+    if ! /bin/chmod 600 "$response_file"; then
+        logMe "WARNING: Unable to secure the Microsoft Teams response file."
+        /bin/rm -f -- "$response_file"
+        return 1
+    fi
+
+    ####################
+    #
+    # Build curl arguments
+    #
+    ####################
+
+    curlArgs=(
+        --silent
+        --show-error
+        --location
+        --connect-timeout "$connect_timeout"
+        --max-time "$max_time"
+        --output "$response_file"
+        --write-out "%{http_code}"
+        --request POST
+        --header "Content-Type: application/json"
+        --data "$payload"
+    )
+
+    ####################
+    #
+    # Send notification
+    #
+    ####################
+
+    {
+        logMe "Microsoft Teams Webhook: POST notification for ${notification_action} on ${notification_device}"
+
+        http_status=$(
+            /usr/bin/curl \
+                "${curlArgs[@]}" \
+                "$TEAMS_WEBHOOK_URL"
+        )
+        curl_status=$?
+
+        if (( curl_status != 0 )); then
+            logMe "WARNING: Microsoft Teams webhook request failed. curl exit code: ${curl_status}"
+            return 1
+        fi
+
+        case "$http_status" in
+            200|201|202|204)
+                logMe "Microsoft Teams Webhook: notification sent successfully. HTTP ${http_status}"
+                return 0
+                ;;
+            *)
+                logMe "WARNING: Microsoft Teams webhook returned HTTP ${http_status}"
+
+                if [[ -s "$response_file" ]]; then
+                    response_message=$(
+                        /usr/bin/jq -er \
+                            '.error.message //
+                             .message //
+                             .error_description //
+                             .error //
+                             empty' \
+                            "$response_file" 2>/dev/null
+                    ) || response_message=""
+
+                    if [[ -n "$response_message" ]]; then
+                        logMe "Microsoft Teams Webhook: ${response_message}"
+                    else
+                        response_message=$(
+                            /usr/bin/head -c 500 "$response_file" |
+                                /usr/bin/tr '\r\n' ' '
+                        )
+
+                        if [[ -n "$response_message" ]]; then
+                            logMe "Microsoft Teams Webhook response: ${response_message}"
+                        else
+                            logMe "Microsoft Teams Webhook: response body was empty."
+                        fi
+                    fi
+                fi
+
+                return 1
+                ;;
+        esac
+
+    } always {
+        payload=""
+        /bin/rm -f -- "$response_file"
+    }
+}
+
+function send_recovery_lock_success_notification ()
+{
+    local notification_details=""
+
+    case "$lockMode" in
+        View)
+            if [[ "$results" == "No Recovery Lock password is currently stored in Jamf Pro." ]]; then
+                notification_details="Jamf Pro does not currently have a stored Recovery Lock password for this computer."
+            else
+                notification_details="Recovery Lock information was successfully retrieved from Jamf Pro. The Recovery Lock password was not included in this notification."
+            fi
+            ;;
+
+        Set)
+            notification_details="The Set Recovery Lock command was successfully submitted to Jamf Pro."
+            ;;
+        Clear)
+            notification_details="The Clear Recovery Lock command was successfully submitted to Jamf Pro."
+            ;;
+        *)
+            logMe "WARNING: Unable to determine the Recovery Lock action for the Teams notification."
+            return 1
+            ;;
+    esac
+
+    send_teams_webhook "SUCCESS" "$lockMode" "$computer_id" "$notification_details"
 }
 
 ####################################################################################################
@@ -1324,6 +1733,7 @@ typeset -g search_type=""
 typeset -g computer_id=""
 typeset -g lockMode=""
 typeset -g results=""
+typeset -gi lookup_status=0
 
 autoload -Uz is-at-least
 zmodload zsh/datetime
@@ -1347,49 +1757,100 @@ if ! JAMF_check_connection; then
     display_failure_message "Problems determining the JAMF connection"
 fi
 
-JAMF_check_credentials || cleanup_and_exit 1
+if ! JAMF_check_credentials; then
+    display_failure_message "The supplied Jamf Pro API credentials are missing or invalid."
+fi
 
-case "${lockMode}" in
-    "View" )
-        JAMF_ensure_valid_token || cleanup_and_exit 1
+if ! JAMF_ensure_valid_token; then
+    display_failure_message "Unable to obtain a valid Jamf Pro API token."
+fi
 
-        if ! ID=$(JAMF_get_deviceID "$search_type" "$computer_id" '.results[0].id'); then
-            display_failure_message "No unique Jamf computer record was found for ${computer_id}."
-        fi
+
+case "$lockMode" in
+    View)
+        ID=$(JAMF_get_deviceID "$search_type" "$computer_id" '.results[0].id')
+        lookup_status=$?
+
+        case "$lookup_status" in
+            0)
+                ;;
+            2)
+                display_failure_message "No Jamf computer record was found for ${search_type}: ${computer_id}."
+                ;;
+            3)
+                display_failure_message "Multiple Jamf computer records matched ${search_type}: ${computer_id}. No Recovery Lock action was performed."
+                ;;
+            *)
+                display_failure_message "Jamf Pro returned an error while searching for ${computer_id}."
+                ;;
+        esac
 
         if ! results=$(JAMF_view_recovery_lock "$ID"); then
             display_failure_message "Unable to retrieve the Recovery Lock password from Jamf Pro."
         fi
         ;;
 
-    "Set" )
-
-        [[ -z "$LOCK_CODE" ]] && display_failure_message "The Set action requires a Recovery Lock password in Jamf parameter 6."
-
-        JAMF_ensure_valid_token || cleanup_and_exit 1
-
-        if ! ID=$(JAMF_get_deviceID "$search_type" "$computer_id" '.results[0].general.managementId'); then
-            display_failure_message "No unique Jamf computer record was found for ${computer_id}."
+    Set)
+        if [[ -z "$LOCK_CODE" ]]; then
+            display_failure_message "The Set action requires a Recovery Lock password in Jamf parameter 6."
         fi
 
+        ID=$(JAMF_get_deviceID "$search_type" "$computer_id" '.results[0].general.managementId')
+        lookup_status=$?
+
+        case "$lookup_status" in
+            0)
+                ;;
+            2)
+                display_failure_message "No Jamf computer record was found for ${search_type}: ${computer_id}."
+                ;;
+            3)
+                display_failure_message "Multiple Jamf computer records matched ${search_type}: ${computer_id}. No Recovery Lock action was performed."
+                ;;
+            *)
+                display_failure_message "Jamf Pro returned an error while searching for ${computer_id}."
+                ;;
+        esac
+
         if ! results=$(JAMF_send_recovery_lock_command "$ID" "$LOCK_CODE"); then
-            display_failure_message "Failed to submit the Recovery Lock command to Jamf Pro."
+            display_failure_message "Failed to submit the Set Recovery Lock command to Jamf Pro."
         fi
         ;;
 
-    "Clear" )
-        JAMF_ensure_valid_token || cleanup_and_exit 1
+    Clear)
 
-        if ! ID=$(JAMF_get_deviceID "$search_type" "$computer_id" '.results[0].general.managementId'); then
-            display_failure_message "No unique Jamf computer record was found for ${computer_id}."
-        fi
+        ID=$(JAMF_get_deviceID "$search_type" "$computer_id" '.results[0].general.managementId')
+        lookup_status=$?
+
+        case "$lookup_status" in
+            0)
+                ;;
+            2)
+                display_failure_message "No Jamf computer record was found for ${search_type}: ${computer_id}."
+                ;;
+            3)
+                display_failure_message "Multiple Jamf computer records matched ${search_type}: ${computer_id}. No Recovery Lock action was performed."
+                ;;
+            *)
+                display_failure_message "Jamf Pro returned an error while searching for ${computer_id}."
+                ;;
+        esac
 
         if ! results=$(JAMF_send_recovery_lock_command "$ID" ""); then
-            display_failure_message "Failed to clear Recovery Lock through Jamf Pro."
+            display_failure_message "Failed to submit the Clear Recovery Lock command to Jamf Pro."
         fi
+        ;;
+
+    *)
+        display_failure_message "An unsupported Recovery Lock action was selected."
         ;;
 esac
 logMe "Recovery Lock ${lockMode} workflow completed successfully for ${computer_id}."
+
+if ! send_recovery_lock_success_notification; then
+    logMe "WARNING: Recovery Lock completed successfully, but the Microsoft Teams notification failed."
+fi
+
 display_status_message "$results"
 cleanup_and_exit 0
 
