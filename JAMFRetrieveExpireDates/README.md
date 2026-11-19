@@ -67,6 +67,7 @@ Read Computer Enrollment Invitations
 Read Enrollment Profiles
 Read Enrollment Customizations
 Read Volume Purchasing Locations
+View MDM command information in Jamf Pro API
 ```
 
 If you know of additional expiration dates that can be retrieved from Jamf Pro, please let me know and I will be happy to investigate adding them.
