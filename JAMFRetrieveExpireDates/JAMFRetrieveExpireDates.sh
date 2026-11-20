@@ -115,7 +115,7 @@ typeset -gr MAIN_PID=$$
 JAMF_PARAMETER_USER="${3:-}"     # Passed in by JAMF automatically
 CLIENT_ID="${4:-}"               # credentials  for JAMF Pro login
 CLIENT_SECRET="${5:-}"
-JAMF_SERVER="${6:-}"            # JAMF server to check again...leave it blank for active PROD server
+JAMF_SERVER="${6:-}"            # JAMF server to check against...leave it blank for active PROD server
 RUN_MODE="${7:-interactive}"    # Silent / Teams monitoring
 TEAMS_WEBHOOK_URL="${8:-}"
 
@@ -125,7 +125,8 @@ TEAMS_NOTIFY_CRITICAL="true"
 TEAMS_WEBHOOK_ICON_URL="https://your-server.example.com/images/JAMFRetrieveExpireDates.png"
 
                             
-[[ ${#CLIENT_ID} -gt 30 ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" #Determine with JAMF credentials we are using 
+CLIENT_ID_REGEX='^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$'
+[[ "$CLIENT_ID" =~ ${CLIENT_ID_REGEX} ]] && JAMF_TOKEN="new" || JAMF_TOKEN="classic" 
 
 ####################################################################################################
 #
@@ -989,9 +990,7 @@ function days_until_expiration ()
         return 1
     }
 
-    if ! expiration_epoch=$(
-        /bin/date -j -f "%m/%d/%Y" "${date_value%% *}" "+%s" 2>/dev/null
-    ); then
+    if ! expiration_epoch=$(/bin/date -j -f "%m/%d/%Y" "${date_value%% *}" "+%s" 2>/dev/null); then
         logMe "ERROR: Invalid expiration date: ${date_value}" >&2
         return 1
     fi
