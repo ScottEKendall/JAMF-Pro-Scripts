@@ -8,11 +8,11 @@ You can also include folders that are allowed to be deleted, by putting them int
 
 It automatically excludes the preinstalled items that come with the OS _[SIP Protected]_.
 
-# AppDelete v3.0
+## AppDelete v3.0
 
 AppDelete 3.0 is a major update focused on safer application removal, improved SwiftDialog handling, and support for applications installed in multiple locations.
 
-## What's New
+### What's New
 
 - Added support for multiple application search locations through the configurable `APPLICATION_SEARCH_PATHS` array.
 - Added exact-path tracking for discovered applications and approved folders, ensuring selections remain tied to their validated filesystem locations.
@@ -20,7 +20,7 @@ AppDelete 3.0 is a major update focused on safer application removal, improved S
 - Added duplicate-name detection when the same application is discovered in multiple search locations.
 - Added a **Run Again** workflow after deletion, allowing additional applications to be removed without restarting AppDelete.
 
-## Safety Improvements
+### Safety Improvements
 
 - Added exact-name validation before deletion.
 - Added protected-application revalidation before paths are approved for removal.
@@ -29,7 +29,7 @@ AppDelete 3.0 is a major update focused on safer application removal, improved S
 - Added protection against accidentally deleting an application search directory itself.
 - Added post-deletion verification instead of relying solely on the return code from `rm`.
 
-## Reliability Improvements
+### Reliability Improvements
 
 - Added secure temporary-file creation using `mktemp` with automatic cleanup.
 - Improved handling of SwiftDialog cancellation, empty selections, malformed output, and dialog errors.
@@ -37,7 +37,7 @@ AppDelete 3.0 is a major update focused on safer application removal, improved S
 - Improved error propagation and logging throughout the workflow.
 - Application discovery is refreshed when **Run Again** is selected, preventing stale selections or paths from being reused.
 
-## Multiple Application Locations
+### Multiple Application Locations
 
 AppDelete can now search multiple locations for applications and approved application folders.
 
