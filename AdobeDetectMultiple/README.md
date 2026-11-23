@@ -14,4 +14,11 @@ The is designed to work in tandem with a removal script that a user can call via
 ||       Fixed variable names in the defaults file section
 | 2.0 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.1 | Improved Adobe application detection using native zsh globbing
+||       Added detailed reporting of installed versions for duplicate applications
+||       Improved SwiftDialog prerequisite validation and error handling
+||       Improved Jamf policy validation for support files and Adobe Cleanup
+||       Removed unused temporary-file and jq handling
+||       Improved function variable scoping and exit-code propagation
+||       Removed legacy Jamf script-parameter handling
 
