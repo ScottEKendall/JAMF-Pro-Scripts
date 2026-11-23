@@ -53,21 +53,20 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -f "$DEFAULTS_DIR" ]]; then
-    echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
-    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
-    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
-    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
-else
-    SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
-    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
-    BANNER_SUBTITLE=""
+echo "Setting Default values"
+SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles 2>/dev/null) || SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage 2>/dev/null) || SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding 2>/dev/null) || BANNER_TEXT_PADDING=10
+BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle 2>/dev/null) || BANNER_SUBTITLE=""
+BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor 2>/dev/null) || BANNER_TEXT_COLOR="white"
+
+SUPPORT_DIR="${SUPPORT_DIR%/}"
+
+if [[ "${SD_BANNER_IMAGE#/SupportFiles/}" != "$SD_BANNER_IMAGE" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE#/}"
+elif [[ "${SD_BANNER_IMAGE:0:1}" != "/" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE}"
 fi
-[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
-[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
@@ -84,7 +83,7 @@ OVERLAY_ICON=$ICON_FILES"ToolbarCustomizeIcon.icns"
 DIALOG_INSTALL_POLICY="install_SwiftDialog"
 SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
 ADOBE_CLEANUP="AdobeCleanup"
-TSD_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
+HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 ##################################################
 #
@@ -287,6 +286,7 @@ function detect_adobe_apps ()
 
     local app
     local app_name
+    local normalized_name
     local count
     local name
     local duplicate_data=""
@@ -320,46 +320,42 @@ function detect_adobe_apps ()
                 ;;
         esac
 
-        # Normalize Adobe application name for duplicate comparison
-        app_name=$(normalize_adobe_name "$app")
-        app_names+=("$app_name")
+        # Normalize application name for duplicate comparison
+        normalized_name=$(normalize_adobe_name "$app")
 
+        app_names+=("$normalized_name")
     done
 
     # Nothing found
     (( ${#app_names[@]} == 0 )) && return 0
 
-    # Count occurrences of each application name
+    # Count occurrences of each normalized application name
     duplicate_data=$(printf '%s\n' "${app_names[@]}" | sort | uniq -c)
 
     while read -r count name; do
+
         [[ -z "$count" || -z "$name" ]] && continue
-
         if (( count > 1 )); then
-
             logMe "${name}: ${count} versions detected"
-
             results+=("* **${name}: ${count} versions detected**<br>")
-
             installed_versions=()
 
             # Find the original application names belonging to this product
             for app in "${apps_array[@]}"; do
-
-                # Normalize Adobe application name for duplicate comparison
-                app_name=$(normalize_adobe_name "$app")
-
-                if [[ "$(normalize_adobe_name "$app")" == "$name" ]]; then
+                normalized_name=$(normalize_adobe_name "$app")
+                if [[ "$normalized_name" == "$name" ]]; then
+                    # Preserve the original application name for display
+                    app_name="${app#Adobe }"
                     installed_versions+=("$app_name")
                     logMe "  - ${app_name}"
                 fi
             done
-            # Sort the actual installed versions before displaying them
+
+            # Sort and display the actual installed versions
             while IFS= read -r app; do
                 [[ -z "$app" ]] && continue
                 results+=("  * ${app}<br>")
             done < <(printf '%s\n' "${installed_versions[@]}" | sort)
-
             results+=("<br>")
         fi
     done <<< "$duplicate_data"
@@ -391,7 +387,7 @@ function welcomemsg ()
         --width 920
         --height 480
         --infobuttontext "Get Help"
-        --infobuttonaction "$TSD_URL"
+        --infobuttonaction "$HELPDESK_URL"
         --ignorednd
         --quitkey 0
         --button1text "Cleanup"
