@@ -48,6 +48,7 @@
 #       com.apple and com.jamf receipts are hidden and revalidated before preflight/forget
 #       Converted installed-package selection from multi-select switches to a single-selection dropdown
 # 3.1 - Changed the Packages list to a dropdown menu instead of a checkbox list
+#       Simplified the dropdown to use package IDs directly and removed display-label mapping
 
 
 ######################################################################################################
@@ -1090,10 +1091,7 @@ function choose_receipt ()
 {
     local output=""
     local return_code=0
-    local selected_label=""
-    local approved_label=""
-    local approved_package_id=""
-    local selection_is_approved=false
+    local selected_package_id=""
 
     SELECTED_RECEIPT_ID=""
 
@@ -1109,26 +1107,22 @@ function choose_receipt ()
     case "$return_code" in
         0)
             ;;
-
         2|10)
             logMe "User returned from package receipt selection."
             return 2
             ;;
-
         *)
             logMe "ERROR: Package receipt dialog exited with code ${return_code}."
             return 1
             ;;
     esac
 
-    if ! print -r -- "$output" |
-        jq empty >/dev/null 2>&1
-    then
+    if ! print -r -- "$output" | jq empty >/dev/null 2>&1; then
         logMe "ERROR: Package receipt dialog returned invalid JSON."
         return 1
     fi
 
-    selected_label=$(
+    selected_package_id=$(
         print -r -- "$output" |
             jq -r '
                 if (."PackageReceipt" | type) == "object" then
@@ -1139,66 +1133,30 @@ function choose_receipt ()
             '
     )
 
-    if [[ -z "$selected_label" ]]; then
+    if [[ -z "$selected_package_id" ]]; then
         logMe "No package receipt was selected."
         return 3
     fi
 
-    logMe "Package dropdown returned: ${selected_label}"
+    logMe "Package dropdown returned: ${selected_package_id}"
 
-    #
-    # Validate the returned label against the exact list AppDelete
-    # provided to SwiftDialog.
-    #
-    for approved_label in "${RECEIPT_LABELS[@]}"; do
-
-        if [[ "$selected_label" == "$approved_label" ]]; then
-            selection_is_approved=true
-            break
-        fi
-
-    done
-
-    if [[ "$selection_is_approved" != true ]]; then
-        logMe "ERROR: Selected package receipt is not in the approved receipt list: ${selected_label}"
+    if ! array_contains "$selected_package_id" "${RECEIPT_LABELS[@]}"; then
+        logMe "ERROR: Selected package receipt is not in the approved receipt list: ${selected_package_id}"
         return 1
     fi
 
-    #
-    # Labels are deliberately constructed as:
-    #
-    # package-id | version | install-location
-    #
-    SELECTED_RECEIPT_ID="${selected_label%% | *}"
-
-    if [[ -z "$SELECTED_RECEIPT_ID" ]]; then
-        logMe "ERROR: Unable to determine package ID from selected receipt."
+    if receipt_is_protected "$selected_package_id"; then
+        logMe "ERROR: Refusing protected package receipt: ${selected_package_id}"
         return 1
     fi
 
-    #
-    # Defense-in-depth: make sure the recovered package ID is
-    # still represented by the approved receipt inventory.
-    #
-    approved_package_id="${RECEIPT_IDS[$approved_label]:-}"
-
-    if [[ "$SELECTED_RECEIPT_ID" != "$approved_package_id" ]]; then
-        logMe "ERROR: Selected package ID does not match the approved receipt."
-        SELECTED_RECEIPT_ID=""
+    if ! /usr/sbin/pkgutil --pkg-info-plist "$selected_package_id" >/dev/null 2>&1; then
+        logMe "ERROR: Selected package receipt no longer exists: ${selected_package_id}"
         return 1
     fi
 
-    #
-    # Revalidate package protection immediately before proceeding.
-    #
-    if receipt_is_protected "$SELECTED_RECEIPT_ID"; then
-        logMe "ERROR: Refusing protected package receipt: ${SELECTED_RECEIPT_ID}"
-        SELECTED_RECEIPT_ID=""
-        return 1
-    fi
-
+    SELECTED_RECEIPT_ID="$selected_package_id"
     logMe "Selected package receipt: ${SELECTED_RECEIPT_ID}"
-
     return 0
 }
 
@@ -1298,27 +1256,30 @@ function resolve_receipt_entry ()
 
 function build_receipt_list ()
 {
-    local package_id plist_file version install_location label
+    local package_id
     local -a discovered
-    RECEIPT_LABELS=()
-    RECEIPT_IDS=()
+
     discovered=()
-    plist_file="${RECEIPT_WORK_DIR}/receipt-info.plist"
+    RECEIPT_LABELS=()
+
     while IFS= read -r package_id; do
         [[ -n "$package_id" ]] || continue
+
         if receipt_is_protected "$package_id"; then
             logMe "Protected package receipt excluded: ${package_id}"
             continue
         fi
-        /usr/sbin/pkgutil --pkg-info-plist "$package_id" > "$plist_file" 2>/dev/null || continue
-        version=$(/usr/bin/plutil -extract pkg-version raw -o - "$plist_file" 2>/dev/null) || version="unknown"
-        install_location=$(/usr/bin/plutil -extract install-location raw -o - "$plist_file" 2>/dev/null) || install_location="/"
-        label="${package_id} | ${version} | ${install_location}"
-        discovered+=("$label")
-        RECEIPT_IDS[$label]="$package_id"
+
+        discovered+=("$package_id")
     done < <(/usr/sbin/pkgutil --pkgs 2>/dev/null)
-    (( ${#discovered[@]} > 0 )) || return 1
+
+    if (( ${#discovered[@]} == 0 )); then
+        logMe "No eligible package receipts were found."
+        return 1
+    fi
+
     RECEIPT_LABELS=("${(@on)discovered}")
+    return 0
 }
 
 function write_receipt_manifest ()
@@ -2079,7 +2040,6 @@ typeset -a RECEIPT_PROTECTED_PATHS
 typeset -a RECEIPT_MISSING_PATHS
 typeset -a RECEIPT_UNSAFE_PATHS
 
-typeset -A RECEIPT_IDS
 
 
 if ! check_for_sudo; then
