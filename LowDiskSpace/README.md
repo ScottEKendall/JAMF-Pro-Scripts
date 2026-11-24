@@ -11,14 +11,13 @@ An example of the smartgroup that can be setup for available disk space over 80%
 and the Extended Attribute that creates the 'Disk Space Used %' field of each computer
 
 ```
-#!/bin/sh
-#https://www.jamf.com/jamf-nation/discussions/12546/boot-volume-free-space-ea
+#!/bin/zsh --no-rcs
+DATA_VOLUME="/System/Volumes/Data"
+result=$(/bin/df -P "${DATA_VOLUME}" | /usr/bin/awk 'END {gsub(/%/, "", $5)
+    print $5}')
 
-DU=$(df -h /Users | awk 'END{ print $(NF-4) }' | tr -d '%' )
-
-# print the reuslts padding with leading 0
-
-echo "<result>$(printf "%02d\n" $DU)</result>" 
+[[ -z "${result}" ]] && result="Unknown"
+echo "<result>$result</result>"
 ```
 
 **History**
