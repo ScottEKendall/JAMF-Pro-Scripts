@@ -820,7 +820,13 @@ function delete_files ()
 
 function run_application_workflow ()
 {
+    local selection_status=0
+    local confirmation_status=0
+    local deletion_status=0
+    local completion_status=0
+
     while true; do
+
         FILES_LIST=()
         ITEM_PATHS=()
         SELECTED_ITEMS=()
@@ -829,14 +835,18 @@ function run_application_workflow ()
         FAILED_ITEMS=()
         CONFIRMATION_MESSAGE=""
 
+        #
+        # Rebuild the application inventory every time the
+        # selection screen is displayed.
+        #
         if ! build_file_list_array; then
             logMe "No removable applications or approved folders are available."
-            cleanup_and_exit 0
+            return 0
         fi
 
         if ! construct_display_list; then
             logMe "ERROR: Unable to construct the item selection list."
-            cleanup_and_exit 1
+            return 1
         fi
 
         choose_files_to_delete
@@ -845,21 +855,26 @@ function run_application_workflow ()
         case "$selection_status" in
             0)
                 ;;
+
             2)
-                cleanup_and_exit 0
+                logMe "User cancelled application selection."
+                return 2
                 ;;
+
             3)
                 logMe "Redisplaying selection because no items were selected."
                 continue
                 ;;
+
             *)
-                cleanup_and_exit 1
+                logMe "ERROR: Application selection failed."
+                return 1
                 ;;
         esac
 
         if ! validate_selected_items; then
             logMe "ERROR: Selected-item validation failed."
-            cleanup_and_exit 1
+            return 1
         fi
 
         build_confirmation_message
@@ -869,13 +884,22 @@ function run_application_workflow ()
 
         case "$confirmation_status" in
             0)
+                #
+                # User confirmed deletion.
+                #
                 ;;
+
             2)
-                logMe "Returning to the selection screen."
+                #
+                # Cancel means return to application selection.
+                #
+                logMe "User cancelled deletion. Returning to application selection."
                 continue
                 ;;
+
             *)
-                cleanup_and_exit 1
+                logMe "ERROR: Application confirmation failed."
+                return 1
                 ;;
         esac
 
@@ -889,20 +913,26 @@ function run_application_workflow ()
 
         case "$completion_status" in
             0)
-                if (( deletion_status == 0 )); then
-                    cleanup_and_exit 0
-                else
-                    cleanup_and_exit 1
-                fi
+                #
+                # User selected OK.
+                #
+                return "$deletion_status"
                 ;;
+
             2)
+                #
+                # User selected Run Again.
+                #
                 logMe "User selected Run Again."
                 continue
                 ;;
+
             *)
-                cleanup_and_exit 1
+                logMe "ERROR: Completion dialog failed."
+                return 1
                 ;;
         esac
+
     done
 }
 
@@ -1788,7 +1818,7 @@ function choose_workflow_mode ()
             subtitle: $subtitle,
             titlefont: $titlefont,
             width: 820,
-            height: 500,
+            height: 360,
             moveable: true,
             ontop: true,
             quitkey: "0",
@@ -2041,7 +2071,9 @@ typeset -a RECEIPT_MISSING_PATHS
 typeset -a RECEIPT_UNSAFE_PATHS
 
 
-
+#
+# Prerequisite validation
+#
 if ! check_for_sudo; then
     exit 1
 fi
@@ -2053,18 +2085,23 @@ fi
 
 if ! check_swift_dialog_install; then
     logMe "ERROR: Unable to continue without a supported SwiftDialog installation."
-    exit 1
+    cleanup_and_exit 1
 fi
 
 if ! check_support_files; then
     logMe "ERROR: Required support files or utilities are unavailable."
-    exit 1
+    cleanup_and_exit 1
 fi
 
 create_infobox_message
 
 
+#
+# Main workflow controller
+#
 while true; do
+
+    WORKFLOW_MODE=""
 
     choose_workflow_mode
     workflow_status=$?
@@ -2072,21 +2109,35 @@ while true; do
     case "$workflow_status" in
         0)
             ;;
+
         2)
+            #
+            # Cancel/Quit from the workflow-selection screen
+            # always exits AppDelete.
+            #
+            logMe "User selected to exit AppDelete."
             cleanup_and_exit 0
             ;;
+
         *)
+            logMe "ERROR: Unable to determine AppDelete workflow."
             cleanup_and_exit 1
             ;;
     esac
 
+
+    #
+    # Run the selected workflow.
+    #
     case "$WORKFLOW_MODE" in
         applications)
             run_application_workflow
+            workflow_status=$?
             ;;
 
         receipts)
             run_receipt_workflow
+            workflow_status=$?
             ;;
 
         *)
@@ -2095,18 +2146,43 @@ while true; do
             ;;
     esac
 
-    workflow_status=$?
 
+    #
+    # Evaluate the workflow result.
+    #
     case "$workflow_status" in
         0)
+            #
+            # Workflow completed normally.
+            #
             cleanup_and_exit 0
             ;;
 
         2)
-            continue
+            #
+            # The user elected to leave the current workflow.
+            #
+            # If AppDelete was launched in interactive workflow
+            # mode, return to the workflow-selection screen.
+            #
+            # If Parameter 4 forced a specific workflow, there is
+            # no higher-level screen to return to, so exit normally.
+            #
+            case "${WORKFLOW_PARAMETER:l}" in
+                choose|select|prompt)
+                    logMe "Returning to workflow selection."
+                    continue
+                    ;;
+
+                *)
+                    logMe "User cancelled the ${WORKFLOW_MODE} workflow."
+                    cleanup_and_exit 0
+                    ;;
+            esac
             ;;
 
         *)
+            logMe "ERROR: ${WORKFLOW_MODE} workflow failed with status ${workflow_status}."
             cleanup_and_exit 1
             ;;
     esac
