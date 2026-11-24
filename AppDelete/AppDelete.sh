@@ -1056,7 +1056,7 @@ function construct_receipt_list ()
             bannerimage: $bannerimage,
             helpmessage: $helpmessage,
             width: 1040,
-            height: 600,
+            height: 400,
             moveable: true,
             ontop: true,
             buttonstyle: "right",

@@ -319,3 +319,5 @@ Before production deployment:
 ||       Adds application bundles to the preflight preview and JSON manifest
 ||       Added protected package-prefix support for package receipt removal
 ||       com.apple and com.jamf receipts are hidden and revalidated before preflight/forget
+| 3.1 | Changed the Packages list to a dropdown menu instead of a checkbox list
+||       Simplified the dropdown to use package IDs directly and removed display-label mapping
