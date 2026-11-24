@@ -5,7 +5,7 @@
 # by: Scott Kendall
 #
 # Written: 01/03/2025
-# Last updated: 04/01/2026
+# Last updated: 11/24/2026
 #
 # Script Purpose: Display user friendly dialog to users about their disk space
 #
@@ -23,6 +23,14 @@
 #       Fixed variable names in the defaults file section
 # 2.0 - Updated SD Version requirements to 3.1.0
 #       Added ability to set subtitle, color, and padding from defaults file
+# 2.1 - Updated disk usage calculation to use the APFS Data volume
+#       Added available disk space to the user notification
+#       Updated dialog messaging and button layout
+#       Added "Not Now" option and made "Show Files" the primary action
+#       Improved Jamf policy execution and error handling
+#       Added root and SwiftDialog prerequisite validation
+#       Improved logging and general code cleanup
+
 ######################################################################################################
 #
 # Global "Common" variables
@@ -33,13 +41,12 @@ SCRIPT_NAME="LowDiskSpace"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
-FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_NAME=$(sw_vers -productName)
-MACOS_VERSION=$(sw_vers -productVersion)
+DISK_INFO=$( /bin/df -Pk /System/Volumes/Data | /usr/bin/awk 'END { gsub(/%/, "", $5); printf "%s %s", $5, $4 }' )
+DISK_USAGE="${DISK_INFO%% *}"
+FREE_DISK_BLOCKS="${DISK_INFO##* }"
+FREE_DISK_SPACE=$(( FREE_DISK_BLOCKS / 1024 / 1024 ))
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
 MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
@@ -86,7 +93,6 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 # Display items (banner / icon)
 
 SD_WINDOW_TITLE="Low Disk Space"
-SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 OVERLAY_ICON="${SUPPORT_DIR}/SupportFiles/DiskSpace.png"
 
 ##################################################
@@ -104,6 +110,21 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 #
 ####################################################################################################
 
+function admin_user ()
+{
+    (( UID == 0 ))
+}
+
+function check_for_sudo ()
+{
+    if ! admin_user; then
+        print -u2 -r -- "ERROR: This script must be run as root."
+        return 1
+    fi
+
+    return 0
+}
+
 function create_log_directory ()
 {
     # Ensure that the log directory and the log files exist. If they
@@ -112,13 +133,21 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
-	LOG_DIR=${LOG_FILE%/*}
-	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
-	/bin/chmod 755 "${LOG_DIR}"
+    local LOG_DIR="${LOG_FILE%/*}"
 
-	# If the log file does not exist - create it and set the permissions
-	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
-	/bin/chmod 644 "${LOG_FILE}"
+    admin_user || return 0
+
+    if [[ ! -d "$LOG_DIR" ]]; then
+        mkdir -p "$LOG_DIR" || {print -u2 "ERROR: Unable to create log directory: ${LOG_DIR}"; return 1; }
+    fi
+    chmod 755 "$LOG_DIR" || {print -u2 "ERROR: Unable to set permissions on: ${LOG_DIR}"; return 1; }
+    # If the log file does not exist - create it and set the permissions
+    if [[ ! -f "$LOG_FILE" ]]; then
+        touch "$LOG_FILE" || {print -u2 "ERROR: Unable to create log file: ${LOG_FILE}"; return 1;}
+    fi
+
+    chmod 640 "$LOG_FILE" || {print -u2 "ERROR: Unable to secure log file: ${LOG_FILE}"; return 1;}
+    return 0
 }
 
 function logMe () 
@@ -129,46 +158,113 @@ function logMe ()
     #
     # This function logs both to STDOUT/STDERR and a file
     # The log file is set by the $LOG_FILE variable.
+    # if the user is an admin, it will write to the logfile, otherwise it will just echo to the screen
     #
     # RETURN: None
-    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+    if admin_user; then
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | /usr/bin/tee -a "${LOG_FILE}" >&2
+    else
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
+    fi
 }
 
 function check_swift_dialog_install ()
 {
-    # Check to make sure that Swift Dialog is installed and functioning correctly
-    # Will install process if missing or corrupted
-    #
-    # RETURN: None
+    local SD_VERSION
 
-    logMe "Ensuring that swiftDialog version is installed..."
-    if [[ ! -x "${SW_DIALOG}" ]]; then
-        logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
-        install_swift_dialog
-        SD_VERSION=$( ${SW_DIALOG} --version)        
+    logMe "Ensuring that SwiftDialog is installed..."
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "SwiftDialog is missing. Attempting installation."
+
+        if ! install_swift_dialog || [[ ! -x "$SW_DIALOG" ]]; then
+            logMe "ERROR: SwiftDialog installation failed." >&2
+            return 1
+        fi
     fi
 
-    if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
-        logMe "Swift Dialog is outdated - Installing version '${MIN_SD_REQUIRED_VERSION}' from JAMF..."
-        install_swift_dialog
-    else    
-        logMe "Swift Dialog is currently running: ${SD_VERSION}"
+    if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
+        logMe "ERROR: Unable to determine SwiftDialog version." >&2
+        return 1
     fi
+
+    if [[ -z "$SD_VERSION" ]]; then
+        logMe "ERROR: SwiftDialog returned an empty version." >&2
+        return 1
+    fi
+
+    if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+        logMe "SwiftDialog ${SD_VERSION} is outdated. Attempting update."
+
+        if ! install_swift_dialog; then
+            logMe "ERROR: SwiftDialog update failed." >&2
+            return 1
+        fi
+
+        if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
+            logMe "ERROR: Unable to read SwiftDialog version after update." >&2
+            return 1
+        fi
+
+        if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+            logMe "ERROR: SwiftDialog remains below the required version." >&2
+            return 1
+        fi
+    fi
+
+    logMe "SwiftDialog version ${SD_VERSION} is available."
+    return 0
 }
 
 function install_swift_dialog ()
 {
-    # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
-    #
-    # RETURN: None
+    local jamf_exit=0
 
-	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
+    if [[ ! -x /usr/local/bin/jamf ]]; then
+        logMe "ERROR: Jamf binary not found. Cannot install SwiftDialog."
+        return 1
+    fi
+
+    /usr/local/bin/jamf policy -event "$DIALOG_INSTALL_POLICY"
+    jamf_exit=$?
+
+    if (( jamf_exit != 0 )); then
+        logMe "ERROR: Jamf policy failed while installing SwiftDialog. Exit code: ${jamf_exit}"
+        return 1
+    fi
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "ERROR: SwiftDialog remains unavailable after the installation attempt."
+        return 1
+    fi
+
+    return 0
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    if [[ -f "$SD_BANNER_IMAGE" ]]; then
+        logMe "Banner image found: ${SD_BANNER_IMAGE}"
+    else
+        logMe "Banner image not found: ${SD_BANNER_IMAGE}"
+
+        if [[ -x /usr/local/bin/jamf ]]; then
+            logMe "Running support-file installation policy."
+
+            if ! /usr/local/bin/jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"; then
+                logMe "WARNING: Support-file installation policy failed."
+            fi
+        else
+            logMe "WARNING: The local Jamf binary is unavailable. The support-file installation policy cannot be run."
+        fi
+
+        if [[ -f "$SD_BANNER_IMAGE" ]]; then
+            logMe "Banner image successfully installed: ${SD_BANNER_IMAGE}"
+        else
+            logMe "WARNING: Banner image remains unavailable: ${SD_BANNER_IMAGE}"
+        fi
+    fi
+    return 0
 }
 
 function create_infobox_message()
@@ -189,57 +285,94 @@ function create_infobox_message()
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
+    local exit_code="${1:-0}"
+
+    trap - INT TERM
+
+    [[ -n "${JSON_DIALOG_BLOB:-}" ]] && /bin/rm -f -- "$JSON_DIALOG_BLOB"
+    [[ -n "${DIALOG_COMMAND_FILE:-}" ]] && /bin/rm -f -- "$DIALOG_COMMAND_FILE"
+    [[ -n "${DIALOG_COMMAND_FILE:-}" ]] && /bin/rm -rf -- "${DIALOG_COMMAND_FILE}.lock"
+
+    exit "$exit_code"
 }
+
+trap 'cleanup_and_exit 130' INT
+trap 'cleanup_and_exit 143' TERM
 
 function welcomemsg ()
 {
-    DiskUsage=$(df -h /Users | awk 'END{ print $(NF-4) }' | tr -d '%' )
-    
-    messagebody='This is an automated message from JAMF<br>'
-    messagebody+="to let you know that your available space on your hard drive is "
-    messagebody+="getting very low. Your are currently using ${DiskUsage}% of "
-    messagebody+="available space.  Anything over 80% utilized can result in problems "
-    messagebody+="with software updates, poor system and application performance.  "
-    messagebody+="It is recommended that you remove any uncessary files "
-    messagebody+="(and make sure to empty the Trash when you are done).\n\n"
-    messagebody+="This message will appear if your space utilization gets above 80%, as a "
-    messagebody+="friendly reminder to peform routine maintenance to keep your system in good operating condition.\n\n"
-    messagebody+="Click on \"Show Files\" to view the largest files on your hard drive."
- 
-	MainDialogBody=(
-		--message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $messagebody"
-		--icon "${OVERLAY_ICON}"
-		--height 560
+    local messagebody
+    local buttonpress
+
+    # Determine current disk utilization and available space
+
+    messagebody="Your Mac is running low on storage space.\\n\\n"
+    messagebody+="**${DISK_USAGE}% of the disk is currently in use, leaving approximately ${FREE_DISK_SPACE} GB available.**\\n\\n"
+    messagebody+="Low disk space can prevent macOS and application updates from installing successfully "
+    messagebody+="and may affect system performance.\\n\\n"
+    messagebody+="Select **Show Files** to review the largest files on your Mac. "
+    messagebody+="Remove files you no longer need and remember to empty the Trash afterward."
+
+    MainDialogBody=(
+        --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}. ${messagebody}"
+        --icon "${OVERLAY_ICON}"
+        --height 560
         --width 850
-		--ontop
-		--bannerimage "${SD_BANNER_IMAGE}"
+        --ontop
+        --bannerimage "${SD_BANNER_IMAGE}"
         --subtitle "${BANNER_SUBTITLE}"
-		--bannertitle "${SD_WINDOW_TITLE}"
+        --bannertitle "${SD_WINDOW_TITLE}"
         --infobox "${SD_INFO_BOX_MSG}"
         --titlefont shadow=1,color="${BANNER_TEXT_COLOR}",offset="${BANNER_TEXT_PADDING}"
         --moveable
-		--button2text "Show Files"
-		--button1text "OK"
-		--buttonstyle center
+        --button1text "Show Files"
+        --button2text "Not Now"
+        --buttonstyle right
     )
 
-	# Show the dialog screen and allow the user to choose
-
+    # Show the dialog screen and evaluate the user's selection
     "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-	buttonpress=$?
+    buttonpress=$?
 
-	# User wants to continue, so delete the files
+    case "$buttonpress" in
+        0)
+            logMe "User selected Show Files."
+            if ! show_disk_usage; then
+                logMe "ERROR: Unable to launch the disk usage workflow."
+                return 1
+            fi
+            ;;
+        2)
+            logMe "User selected Not Now."
+            ;;
+        *)
+            logMe "Dialog closed with exit code: ${buttonpress}"
+            ;;
+    esac
 
-	[[ ${buttonpress} -eq 2 ]] && show_disk_usage
+    return 0
 }
 
 function show_disk_usage ()
 {
-    /usr/local/bin/jamf policy -event ${SHOW_DISK_USAGE}
+    local jamf_exit=0
+
+    if [[ ! -x /usr/local/bin/jamf ]]; then
+        logMe "ERROR: Jamf binary not found. Cannot run disk usage workflow."
+        return 1
+    fi
+
+    logMe "Running disk usage workflow."
+
+    /usr/local/bin/jamf policy -event "${SHOW_DISK_USAGE}"
+    jamf_exit=$?
+
+    if (( jamf_exit != 0 )); then
+        logMe "ERROR: Disk usage workflow failed. Exit code: ${jamf_exit}"
+        return 1
+    fi
+
+    return 0
 }
 
 ####################################################################################################
@@ -249,9 +382,12 @@ function show_disk_usage ()
 ####################################################################################################
 
 autoload 'is-at-least'
-create_log_directory
-check_swift_dialog_install
+
+check_for_sudo || exit 1
+create_log_directory || exit 1
+check_swift_dialog_install || exit 1
 check_support_files
 create_infobox_message
 welcomemsg
+
 exit 0

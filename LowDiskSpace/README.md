@@ -39,4 +39,11 @@ echo "<result>$(printf "%02d\n" $DU)</result>"
 ||       Fixed variable names in the defaults file section
 | 2.0 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.1 | Updated disk usage calculation to use the APFS Data volume
+||       Added available disk space to the user notification
+||       Updated dialog messaging and button layout
+||       Added "Not Now" option and made "Show Files" the primary action
+||       Improved Jamf policy execution and error handling
+||       Added root and SwiftDialog prerequisite validation
+||       Improved logging and general code cleanup
 
