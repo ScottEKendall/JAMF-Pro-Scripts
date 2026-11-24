@@ -28,3 +28,10 @@ _and if the battery is bad (critical)_
 | 1.8 | Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 | 2.0 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and offset from defaults file
+| 2.1 | Improved battery information retrieval and parsing
+||       Improved detection of AC charger connection, wattage, and charging state
+||      Added validation for the Jamf battery condition parameter
+||      Improved SwiftDialog installation, version validation, and failure handling
+||      Improved support file validation and error handling
+||      Removed unused variables and dependencies
+||      General code cleanup and reliability improvements

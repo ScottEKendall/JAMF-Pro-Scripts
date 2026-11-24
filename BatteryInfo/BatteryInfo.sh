@@ -5,7 +5,7 @@
 # Written by: Scott E. Kendall
 #
 # Created: 01/25/2025
-# Last updated: 04/01/2026
+# Last updated: 11/24/2026
 #
 # Script Purpose: Prompt user if battery needs service
 #
@@ -24,6 +24,13 @@
 # 1.8 - Changed JAMF 'policy -trigger' to JAMF 'policy -event'
 # 2.0 - Updated SD Version requirements to 3.1.0
 #       Added ability to set subtitle, color, and offset from defaults file
+# 2.1 - Improved battery information retrieval and parsing
+#       Improved detection of AC charger connection, wattage, and charging state
+#       Added validation for the Jamf battery condition parameter
+#       Improved SwiftDialog installation, version validation, and failure handling
+#       Improved support file validation and error handling
+#       Removed unused variables and dependencies
+#       General code cleanup and reliability improvements
 
 ######################################################################################################
 #
@@ -33,67 +40,52 @@
 #set -x
 SCRIPT_NAME="BatteryInfo"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_NAME=$(sw_vers -productName)
-MACOS_VERSION=$(sw_vers -productVersion)
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
 MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="3.1.0"
-[[ -e "${SW_DIALOG}" ]] && SD_VERSION=$( ${SW_DIALOG} --version) || SD_VERSION="0.0.0"
 
 SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} morning afternoon evening)
-
-SYSTEM_PROFILER_BATTERY_BLOB=$( /usr/sbin/system_profiler 'SPPowerDataType')
-
-BatteryCondition=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Condition" | awk '{print $2}')
-BatteryCycleCount=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Cycle Count" | awk '{print $3}')
-BatteryCapacity=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Maximum Capacity:" | awk '{print $3}')
-BatteryCurrentCharge=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "State of Charge (%):" | awk '{print $NF}' )
-ChargerConnected=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Connected:" | sed 's/.*Connected: //')
-BatteryChargingWattage=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Wattage (W)" | sed 's/.*Wattage (W): //')
-BatteryCharging=$(echo $SYSTEM_PROFILER_BATTERY_BLOB | grep "Charging:" | sed 's/.*Charging: //' | head -n 1)
 
 ###################################################
 #
 # App Specific variables (Feel free to change these)
 #
 ###################################################
-   
+
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -f "$DEFAULTS_DIR" ]]; then
-    echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
-    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
-    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
-    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
-else
-    SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
-    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
-    BANNER_SUBTITLE=""
+echo "Setting Default values"
+SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles 2>/dev/null) || SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage 2>/dev/null) || SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding 2>/dev/null) || BANNER_TEXT_PADDING=10
+BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle 2>/dev/null) || BANNER_SUBTITLE=""
+BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor 2>/dev/null) || BANNER_TEXT_COLOR="white"
+
+SUPPORT_DIR="${SUPPORT_DIR%/}"
+
+if [[ "${SD_BANNER_IMAGE#/SupportFiles/}" != "$SD_BANNER_IMAGE" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE#/}"
+elif [[ "${SD_BANNER_IMAGE:0:1}" != "/" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE}"
 fi
-[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
-[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
 LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
+# Trigger installs for Images & icons
+
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+
 # Display items (banner / icon)
 
 SD_WINDOW_TITLE="Battery Condition"
-SD_ICON="SF=minus.plus.batteryblock, color=green, weight=normal"
-
 HELPDESK_URL="https://gianteagle.service-now.com/ge?id=sc_cat_item&sys_id=227586311b9790503b637518dc4bcb3d"
 
 
@@ -112,6 +104,21 @@ BATTERY_CONDITION=${4:-"info"}
 # Functions
 #
 ####################################################################################################
+function admin_user ()
+{
+    (( UID == 0 ))
+}
+
+function check_for_sudo ()
+{
+    if ! admin_user; then
+        print -u2 -r -- "ERROR: This script must be run as root."
+        return 1
+    fi
+
+    return 0
+}
+
 function create_log_directory ()
 {
     # Ensure that the log directory and the log files exist. If they
@@ -119,14 +126,22 @@ function create_log_directory ()
     #
     # RETURN: None
 
-    LOG_DIR=${LOG_FILE%/*}
-	# If the log directory doesnt exist - create it and set the permissions
-	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
-	/bin/chmod 755 "${LOG_DIR}"
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+    local LOG_DIR="${LOG_FILE%/*}"
 
-	# If the log file does not exist - create it and set the permissions
-	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
-	/bin/chmod 644 "${LOG_FILE}"
+    admin_user || return 0
+
+    if [[ ! -d "$LOG_DIR" ]]; then
+        mkdir -p "$LOG_DIR" || {print -u2 "ERROR: Unable to create log directory: ${LOG_DIR}"; return 1; }
+    fi
+    chmod 755 "$LOG_DIR" || {print -u2 "ERROR: Unable to set permissions on: ${LOG_DIR}"; return 1; }
+    # If the log file does not exist - create it and set the permissions
+    if [[ ! -f "$LOG_FILE" ]]; then
+        touch "$LOG_FILE" || {print -u2 "ERROR: Unable to create log file: ${LOG_FILE}"; return 1;}
+    fi
+
+    chmod 640 "$LOG_FILE" || {print -u2 "ERROR: Unable to secure log file: ${LOG_FILE}"; return 1;}
+    return 0
 }
 
 function logMe () 
@@ -137,46 +152,113 @@ function logMe ()
     #
     # This function logs both to STDOUT/STDERR and a file
     # The log file is set by the $LOG_FILE variable.
+    # if the user is an admin, it will write to the logfile, otherwise it will just echo to the screen
     #
     # RETURN: None
-    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+    if admin_user; then
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | /usr/bin/tee -a "${LOG_FILE}" >&2
+    else
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
+    fi
 }
 
 function check_swift_dialog_install ()
 {
-    # Check to make sure that Swift Dialog is installed and functioning correctly
-    # Will install process if missing or corrupted
-    #
-    # RETURN: None
+    local SD_VERSION
 
-    logMe "Ensuring that swiftDialog version is installed..."
-    if [[ ! -x "${SW_DIALOG}" ]]; then
-        logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
-        install_swift_dialog
-        SD_VERSION=$( ${SW_DIALOG} --version)        
+    logMe "Ensuring that SwiftDialog is installed..."
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "SwiftDialog is missing. Attempting installation."
+
+        if ! install_swift_dialog || [[ ! -x "$SW_DIALOG" ]]; then
+            logMe "ERROR: SwiftDialog installation failed." >&2
+            return 1
+        fi
     fi
 
-    if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
-        logMe "Swift Dialog is outdated - Installing version '${MIN_SD_REQUIRED_VERSION}' from JAMF..."
-        install_swift_dialog
-    else    
-        logMe "Swift Dialog is currently running: ${SD_VERSION}"
+    if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
+        logMe "ERROR: Unable to determine SwiftDialog version." >&2
+        return 1
     fi
+
+    if [[ -z "$SD_VERSION" ]]; then
+        logMe "ERROR: SwiftDialog returned an empty version." >&2
+        return 1
+    fi
+
+    if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+        logMe "SwiftDialog ${SD_VERSION} is outdated. Attempting update."
+
+        if ! install_swift_dialog; then
+            logMe "ERROR: SwiftDialog update failed." >&2
+            return 1
+        fi
+
+        if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
+            logMe "ERROR: Unable to read SwiftDialog version after update." >&2
+            return 1
+        fi
+
+        if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+            logMe "ERROR: SwiftDialog remains below the required version." >&2
+            return 1
+        fi
+    fi
+
+    logMe "SwiftDialog version ${SD_VERSION} is available."
+    return 0
 }
 
 function install_swift_dialog ()
 {
-    # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
-    #
-    # RETURN: None
+    local jamf_exit=0
 
-	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
+    if [[ ! -x /usr/local/bin/jamf ]]; then
+        logMe "ERROR: Jamf binary not found. Cannot install SwiftDialog."
+        return 1
+    fi
+
+    /usr/local/bin/jamf policy -event "$DIALOG_INSTALL_POLICY"
+    jamf_exit=$?
+
+    if (( jamf_exit != 0 )); then
+        logMe "ERROR: Jamf policy failed while installing SwiftDialog. Exit code: ${jamf_exit}"
+        return 1
+    fi
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "ERROR: SwiftDialog remains unavailable after the installation attempt."
+        return 1
+    fi
+
+    return 0
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
+    if [[ -f "$SD_BANNER_IMAGE" ]]; then
+        logMe "Banner image found: ${SD_BANNER_IMAGE}"
+    else
+        logMe "Banner image not found: ${SD_BANNER_IMAGE}"
+
+        if [[ -x /usr/local/bin/jamf ]]; then
+            logMe "Running support-file installation policy."
+
+            if ! /usr/local/bin/jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"; then
+                logMe "WARNING: Support-file installation policy failed."
+            fi
+        else
+            logMe "WARNING: The local Jamf binary is unavailable. The support-file installation policy cannot be run."
+        fi
+
+        if [[ -f "$SD_BANNER_IMAGE" ]]; then
+            logMe "Banner image successfully installed: ${SD_BANNER_IMAGE}"
+        else
+            logMe "WARNING: Banner image remains unavailable: ${SD_BANNER_IMAGE}"
+        fi
+    fi
+    return 0
 }
 
 function create_infobox_message()
@@ -197,34 +279,42 @@ function create_infobox_message()
 
 function cleanup_and_exit ()
 {
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
+    local exit_code="${1:-0}"
+
+    trap - INT TERM
+    exit "$exit_code"
 }
+
+trap 'cleanup_and_exit 130' INT
+trap 'cleanup_and_exit 143' TERM
 
 function welcomemsg ()
 {
+    local buttonpress
+    local messagebody
+    local OVERLAY_ICON
+    local -a MainDialogBody
+
     if [[ "${BATTERY_CONDITION:l}" == "info" ]]; then
         messagebody="$SD_DIALOG_GREETING, $SD_FIRST_NAME.  Here is the current state & charging information of your laptop battery:<br><br>"
         messagebody+="Condition: **${BatteryCondition}**<br>"
         messagebody+="Current # of Cycles: **${BatteryCycleCount}**<br>"
-        messagebody+="Total Capacity Remain: **${BatteryCapacity}**<br>"
+        messagebody+="Maximum Battery Capacity: **${BatteryCapacity}**<br>"
         messagebody+="Battery Current Charge: **${BatteryCurrentCharge}%**<br>"
         messagebody+="AC Charger Connected: **${ChargerConnected}**<br>"
         if [[ "$ChargerConnected" == "Yes" ]]; then
-            messagebody+="Charger Wattage: **${BatteryChargingWattage}W**<br>"
+            [[ "$BatteryChargingWattage" != "Unknown" ]] && messagebody+="Charger Wattage: **${BatteryChargingWattage}W**<br>"
             messagebody+="Currently Charging: **${BatteryCharging}**<br>"
         fi
-        OVERLAY_ICON="SF=battery.100percent.bolt,color=auto,bgcolor=none,weight=bold"
+        OVERLAY_ICON="SF=battery.100percent.bolt,color=green,bgcolor=none,weight=bold,animation=pulse"
     else
         messagebody="$SD_DIALOG_GREETING, $SD_FIRST_NAME!  This is an automated message from JAMF "
         messagebody+="to let you know that the battery in your laptop is below acceptable"
         messagebody+=" limits declared by Apple.  The runtime while on battery and "
-        messagebody+="performance may be severly affected.  Please raise a ticket with the"
-        messagebody+=" Help Desk to let them know that you received this message, and it is"
-        messagebody+=" recommended that you purchase a new laptop at this time."
-        OVERLAY_ICON="SF=battery.100percent.bolt,color=red,bgcolor=bgnone,weight=bold,animation=pulse"
+        messagebody+="performance may be severely affected. <br><br>Please raise a ticket with the "
+        messagebody+="Help Desk to let them know that you received this message. They will"
+        messagebody+=" review the battery condition and advise you on the appropriate next steps."
+        OVERLAY_ICON="SF=battery.100percent.bolt,color=red,bgcolor=none,weight=bold,animation=pulse"
     fi
 
 	MainDialogBody=(
@@ -245,13 +335,56 @@ function welcomemsg ()
     )
     if [[ "${BATTERY_CONDITION:l}" == "fail" ]] && MainDialogBody+=(--button2text "Help Desk Ticket")
     
-	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
+    "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
     buttonpress=$?
-    if [[ $buttonpress = 2 ]]; then
-        open $HELPDESK_URL
-        logMe "INFO: User choose to open a ticket...redirecting to URL and exiting script"
+
+    if (( buttonpress == 2 )); then
+        /usr/bin/open "$HELPDESK_URL"
+        logMe "INFO: User chose to open a ticket...redirecting to URL and exiting script"
         cleanup_and_exit 0
     fi
+}
+
+function get_battery_information ()
+{
+    local battery_blob
+
+    battery_blob=$(/usr/sbin/system_profiler SPPowerDataType 2>/dev/null)
+
+    if [[ -z "$battery_blob" ]]; then
+        logMe "ERROR: Unable to retrieve battery information."
+        return 1
+    fi
+
+    BatteryCondition=$(print -r -- "$battery_blob" | awk -F': ' '/^[[:space:]]*Condition:/ {print $2; exit}')
+    BatteryCycleCount=$(print -r -- "$battery_blob" | awk -F': ' '/^[[:space:]]*Cycle Count:/ {print $2; exit}')
+    BatteryCapacity=$(print -r -- "$battery_blob" | awk -F': ' '/^[[:space:]]*Maximum Capacity:/ {print $2; exit}')
+    BatteryCurrentCharge=$(print -r -- "$battery_blob" | awk -F': ' '/^[[:space:]]*State of Charge \(%\):/ {print $2; exit}')
+    BatteryCharging=$(print -r -- "$battery_blob" | awk -F': ' '/^[[:space:]]*Charging:/ {print $2; exit}')
+
+    ChargerConnected=$(print -r -- "$battery_blob" | awk '
+                /AC Charger Information:/ { in_charger=1; next }
+                in_charger && /Connected:/ {
+                    sub(/^[[:space:]]*Connected:[[:space:]]*/, "")
+                    print 
+                    exit}')
+
+    BatteryChargingWattage=$(print -r -- "$battery_blob" | awk '
+                /AC Charger Information:/ { in_charger=1; next }
+                in_charger && /Wattage \(W\):/ {
+                    sub(/^[[:space:]]*Wattage \(W\):[[:space:]]*/, "")
+                    print
+                    exit}')
+
+    BatteryCondition=${BatteryCondition:-"Unknown"}
+    BatteryCycleCount=${BatteryCycleCount:-"Unknown"}
+    BatteryCapacity=${BatteryCapacity:-"Unknown"}
+    BatteryCurrentCharge=${BatteryCurrentCharge:-"Unknown"}
+    BatteryCharging=${BatteryCharging:-"Unknown"}
+    ChargerConnected=${ChargerConnected:-"No"}
+    BatteryChargingWattage=${BatteryChargingWattage:-"Unknown"}
+
+    return 0
 }
 
 ####################################################################################################
@@ -261,9 +394,32 @@ function welcomemsg ()
 ####################################################################################################
 
 autoload 'is-at-least'
-create_log_directory
-check_swift_dialog_install
-check_support_files
+
+check_for_sudo || exit 1
+create_log_directory || exit 1
+
+case "${BATTERY_CONDITION:l}" in
+    info|fail)
+        ;;
+    *)
+        logMe "WARNING: Invalid battery condition parameter '${BATTERY_CONDITION}'. Defaulting to 'info'."
+        BATTERY_CONDITION="info"
+        ;;
+esac
+
+check_swift_dialog_install || {
+    logMe "ERROR: SwiftDialog requirements could not be satisfied."
+    cleanup_and_exit 1
+}
+
+check_support_files || {
+    logMe "ERROR: Required support files could not be verified."
+    cleanup_and_exit 1
+}
+
+get_battery_information || cleanup_and_exit 1
+
 create_infobox_message
 welcomemsg
-cleanup_and_exit
+
+cleanup_and_exit 0
