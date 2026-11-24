@@ -4,7 +4,7 @@
 # Purpose: Allow end users to delete apps / folders using Swift Dialog
 #
 # Written: 8/3/2022
-# Last updated: 04/01/2026
+# Last updated: 11/24/2026
 #
 # 1.0 - Initial Release
 # 1.1 - Major code cleanup & documentation
@@ -36,6 +36,17 @@
 #       Added secure temporary-file creation and cleanup
 #       Added explicit handling for empty selections and dialog errors
 #       Improved prerequisite and error propagation
+#       Added a conservative installed-package receipt removal workflow
+#       Excludes Apple receipts, user data, protected system locations, shared paths, and unsafe entries
+#       Removes exact files and symlinks before empty-directory cleanup
+#       Forgets the receipt only after all approved removals succeed
+#       Writes a JSON removal manifest to the AppDelete log directory
+#       Promoted receipt-owned application bundles under approved application roots
+#       Collapses internal bundle files into one validated .app removal target
+#       Adds application bundles to the preflight preview and JSON manifest
+#       Added protected package-prefix support for package receipt removal
+#       com.apple and com.jamf receipts are hidden and revalidated before preflight/forget
+
 
 ######################################################################################################
 #
@@ -44,6 +55,7 @@
 ######################################################################################################
 #set -x
 SCRIPT_NAME="AppDelete"
+SCRIPT_VERSION="3.0"
 PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -155,18 +167,53 @@ ALLOWED_FOLDERS=(
 	"Utilities copy"
 	"Cisco copy")
 
+# Package-receipt removal safety settings.
+# Apple receipts and anything installed beneath these roots are never offered for removal.
+# Package identifiers matching these prefixes can never be removed by AppDelete.
+PROTECTED_PACKAGE_PREFIXES=(
+    "com.apple"
+    "com.jamf"
+)
+RECEIPT_PREVIEW_LIMIT=100
+
+# These directories and paths are never removed by AppDelete, even if they are listed in a package receipt.
+RECEIPT_PROTECTED_PREFIXES=(
+    "/System"
+    "/bin"
+    "/sbin"
+    "/usr/bin"
+    "/usr/lib"
+    "/usr/libexec"
+    "/usr/sbin"
+    "/Users"
+    "/private/var"
+)
+# These exact paths are never removed by AppDelete, even if they are listed in a package receipt.
+RECEIPT_PROTECTED_EXACT_PATHS=(
+    "/"
+    "/Applications"
+    "/Library"
+    "/usr"
+    "/usr/local"
+    "/opt"
+    "/private"
+    "/var"
+    "/tmp"
+)
+
 ##################################################
 #
 # Passed in variables
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
-
+JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}
+SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
+WORKFLOW_PARAMETER="${4:-applications}"         #Workflow option to allow (applications|receipts|choose) to be passed in as a parameter.  Default is applications
+ 
 ####################################################################################################
 #
-# Global Functions
+# Global / Shared Functions
 #
 ####################################################################################################
 
@@ -374,46 +421,18 @@ function cleanup_and_exit ()
 
     [[ -n "${JSON_OPTIONS:-}" ]] && /bin/rm -f -- "$JSON_OPTIONS"
     [[ -n "${TMP_FILE_STORAGE:-}" ]] && /bin/rm -f -- "$TMP_FILE_STORAGE"
+    if [[ -n "${RECEIPT_WORK_DIR:-}" && -d "$RECEIPT_WORK_DIR" && "$RECEIPT_WORK_DIR" == "/var/tmp/${SCRIPT_NAME}.receipt."* ]]; then
+        /bin/rm -rf -- "$RECEIPT_WORK_DIR"
+    fi
 
     exit "$exit_code"
 }
 
-
 ####################################################################################################
 #
-# Functions
+# Application Removal Workflow
 #
 ####################################################################################################
-
-function validate_selected_items ()
-{
-    local selected_name
-    local approved_path
-
-    APPROVED_DELETE_PATHS=()
-
-    for selected_name in "${SELECTED_ITEMS[@]}"; do
-        approved_path=""
-
-        if approved_path=$(resolve_approved_delete_path "$selected_name"); then
-            APPROVED_DELETE_PATHS+=("$approved_path")
-        else
-            logMe "ERROR: Selection validation failed: ${selected_name}"
-        fi
-    done
-
-    if (( ${#APPROVED_DELETE_PATHS[@]} == 0 )); then
-        logMe "ERROR: No approved deletion paths remain after validation."
-        return 1
-    fi
-
-    if (( ${#APPROVED_DELETE_PATHS[@]} != ${#SELECTED_ITEMS[@]} )); then
-        logMe "ERROR: One or more selected items failed validation."
-        return 1
-    fi
-
-    return 0
-}
 
 function build_file_list_array ()
 {
@@ -552,6 +571,7 @@ function construct_display_list ()
         --arg bannerimage "$SD_BANNER_IMAGE" \
         --arg helpmessage "Choose the applications or approved folders you want to remove.<br>Applications can be installed again from Self Service." \
         --arg infobox "$SD_INFO_BOX_MSG" \
+        --arg infotext "V ${SCRIPT_VERSION}" \
         --argjson checkbox "$checkbox_json" \
         '{
             message: $message,
@@ -567,7 +587,8 @@ function construct_display_list ()
             height: 750,
             moveable: true,
             ontop: true,
-            buttonstyle: "center",
+            buttonstyle: "right",
+            infotext: $infotext,
             infobox: $infobox,
             quitkey: "0",
             button1text: "Next",
@@ -654,6 +675,73 @@ function choose_files_to_delete ()
     return 0
 }
 
+function resolve_approved_delete_path ()
+{
+    local name="$1"
+    local path=""
+
+    [[ -n "$name" ]] || return 1
+
+    if ! array_contains "$name" "${FILES_LIST[@]}"; then
+        logMe "ERROR: Rejected unapproved selection: ${name}"
+        return 1
+    fi
+
+    if array_contains "$name" "${NOT_ALLOWED_APPS[@]}"; then
+        logMe "ERROR: Rejected protected application: ${name}"
+        return 1
+    fi
+
+    path="${ITEM_PATHS[$name]:-}"
+
+    if [[ -z "$path" ]]; then
+        logMe "ERROR: No approved deletion path for: ${name}"
+        return 1
+    fi
+
+    if [[ ! -e "$path" ]]; then
+        logMe "ERROR: Approved deletion path no longer exists: ${path}"
+        return 1
+    fi
+
+    if [[ -L "$path" ]]; then
+        logMe "ERROR: Refusing symbolic link: ${path}"
+        return 1
+    fi
+
+    print -r -- "$path"
+}
+
+function validate_selected_items ()
+{
+    local selected_name
+    local approved_path
+
+    APPROVED_DELETE_PATHS=()
+
+    for selected_name in "${SELECTED_ITEMS[@]}"; do
+        approved_path=""
+
+        if approved_path=$(resolve_approved_delete_path "$selected_name"); then
+            APPROVED_DELETE_PATHS+=("$approved_path")
+        else
+            logMe "ERROR: Selection validation failed: ${selected_name}"
+        fi
+    done
+
+    if (( ${#APPROVED_DELETE_PATHS[@]} == 0 )); then
+        logMe "ERROR: No approved deletion paths remain after validation."
+        return 1
+    fi
+
+    if (( ${#APPROVED_DELETE_PATHS[@]} != ${#SELECTED_ITEMS[@]} )); then
+        logMe "ERROR: One or more selected items failed validation."
+        return 1
+    fi
+
+    return 0
+}
+
 function build_confirmation_message ()
 {
     local path
@@ -666,24 +754,6 @@ function build_confirmation_message ()
 
     CONFIRMATION_MESSAGE+="<br>This action cannot be undone."
     return 0
-}
-
-function path_is_within_search_locations ()
-{
-    local candidate_path="$1"
-    local search_path
-
-    [[ -n "$candidate_path" ]] || return 1
-
-    for search_path in "${APPLICATION_SEARCH_PATHS[@]}"; do
-        search_path="${search_path%/}"
-
-        if [[ "$candidate_path" == "${search_path}/"* ]]; then
-            return 0
-        fi
-    done
-
-    return 1
 }
 
 function delete_files ()
@@ -745,45 +815,967 @@ function delete_files ()
     (( ${#FAILED_ITEMS[@]} == 0 ))
 }
 
-function show_final_delete_prompt ()
+function run_application_workflow ()
 {
+    while true; do
+        FILES_LIST=()
+        ITEM_PATHS=()
+        SELECTED_ITEMS=()
+        APPROVED_DELETE_PATHS=()
+        DELETED_ITEMS=()
+        FAILED_ITEMS=()
+        CONFIRMATION_MESSAGE=""
+
+        if ! build_file_list_array; then
+            logMe "No removable applications or approved folders are available."
+            cleanup_and_exit 0
+        fi
+
+        if ! construct_display_list; then
+            logMe "ERROR: Unable to construct the item selection list."
+            cleanup_and_exit 1
+        fi
+
+        choose_files_to_delete
+        selection_status=$?
+
+        case "$selection_status" in
+            0)
+                ;;
+            2)
+                cleanup_and_exit 0
+                ;;
+            3)
+                logMe "Redisplaying selection because no items were selected."
+                continue
+                ;;
+            *)
+                cleanup_and_exit 1
+                ;;
+        esac
+
+        if ! validate_selected_items; then
+            logMe "ERROR: Selected-item validation failed."
+            cleanup_and_exit 1
+        fi
+
+        build_confirmation_message
+
+        show_final_delete_prompt
+        confirmation_status=$?
+
+        case "$confirmation_status" in
+            0)
+                ;;
+            2)
+                logMe "Returning to the selection screen."
+                continue
+                ;;
+            *)
+                cleanup_and_exit 1
+                ;;
+        esac
+
+        delete_files
+        deletion_status=$?
+
+        build_completion_message
+
+        show_completed_prompt
+        completion_status=$?
+
+        case "$completion_status" in
+            0)
+                if (( deletion_status == 0 )); then
+                    cleanup_and_exit 0
+                else
+                    cleanup_and_exit 1
+                fi
+                ;;
+            2)
+                logMe "User selected Run Again."
+                continue
+                ;;
+            *)
+                cleanup_and_exit 1
+                ;;
+        esac
+    done
+}
+
+####################################################################################################
+#
+# Installed Package Receipt Removal Workflow
+#
+####################################################################################################
+
+
+function receipt_is_protected ()
+{
+    local package_id="$1"
+    local protected_prefix
+
+    [[ -n "$package_id" ]] || return 0
+
+    for protected_prefix in "${PROTECTED_PACKAGE_PREFIXES[@]}"; do
+        [[ -n "$protected_prefix" ]] || continue
+
+        if [[ "$package_id" == "$protected_prefix" ||
+              "$package_id" == "${protected_prefix}."* ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+function receipt_path_is_protected ()
+{
+    local candidate="${1%/}"
+    local protected
+    [[ -n "$candidate" && "$candidate" == /* ]] || return 0
+    [[ "$candidate" != *'/../'* && "$candidate" != '/..' && "$candidate" != *'/..' ]] || return 0
+    for protected in "${RECEIPT_PROTECTED_EXACT_PATHS[@]}"; do
+        [[ "$candidate" == "${protected%/}" ]] && return 0
+    done
+    for protected in "${RECEIPT_PROTECTED_PREFIXES[@]}"; do
+        protected="${protected%/}"
+        [[ "$candidate" == "$protected" || "$candidate" == "$protected/"* ]] && return 0
+    done
+    return 1
+}
+
+function receipt_root_from_metadata ()
+{
+    local package_id="$1"
+    local plist_file="$2"
+    local volume install_location root
+    /usr/sbin/pkgutil --pkg-info-plist "$package_id" > "$plist_file" 2>/dev/null || return 1
+    volume=$(/usr/bin/plutil -extract volume raw -o - "$plist_file" 2>/dev/null) || volume="/"
+    install_location=$(/usr/bin/plutil -extract install-location raw -o - "$plist_file" 2>/dev/null) || install_location="/"
+    [[ "$volume" == /* ]] || return 1
+    volume="${volume%/}"
+    install_location="/${install_location#/}"
+    root="${volume}${install_location}"
+    root="${root%/}"
+    [[ -n "$root" ]] || root="/"
+    print -r -- "$root"
+}
+
+function path_has_symlink_ancestor ()
+{
+    local candidate="$1" current="/" component
+    local -a components
+    components=("${(@s:/:)${candidate#/}}")
+    for component in "${components[@]:0:${#components[@]}-1}"; do
+        [[ -n "$component" ]] || continue
+        current="${current%/}/${component}"
+        [[ -L "$current" ]] && return 0
+    done
+    return 1
+}
+
+function get_receipt_app_bundle ()
+{
+    local candidate="$1"
+    local search_root=""
+    local relative_path=""
+    local app_component=""
+    local app_bundle=""
+
+    [[ -n "$candidate" ]] || return 1
+
+    for search_root in "${APPLICATION_SEARCH_PATHS[@]}"; do
+
+        search_root="${search_root%/}"
+
+        [[ "$candidate" == "${search_root}/"* ]] || continue
+
+        relative_path="${candidate#${search_root}/}"
+
+        #
+        # Find the first *.app component beneath the approved
+        # application search root.
+        #
+        app_component="${relative_path%%/*}"
+
+        [[ "$app_component" == *.app ]] || continue
+
+        app_bundle="${search_root}/${app_component}"
+
+        #
+        # The application itself must currently exist and may
+        # not be a symbolic link.
+        #
+        [[ -d "$app_bundle" ]] || continue
+        [[ ! -L "$app_bundle" ]] || continue
+
+        print -r -- "$app_bundle"
+        return 0
+    done
+
+    return 1
+}
+
+function construct_receipt_list ()
+{
+    local label item_json checkbox_json
+    local -a checkbox_items
+    checkbox_items=()
+    for label in "${RECEIPT_LABELS[@]}"; do
+        item_json=$(jq -n --arg label "$label" '{label:$label,checked:false,disabled:false,icon:"SF=shippingbox.fill,color=auto"}') || return 1
+        checkbox_items+=("$item_json")
+    done
+    checkbox_json=$(printf '%s\n' "${checkbox_items[@]}" | jq -s '.') || return 1
+    jq -n \
+        --arg message "Select exactly one eligible installer receipt. Protected package prefixes are excluded. AppDelete will perform a safety preflight before removing anything." \
+        --arg bannertitle "Remove Installed Package" \
+        --arg subtitle "$BANNER_SUBTITLE" \
+        --arg titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}" \
+        --arg icon "SF=shippingbox.fill,color=auto" \
+        --arg bannerimage "$SD_BANNER_IMAGE" \
+        --arg helpmessage "Package receipts are not vendor uninstallers. Protected, shared, missing, and unsafe paths are excluded. The receipt is forgotten only after approved removals succeed." \
+        --arg infotext "V ${SCRIPT_VERSION}" \
+        --argjson checkbox "$checkbox_json" \
+        '{message:$message,messageposition:"top",bannertitle:$bannertitle,subtitle:$subtitle,titlefont:$titlefont,icon:$icon,bannerimage:$bannerimage,helpmessage:$helpmessage,width:1040,height:760,moveable:true,ontop:true,buttonstyle:"right",infotext:$infotext,quitkey:"0",button1text:"Preflight",button2text:"Back",checkboxstyle:{style:"switch",size:"regular"},checkbox:$checkbox}' > "$JSON_OPTIONS" || return 1
+    jq empty "$JSON_OPTIONS" >/dev/null 2>&1
+}
+
+function preflight_receipt ()
+{
+    local package_id="$SELECTED_RECEIPT_ID"
+
+    if receipt_is_protected "$package_id"; then
+        logMe "ERROR: Protected package receipt reached preflight: ${package_id}"
+        return 1
+    fi
+    local metadata_file="${RECEIPT_WORK_DIR}/selected.plist"
+    local entry candidate app_bundle
+
+    RECEIPT_APPROVED_APP_BUNDLES=()
+    RECEIPT_APPROVED_FILES=()
+    RECEIPT_APPROVED_DIRS=()
+    RECEIPT_SHARED_PATHS=()
+    RECEIPT_PROTECTED_PATHS=()
+    RECEIPT_MISSING_PATHS=()
+    RECEIPT_UNSAFE_PATHS=()
+    RECEIPT_MANIFEST_PATH=""
+
+    RECEIPT_ROOT=$(receipt_root_from_metadata "$package_id" "$metadata_file") || {
+        logMe "ERROR: Unable to read metadata for receipt: ${package_id}"
+        return 1
+    }
+
+    RECEIPT_VERSION=$(/usr/bin/plutil -extract pkg-version raw -o - "$metadata_file" 2>/dev/null) || RECEIPT_VERSION="unknown"
+
+    logMe "Scanning selected receipt only: ${package_id}"
+    logMe "Receipt install root: ${RECEIPT_ROOT}"
+
+    while IFS= read -r entry; do
+        [[ -n "$entry" ]] || continue
+
+        candidate=$(resolve_receipt_entry "$RECEIPT_ROOT" "$entry") || {
+            RECEIPT_UNSAFE_PATHS+=("$entry")
+            continue
+        }
+
+        if receipt_path_is_protected "$candidate" || path_has_symlink_ancestor "$candidate"; then
+            RECEIPT_PROTECTED_PATHS+=("$candidate")
+            continue
+        fi
+
+        if [[ ! -e "$candidate" && ! -L "$candidate" ]]; then
+            RECEIPT_MISSING_PATHS+=("$candidate")
+            continue
+        fi
+
+        app_bundle=""
+        if app_bundle=$(get_receipt_app_bundle "$candidate"); then
+            RECEIPT_APPROVED_APP_BUNDLES+=("$app_bundle")
+            continue
+        fi
+
+        if [[ -d "$candidate" && ! -L "$candidate" ]]; then
+            RECEIPT_APPROVED_DIRS+=("$candidate")
+        elif [[ -f "$candidate" || -L "$candidate" ]]; then
+            RECEIPT_APPROVED_FILES+=("$candidate")
+        else
+            RECEIPT_UNSAFE_PATHS+=("$candidate")
+        fi
+    done < <(/usr/sbin/pkgutil --files "$package_id" 2>/dev/null)
+
+    RECEIPT_APPROVED_APP_BUNDLES=("${(@u)RECEIPT_APPROVED_APP_BUNDLES}")
+    RECEIPT_APPROVED_FILES=("${(@u)RECEIPT_APPROVED_FILES}")
+    RECEIPT_APPROVED_DIRS=("${(@u)RECEIPT_APPROVED_DIRS}")
+    RECEIPT_PROTECTED_PATHS=("${(@u)RECEIPT_PROTECTED_PATHS}")
+    RECEIPT_MISSING_PATHS=("${(@u)RECEIPT_MISSING_PATHS}")
+    RECEIPT_UNSAFE_PATHS=("${(@u)RECEIPT_UNSAFE_PATHS}")
+    RECEIPT_APPROVED_DIRS=("${(Oa)RECEIPT_APPROVED_DIRS}")
+
+    logMe "Selected receipt preflight complete: ${#RECEIPT_APPROVED_APP_BUNDLES[@]} application bundle(s), ${#RECEIPT_APPROVED_FILES[@]} file(s)/link(s), ${#RECEIPT_APPROVED_DIRS[@]} directorie(s), ${#RECEIPT_PROTECTED_PATHS[@]} protected, ${#RECEIPT_MISSING_PATHS[@]} missing, ${#RECEIPT_UNSAFE_PATHS[@]} unsafe."
+
+    write_receipt_manifest false
+}
+
+function resolve_receipt_entry ()
+{
+    local root="${1%/}"
+    local entry="$2"
+    local candidate
+    [[ -n "$entry" ]] || return 1
+    [[ "$entry" != /* ]] || return 1
+    [[ "$entry" != '..' && "$entry" != ../* && "$entry" != *'/../'* && "$entry" != *'/..' ]] || return 1
+    [[ "$entry" != '.' && "$entry" != './'* ]] || return 1
+    [[ -n "$root" ]] || root="/"
+    if [[ "$root" == "/" ]]; then
+        candidate="/${entry#/}"
+    else
+        candidate="${root}/${entry#/}"
+    fi
+    print -r -- "$candidate"
+}
+
+function build_receipt_list ()
+{
+    local package_id plist_file version install_location label
+    local -a discovered
+    RECEIPT_LABELS=()
+    RECEIPT_IDS=()
+    discovered=()
+    plist_file="${RECEIPT_WORK_DIR}/receipt-info.plist"
+    while IFS= read -r package_id; do
+        [[ -n "$package_id" ]] || continue
+        if receipt_is_protected "$package_id"; then
+            logMe "Protected package receipt excluded: ${package_id}"
+            continue
+        fi
+        /usr/sbin/pkgutil --pkg-info-plist "$package_id" > "$plist_file" 2>/dev/null || continue
+        version=$(/usr/bin/plutil -extract pkg-version raw -o - "$plist_file" 2>/dev/null) || version="unknown"
+        install_location=$(/usr/bin/plutil -extract install-location raw -o - "$plist_file" 2>/dev/null) || install_location="/"
+        label="${package_id} | ${version} | ${install_location}"
+        discovered+=("$label")
+        RECEIPT_IDS[$label]="$package_id"
+    done < <(/usr/sbin/pkgutil --pkgs 2>/dev/null)
+    (( ${#discovered[@]} > 0 )) || return 1
+    RECEIPT_LABELS=("${(@on)discovered}")
+}
+
+function choose_receipt ()
+{
+    local output return_code selected_label
+    local -a selections
+    selections=()
+    output=$("$SW_DIALOG" --jsonfile "$JSON_OPTIONS" --json 2>/dev/null)
+    return_code=$?
+    case "$return_code" in 0) ;; 2|10) return 2 ;; *) return 1 ;; esac
+    while IFS= read -r selected_label; do
+        [[ -n "$selected_label" ]] && selections+=("$selected_label")
+    done < <(print -r -- "$output" | jq -r 'to_entries[] | select(.value == true) | .key')
+    (( ${#selections[@]} == 1 )) || { logMe "Select exactly one package receipt."; return 3; }
+    selected_label="${selections[1]}"
+    SELECTED_RECEIPT_ID="${RECEIPT_IDS[$selected_label]:-}"
+    [[ -n "$SELECTED_RECEIPT_ID" ]] || return 1
+    if receipt_is_protected "$SELECTED_RECEIPT_ID"; then
+        logMe "ERROR: Refusing protected package receipt: ${SELECTED_RECEIPT_ID}"
+        SELECTED_RECEIPT_ID=""
+        return 1
+    fi
+}
+
+function write_receipt_manifest ()
+{
+    local forgotten="${1:-false}"
+    local manifest_tmp="${RECEIPT_WORK_DIR}/manifest.json"
+    local apps_file="${RECEIPT_WORK_DIR}/applications.txt"
+    local approved_file="${RECEIPT_WORK_DIR}/approved.txt"
+    local dirs_file="${RECEIPT_WORK_DIR}/directories.txt"
+    local shared_file="${RECEIPT_WORK_DIR}/shared.txt"
+    local protected_file="${RECEIPT_WORK_DIR}/protected.txt"
+    local missing_file="${RECEIPT_WORK_DIR}/missing.txt"
+    local unsafe_file="${RECEIPT_WORK_DIR}/unsafe.txt"
+    local removed_file="${RECEIPT_WORK_DIR}/removed.txt"
+    local failed_file="${RECEIPT_WORK_DIR}/failed.txt"
+
+    printf '%s\n' "${RECEIPT_APPROVED_APP_BUNDLES[@]}" > "$apps_file" || return 1
+    printf '%s\n' "${RECEIPT_APPROVED_FILES[@]}" > "$approved_file" || return 1
+    printf '%s\n' "${RECEIPT_APPROVED_DIRS[@]}" > "$dirs_file" || return 1
+    printf '%s\n' "${RECEIPT_SHARED_PATHS[@]}" > "$shared_file" || return 1
+    printf '%s\n' "${RECEIPT_PROTECTED_PATHS[@]}" > "$protected_file" || return 1
+    printf '%s\n' "${RECEIPT_MISSING_PATHS[@]}" > "$missing_file" || return 1
+    printf '%s\n' "${RECEIPT_UNSAFE_PATHS[@]}" > "$unsafe_file" || return 1
+    printf '%s\n' "${DELETED_ITEMS[@]}" > "$removed_file" || return 1
+    printf '%s\n' "${FAILED_ITEMS[@]}" > "$failed_file" || return 1
+
+    if ! jq -n \
+        --arg packageID "$SELECTED_RECEIPT_ID" \
+        --arg version "$RECEIPT_VERSION" \
+        --arg root "$RECEIPT_ROOT" \
+        --argjson receiptForgotten "$forgotten" \
+        --rawfile approvedApplications "$apps_file" \
+        --rawfile approvedFiles "$approved_file" \
+        --rawfile approvedDirectories "$dirs_file" \
+        --rawfile sharedPaths "$shared_file" \
+        --rawfile protectedPaths "$protected_file" \
+        --rawfile missingPaths "$missing_file" \
+        --rawfile unsafePaths "$unsafe_file" \
+        --rawfile removedPaths "$removed_file" \
+        --rawfile failedPaths "$failed_file" \
+        '
+        def lines:
+            split("\n")
+            | map(select(length > 0));
+
+        {
+            packageID: $packageID,
+            version: $version,
+            installRoot: $root,
+            receiptForgotten: $receiptForgotten,
+            approvedApplications: ($approvedApplications | lines),
+            approvedFiles: ($approvedFiles | lines),
+            approvedDirectories: ($approvedDirectories | lines),
+            sharedPaths: ($sharedPaths | lines),
+            protectedPaths: ($protectedPaths | lines),
+            missingPaths: ($missingPaths | lines),
+            unsafePaths: ($unsafePaths | lines),
+            removedPaths: ($removedPaths | lines),
+            failedPaths: ($failedPaths | lines)
+        }
+        ' > "$manifest_tmp"
+    then
+        logMe "ERROR: Unable to create receipt removal manifest."
+        return 1
+    fi
+
+    if [[ -z "$RECEIPT_MANIFEST_PATH" ]]; then
+        RECEIPT_MANIFEST_PATH="${LOG_FILE:h}/${SCRIPT_NAME}-${SELECTED_RECEIPT_ID//[^A-Za-z0-9._-]/_}-$EPOCHSECONDS.json"
+    fi
+
+    if ! /bin/cp -f -- "$manifest_tmp" "$RECEIPT_MANIFEST_PATH"; then
+        logMe "ERROR: Unable to save receipt removal manifest."
+        return 1
+    fi
+
+    if ! /bin/chmod 600 "$RECEIPT_MANIFEST_PATH"; then
+        logMe "ERROR: Unable to secure receipt removal manifest."
+        return 1
+    fi
+
+    return 0
+}
+
+function build_receipt_confirmation ()
+{
+    local path
+    local count=0
+    local remaining=0
+    local preview_limit="${RECEIPT_PREVIEW_LIMIT:-100}"
+
+    [[ "$preview_limit" == <-> ]] || preview_limit=100
+    (( preview_limit > 0 )) || preview_limit=100
+
+    CONFIRMATION_MESSAGE="## Installed Package Removal Preflight<br><br>"
+
+    CONFIRMATION_MESSAGE+="**Package ID:** ${SELECTED_RECEIPT_ID}<br>"
+    CONFIRMATION_MESSAGE+="**Version:** ${RECEIPT_VERSION}<br>"
+    CONFIRMATION_MESSAGE+="**Install Root:** ${RECEIPT_ROOT}<br><br>"
+
+    CONFIRMATION_MESSAGE+="### Preflight Summary<br><br>"
+    CONFIRMATION_MESSAGE+="Applications to remove: ${#RECEIPT_APPROVED_APP_BUNDLES[@]}<br>"
+    CONFIRMATION_MESSAGE+="Files and links to remove: ${#RECEIPT_APPROVED_FILES[@]}<br>"
+    CONFIRMATION_MESSAGE+="Directories eligible for empty-only cleanup: ${#RECEIPT_APPROVED_DIRS[@]}<br>"
+    CONFIRMATION_MESSAGE+="Protected paths excluded: ${#RECEIPT_PROTECTED_PATHS[@]}<br>"
+    CONFIRMATION_MESSAGE+="Missing paths: ${#RECEIPT_MISSING_PATHS[@]}<br>"
+    CONFIRMATION_MESSAGE+="Unsafe entries excluded: ${#RECEIPT_UNSAFE_PATHS[@]}<br><br>"
+
+    if (( ${#RECEIPT_APPROVED_APP_BUNDLES[@]} > 0 )); then
+        CONFIRMATION_MESSAGE+="### Applications to Remove<br><br>"
+        for path in "${RECEIPT_APPROVED_APP_BUNDLES[@]}"; do
+            CONFIRMATION_MESSAGE+="• ${path}<br>"
+        done
+        CONFIRMATION_MESSAGE+="<br>"
+    fi
+
+    if (( ${#RECEIPT_APPROVED_FILES[@]} > 0 )); then
+        CONFIRMATION_MESSAGE+="### Files and Links to Remove<br><br>"
+        count=0
+
+        for path in "${RECEIPT_APPROVED_FILES[@]}"; do
+            (( count >= preview_limit )) && break
+            CONFIRMATION_MESSAGE+="• ${path}<br>"
+            (( count++ ))
+        done
+
+        remaining=$(( ${#RECEIPT_APPROVED_FILES[@]} - count ))
+
+        if (( remaining > 0 )); then
+            CONFIRMATION_MESSAGE+="<br>...and ${remaining} additional files or links.<br>"
+            CONFIRMATION_MESSAGE+="See the removal manifest for the complete list.<br>"
+        fi
+
+        CONFIRMATION_MESSAGE+="<br>"
+    fi
+
+    if (( ${#RECEIPT_APPROVED_DIRS[@]} > 0 )); then
+        CONFIRMATION_MESSAGE+="### Directories Eligible for Empty-Only Cleanup<br><br>"
+        count=0
+
+        for path in "${RECEIPT_APPROVED_DIRS[@]}"; do
+            (( count >= preview_limit )) && break
+            CONFIRMATION_MESSAGE+="• ${path}<br>"
+            (( count++ ))
+        done
+
+        remaining=$(( ${#RECEIPT_APPROVED_DIRS[@]} - count ))
+
+        if (( remaining > 0 )); then
+            CONFIRMATION_MESSAGE+="<br>...and ${remaining} additional directories.<br>"
+            CONFIRMATION_MESSAGE+="See the removal manifest for the complete list.<br>"
+        fi
+
+        CONFIRMATION_MESSAGE+="<br>"
+    fi
+
+    CONFIRMATION_MESSAGE+="AppDelete will remove the application bundles, files, and links listed above, then attempt to remove the listed directories only when they are empty.<br><br>"
+    CONFIRMATION_MESSAGE+="The package receipt will be forgotten only if all approved removals succeed.<br><br>"
+    CONFIRMATION_MESSAGE+="**Manifest:** ${RECEIPT_MANIFEST_PATH}<br><br>"
+    CONFIRMATION_MESSAGE+="**This action cannot be undone.**"
+
+    return 0
+}
+
+function remove_receipt_content ()
+{
+    local path app_name
+
+    DELETED_ITEMS=()
+    FAILED_ITEMS=()
+
+    for path in "${RECEIPT_APPROVED_APP_BUNDLES[@]}"; do
+        [[ -n "$path" ]] || continue
+        app_name="${path:t:r}"
+
+        if ! path_is_within_search_locations "$path"; then
+            logMe "ERROR: Receipt application is outside approved application locations: ${path}"
+            FAILED_ITEMS+=("$path")
+            continue
+        fi
+
+        if array_contains "$app_name" "${NOT_ALLOWED_APPS[@]}"; then
+            logMe "ERROR: Refusing to remove protected application bundle: ${path}"
+            FAILED_ITEMS+=("$path")
+            continue
+        fi
+
+        if [[ -L "$path" || ! -d "$path" || "$path" != *.app ]]; then
+            logMe "ERROR: Receipt application failed final validation: ${path}"
+            FAILED_ITEMS+=("$path")
+            continue
+        fi
+
+        logMe "Removing receipt-owned application bundle: ${path}"
+        if /bin/rm -rf -- "$path" && [[ ! -e "$path" ]]; then
+            DELETED_ITEMS+=("$path")
+            logMe "Application bundle removal verified: ${path}"
+        else
+            FAILED_ITEMS+=("$path")
+            logMe "ERROR: Application bundle removal failed or path remains: ${path}"
+        fi
+    done
+
+    for path in "${RECEIPT_APPROVED_FILES[@]}"; do
+        if receipt_path_is_protected "$path" || path_has_symlink_ancestor "$path" || [[ ! -e "$path" && ! -L "$path" ]]; then
+            FAILED_ITEMS+=("$path")
+            logMe "ERROR: Receipt path failed final validation: ${path}"
+            continue
+        fi
+
+        /bin/rm -f -- "$path"
+
+        if [[ ! -e "$path" && ! -L "$path" ]]; then
+            DELETED_ITEMS+=("$path")
+        else
+            FAILED_ITEMS+=("$path")
+        fi
+    done
+
+    for path in "${RECEIPT_APPROVED_DIRS[@]}"; do
+        receipt_path_is_protected "$path" && continue
+        [[ -d "$path" && ! -L "$path" ]] || continue
+        /bin/rmdir -- "$path" 2>/dev/null && DELETED_ITEMS+=("$path")
+    done
+
+    (( ${#FAILED_ITEMS[@]} == 0 ))
+}
+
+function forget_selected_receipt ()
+{
+    local output
+
+    if receipt_is_protected "$SELECTED_RECEIPT_ID"; then
+        logMe "ERROR: Refusing to forget protected package receipt: ${SELECTED_RECEIPT_ID}"
+        return 1
+    fi
+    output=$(/usr/sbin/pkgutil --forget "$SELECTED_RECEIPT_ID" 2>&1) || { logMe "ERROR: pkgutil --forget failed: ${output}"; return 1; }
+    if /usr/sbin/pkgutil --pkgs 2>/dev/null | /usr/bin/grep -Fqx -- "$SELECTED_RECEIPT_ID"; then
+        logMe "ERROR: Receipt remains registered: ${SELECTED_RECEIPT_ID}"
+        return 1
+    fi
+    logMe "Receipt successfully forgotten: ${SELECTED_RECEIPT_ID}"
+}
+
+function run_receipt_workflow ()
+{
+    local pkgStatus=0
+    local confirmation_status=0
+    local completion_status=0
+
+    RECEIPT_WORK_DIR=$(/usr/bin/mktemp -d "/var/tmp/${SCRIPT_NAME}.receipt.XXXXXX") || return 1
+
+    if ! build_receipt_list; then
+        logMe "No eligible package receipts were found."
+        return 2
+    fi
+
+    while true; do
+        construct_receipt_list || return 1
+
+        choose_receipt
+        pkgStatus=$?
+
+        case "$pkgStatus" in
+            0)
+                break
+                ;;
+            2)
+                return 2
+                ;;
+            3)
+                continue
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+    done
+
+    logMe "Preflighting receipt: ${SELECTED_RECEIPT_ID}"
+
+    if ! preflight_receipt; then
+        logMe "ERROR: Receipt preflight failed: ${SELECTED_RECEIPT_ID}"
+        return 1
+    fi
+
+    # A receipt with no remaining approved files/directories can be stale.
+    # Forget it only when the receipt contains missing paths and there are no
+    # protected or unsafe paths preventing us from proving that its content is gone.
+    if (( ${#RECEIPT_APPROVED_APP_BUNDLES[@]} == 0 &&
+          ${#RECEIPT_APPROVED_FILES[@]} == 0 &&
+          ${#RECEIPT_APPROVED_DIRS[@]} == 0 )); then
+
+        if (( ${#RECEIPT_MISSING_PATHS[@]} > 0 &&
+              ${#RECEIPT_PROTECTED_PATHS[@]} == 0 &&
+              ${#RECEIPT_UNSAFE_PATHS[@]} == 0 )); then
+
+            logMe "All receipt-owned content is already absent from the system."
+            logMe "The stale package receipt can be forgotten: ${SELECTED_RECEIPT_ID}"
+
+            DELETED_ITEMS=()
+            FAILED_ITEMS=()
+
+            CONFIRMATION_MESSAGE="## Stale package receipt detected<br><br>"
+            CONFIRMATION_MESSAGE+="Package ID: ${SELECTED_RECEIPT_ID}<br>"
+            CONFIRMATION_MESSAGE+="Version: ${RECEIPT_VERSION}<br>"
+            CONFIRMATION_MESSAGE+="Install root: ${RECEIPT_ROOT}<br>"
+            CONFIRMATION_MESSAGE+="Missing receipt paths: ${#RECEIPT_MISSING_PATHS[@]}<br><br>"
+            CONFIRMATION_MESSAGE+="No installed files or directories recorded by this receipt remain on the system.<br><br>"
+            CONFIRMATION_MESSAGE+="No files will be deleted. Only the stale package receipt will be forgotten.<br><br>"
+            CONFIRMATION_MESSAGE+="Manifest: ${RECEIPT_MANIFEST_PATH}"
+
+            show_final_delete_prompt
+            confirmation_status=$?
+
+            case "$confirmation_status" in
+                0)
+                    if forget_selected_receipt; then
+                        DELETED_ITEMS+=("Receipt forgotten: ${SELECTED_RECEIPT_ID}")
+                        write_receipt_manifest true
+                        build_completion_message
+                        show_completed_prompt
+                        completion_status=$?
+                        case "$completion_status" in
+                            0) return 0 ;;
+                            2)
+                                logMe "User selected Run Again after stale receipt removal."
+                                return 2
+                                ;;
+                            *) return 1 ;;
+                        esac
+                    fi
+
+                    FAILED_ITEMS+=("Receipt not forgotten: ${SELECTED_RECEIPT_ID}")
+                    write_receipt_manifest false
+                    build_completion_message
+                    show_completed_prompt
+                    completion_status=$?
+                    case "$completion_status" in
+                        2)
+                            logMe "User selected Run Again after stale receipt removal failure."
+                            return 2
+                            ;;
+                        *) return 1 ;;
+                    esac
+                    ;;
+                2)
+                    logMe "Stale receipt removal cancelled."
+                    return 2
+                    ;;
+                *)
+                    logMe "ERROR: Stale receipt confirmation dialog exited with code ${confirmation_status}."
+                    return 1
+                    ;;
+            esac
+        fi
+
+        logMe "No removable content was found, but protected or unsafe receipt paths remain."
+        logMe "Receipt will not be forgotten automatically: ${SELECTED_RECEIPT_ID}"
+        return 1
+    fi
+
+    build_receipt_confirmation
+
+    show_final_delete_prompt
+    confirmation_status=$?
+
+    case "$confirmation_status" in
+        0)
+            ;;
+        2)
+            logMe "Package removal cancelled."
+            return 2
+            ;;
+        *)
+            logMe "ERROR: Package removal confirmation dialog exited with code ${confirmation_status}."
+            return 1
+            ;;
+    esac
+
+    remove_receipt_content
+    pkgStatus=$?
+
+    if (( pkgStatus == 0 )); then
+        if forget_selected_receipt; then
+            DELETED_ITEMS+=("Receipt forgotten: ${SELECTED_RECEIPT_ID}")
+            write_receipt_manifest true
+        else
+            FAILED_ITEMS+=("Receipt not forgotten: ${SELECTED_RECEIPT_ID}")
+            pkgStatus=1
+            write_receipt_manifest false
+        fi
+    else
+        logMe "Receipt retained because one or more approved removals failed."
+        FAILED_ITEMS+=("Receipt retained: ${SELECTED_RECEIPT_ID}")
+        write_receipt_manifest false
+    fi
+
+    build_completion_message
+    show_completed_prompt
+    completion_status=$?
+
+    case "$completion_status" in
+        0) return "$pkgStatus" ;;
+        2)
+            logMe "User selected Run Again after package removal."
+            return 2
+            ;;
+        *) return 1 ;;
+    esac
+}
+
+function path_is_within_search_locations ()
+{
+    local candidate_path="$1"
+    local search_path
+
+    [[ -n "$candidate_path" ]] || return 1
+
+    for search_path in "${APPLICATION_SEARCH_PATHS[@]}"; do
+        search_path="${search_path%/}"
+
+        if [[ "$candidate_path" == "${search_path}/"* ]]; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
+function array_contains ()
+{
+    local needle="$1"
+    shift
+
+    local item
+
+    for item in "$@"; do
+        [[ "$item" == "$needle" ]] && return 0
+    done
+
+    return 1
+}
+
+####################################################################################################
+#
+# Common functions
+#
+####################################################################################################
+
+function choose_workflow_mode ()
+{
+    local requested_workflow="${WORKFLOW_PARAMETER:l}"
+    local dialog_output=""
     local return_code=0
-    local -a main_dialog_body
+    local selected_workflow=""
 
-    main_dialog_body=(
-        --message "$CONFIRMATION_MESSAGE"
-        --icon "$SD_ICON_FILE"
-        --overlayicon warning
-        --width 920
-        --height 520
-        --bannerimage "$SD_BANNER_IMAGE"
-        --bannertitle "$SD_WINDOW_TITLE"
-        --subtitle "$BANNER_SUBTITLE"
-        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
-        --button1text "Delete"
-        --button2text "Cancel"
-        --buttonstyle center
-        --ontop
-        --quitkey 0
-    )
+    WORKFLOW_MODE=""
 
-    "$SW_DIALOG" "${main_dialog_body[@]}" 2>/dev/null
+    #
+    # Parameter-controlled workflows do not display the selector.
+    #
+    case "$requested_workflow" in
+        applications|application|apps|app)
+            WORKFLOW_MODE="applications"
+            logMe "Workflow selected by parameter: Applications"
+            return 0
+            ;;
+
+        receipts|receipt|packages|package)
+            WORKFLOW_MODE="receipts"
+            logMe "Workflow selected by parameter: Installed Package"
+            return 0
+            ;;
+
+        choose|select|prompt)
+            logMe "Workflow parameter requests interactive selection."
+            ;;
+
+        *)
+            logMe "WARNING: Invalid workflow parameter: ${WORKFLOW_PARAMETER}"
+            logMe "Defaulting to the Applications workflow."
+
+            WORKFLOW_MODE="applications"
+            return 0
+            ;;
+    esac
+
+    #
+    # Build workflow-selection dialog.
+    #
+    if ! jq -n \
+        --arg message "Choose the AppDelete workflow you want to run." \
+        --arg icon "$SD_ICON_FILE" \
+        --arg bannerimage "$SD_BANNER_IMAGE" \
+        --arg bannertitle "$SD_WINDOW_TITLE" \
+        --arg subtitle "$BANNER_SUBTITLE" \
+        --arg titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}" \
+        --arg infotext "V${SCRIPT_VERSION}" \
+        '
+        {
+            message: $message,
+            messageposition: "top",
+            icon: $icon,
+            bannerimage: $bannerimage,
+            bannertitle: $bannertitle,
+            subtitle: $subtitle,
+            titlefont: $titlefont,
+            width: 820,
+            height: 500,
+            moveable: true,
+            ontop: true,
+            quitkey: "0",
+            buttonstyle: "right",
+            infotext: $infotext,
+            button1text: "Continue",
+            button2text: "Quit",
+
+            selectitems: [
+                {
+                    title: "Workflow",
+                    name: "Workflow",
+                    values: [
+                        "Applications",
+                        "Installed Package"
+                    ],
+                    default: "Applications",
+                    style: "radio"
+                }
+            ]
+        }
+        ' > "$JSON_OPTIONS"
+    then
+        logMe "ERROR: Unable to construct workflow selection JSON."
+        return 1
+    fi
+
+    if ! jq empty "$JSON_OPTIONS" >/dev/null 2>&1; then
+        logMe "ERROR: Workflow selection JSON is invalid."
+        return 1
+    fi
+
+    dialog_output=$("$SW_DIALOG" --jsonfile "$JSON_OPTIONS" --json 2>/dev/null)
+
     return_code=$?
 
     case "$return_code" in
         0)
-            logMe "User confirmed deletion."
-            return 0
             ;;
+
         2|10)
-            logMe "User cancelled deletion."
+            logMe "User elected to quit AppDelete."
             return 2
             ;;
+
         *)
-            logMe "ERROR: Confirmation dialog exited with code ${return_code}."
+            logMe "ERROR: Workflow dialog exited with code ${return_code}."
             return 1
             ;;
     esac
+
+    #
+    # Validate returned JSON.
+    #
+    if ! print -r -- "$dialog_output" |
+        jq empty >/dev/null 2>&1
+    then
+        logMe "ERROR: Workflow dialog returned invalid JSON."
+        return 1
+    fi
+
+    #
+    # Read the named Workflow radio control.
+    #
+    selected_workflow=$(
+        print -r -- "$dialog_output" |
+            jq -r '."Workflow".selectedValue // empty'
+    )
+
+    case "$selected_workflow" in
+        "Applications")
+            WORKFLOW_MODE="applications"
+            ;;
+
+        "Installed Package")
+            WORKFLOW_MODE="receipts"
+            ;;
+
+        *)
+            logMe "ERROR: Invalid workflow selection: ${selected_workflow}"
+            return 1
+            ;;
+    esac
+
+    logMe "Selected workflow: ${selected_workflow}"
+
+    return 0
 }
 
 function build_completion_message ()
@@ -813,6 +1805,48 @@ function build_completion_message ()
     return 0
 }
 
+function show_final_delete_prompt ()
+{
+    local return_code=0
+    local -a main_dialog_body
+
+    main_dialog_body=(
+        --message "$CONFIRMATION_MESSAGE"
+        --icon "$SD_ICON_FILE"
+        --overlayicon warning
+        --width 920
+        --height 750
+        --bannerimage "$SD_BANNER_IMAGE"
+        --bannertitle "$SD_WINDOW_TITLE"
+        --subtitle "$BANNER_SUBTITLE"
+        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
+        --button1text "Delete"
+        --button2text "Cancel"
+        --buttonstyle right
+        --infotext "V ${SCRIPT_VERSION}"
+        --ontop
+        --quitkey 0
+    )
+
+    "$SW_DIALOG" "${main_dialog_body[@]}" 2>/dev/null
+    return_code=$?
+
+    case "$return_code" in
+        0)
+            logMe "User confirmed deletion."
+            return 0
+            ;;
+        2|10)
+            logMe "User cancelled deletion."
+            return 2
+            ;;
+        *)
+            logMe "ERROR: Confirmation dialog exited with code ${return_code}."
+            return 1
+            ;;
+    esac
+}
+
 function show_completed_prompt ()
 {
     local return_code=0
@@ -837,7 +1871,8 @@ function show_completed_prompt ()
         --width 920
         --height 560
         --quitkey 0
-        --buttonstyle center
+        --buttonstyle right
+        --infotext "V ${SCRIPT_VERSION}"
         --button1text "OK"
         --button2text "Run Again"
     )
@@ -859,72 +1894,53 @@ function show_completed_prompt ()
     esac
 }
 
-function array_contains ()
-{
-    local needle="$1"
-    shift
-
-    local item
-
-    for item in "$@"; do
-        [[ "$item" == "$needle" ]] && return 0
-    done
-
-    return 1
-}
-
-function resolve_approved_delete_path ()
-{
-    local name="$1"
-    local path=""
-
-    [[ -n "$name" ]] || return 1
-
-    if ! array_contains "$name" "${FILES_LIST[@]}"; then
-        logMe "ERROR: Rejected unapproved selection: ${name}"
-        return 1
-    fi
-
-    if array_contains "$name" "${NOT_ALLOWED_APPS[@]}"; then
-        logMe "ERROR: Rejected protected application: ${name}"
-        return 1
-    fi
-
-    path="${ITEM_PATHS[$name]:-}"
-
-    if [[ -z "$path" ]]; then
-        logMe "ERROR: No approved deletion path for: ${name}"
-        return 1
-    fi
-
-    if [[ ! -e "$path" ]]; then
-        logMe "ERROR: Approved deletion path no longer exists: ${path}"
-        return 1
-    fi
-
-    if [[ -L "$path" ]]; then
-        logMe "ERROR: Refusing symbolic link: ${path}"
-        return 1
-    fi
-
-    print -r -- "$path"
-}
-
-#############################
+####################################################################################################
 #
-# Start of Main Script
+# Main
 #
-#############################
+####################################################################################################
 
 autoload 'is-at-least'
 
+#
+# Global application state
+#
 typeset -a FILES_LIST
 typeset -A ITEM_PATHS
 typeset -a SELECTED_ITEMS
+typeset -a APPROVED_DELETE_PATHS
+
+#
+# Global result state
+#
 typeset -a DELETED_ITEMS
 typeset -a FAILED_ITEMS
 typeset CONFIRMATION_MESSAGE=""
-typeset -a APPROVED_DELETE_PATHS
+
+#
+# Workflow state
+#
+typeset WORKFLOW_MODE=""
+
+#
+# Package receipt state
+#
+typeset RECEIPT_WORK_DIR=""
+typeset SELECTED_RECEIPT_ID=""
+typeset RECEIPT_ROOT=""
+typeset RECEIPT_VERSION=""
+typeset RECEIPT_MANIFEST_PATH=""
+
+typeset -a RECEIPT_LABELS
+typeset -a RECEIPT_APPROVED_APP_BUNDLES
+typeset -a RECEIPT_APPROVED_FILES
+typeset -a RECEIPT_APPROVED_DIRS
+typeset -a RECEIPT_SHARED_PATHS
+typeset -a RECEIPT_PROTECTED_PATHS
+typeset -a RECEIPT_MISSING_PATHS
+typeset -a RECEIPT_UNSAFE_PATHS
+
+typeset -A RECEIPT_IDS
 
 
 if ! check_for_sudo; then
@@ -945,90 +1961,55 @@ if ! check_support_files; then
     logMe "ERROR: Required support files or utilities are unavailable."
     exit 1
 fi
+
 create_infobox_message
 
+
 while true; do
-    FILES_LIST=()
-    ITEM_PATHS=()
-    SELECTED_ITEMS=()
-    APPROVED_DELETE_PATHS=()
-    DELETED_ITEMS=()
-    FAILED_ITEMS=()
-    CONFIRMATION_MESSAGE=""
 
-    if ! build_file_list_array; then
-        logMe "No removable applications or approved folders are available."
-        cleanup_and_exit 0
-    fi
+    choose_workflow_mode
+    workflow_status=$?
 
-    if ! construct_display_list; then
-        logMe "ERROR: Unable to construct the item selection list."
-        cleanup_and_exit 1
-    fi
-
-    choose_files_to_delete
-    selection_status=$?
-
-    case "$selection_status" in
+    case "$workflow_status" in
         0)
             ;;
         2)
             cleanup_and_exit 0
             ;;
-        3)
-            logMe "Redisplaying selection because no items were selected."
-            continue
-            ;;
         *)
             cleanup_and_exit 1
             ;;
     esac
 
-    if ! validate_selected_items; then
-        logMe "ERROR: Selected-item validation failed."
-        cleanup_and_exit 1
-    fi
+    case "$WORKFLOW_MODE" in
+        applications)
+            run_application_workflow
+            ;;
 
-    build_confirmation_message
+        receipts)
+            run_receipt_workflow
+            ;;
 
-    show_final_delete_prompt
-    confirmation_status=$?
+        *)
+            logMe "ERROR: Unknown workflow mode: ${WORKFLOW_MODE}"
+            cleanup_and_exit 1
+            ;;
+    esac
 
-    case "$confirmation_status" in
+    workflow_status=$?
+
+    case "$workflow_status" in
         0)
+            cleanup_and_exit 0
             ;;
+
         2)
-            logMe "Returning to the selection screen."
             continue
             ;;
+
         *)
             cleanup_and_exit 1
             ;;
     esac
 
-    delete_files
-    deletion_status=$?
-
-    build_completion_message
-
-    show_completed_prompt
-    completion_status=$?
-
-    case "$completion_status" in
-        0)
-            if (( deletion_status == 0 )); then
-                cleanup_and_exit 0
-            else
-                cleanup_and_exit 1
-            fi
-            ;;
-        2)
-            logMe "User selected Run Again."
-            continue
-            ;;
-        *)
-            cleanup_and_exit 1
-            ;;
-    esac
 done
-cleanup_and_exit
