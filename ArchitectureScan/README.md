@@ -28,3 +28,9 @@ The following customizations can be made:
 | 1.5 | Added option to show the application path in the list
 | 2.0 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.1 | Unified application discovery and scan arrays
+||       Rebuilt the SwiftDialog JSON using jq
+||       Separated Intel and Unknown application results
+||       Separated Intel and Unknown application results
+||       Improved temporary-file cleanup and export handling
+||       Added zero-application and dialog-process safeguards

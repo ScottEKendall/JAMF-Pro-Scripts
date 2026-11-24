@@ -1,28 +1,36 @@
 #!/bin/zsh
+
 #
 # ArchitectureScan
 #
 # by: Scott Kendall
 #
 # Written: 03/05/2026
-# Last updated: 04/01/2026
+# Last updated: 11/24/2026
 #
-# Script Purpose: Scan a user-defined list of applications to determine their architecture type
+# Script Purpose:
+# Scan a user-defined list of applications to determine their architecture type.
 #
 # 1.0 - Initial
-# 1.1 - Changed the -trigger keyword to -event for JAMF policy commands
-# 1.2 - Added check for the Lipo command (part of Xcode Developer)
-# 1.3 - Put in fallback option of using the 'file' command if 'lipo' is not found.  Thanks @Abhik Saha
-#       Added fallback option to use plistbuddy if the "defaults read" command doesn't return location
-#       check for "shell script" and mark it as successful
-#       Add option to not display .APP in the file list
-#       Check for WebApps
-#       Include Application scan inside of users Home Directory
-# 1.4 - Reworked scan logic to take advantage of zsh features and executes much faster now
-# 1.5 - Added option to show the application path in the list
-# 1.5 - Changed the Rosetta deprecation date to macOS 27 (Ventura) based on new Apple announcement
-# 2.0 - Updated SD Version requirements to 3.1.0
-#       Added ability to set subtitle, color, and padding from defaults file
+# 1.1 - Changed the -trigger keyword to -event for Jamf policy commands
+# 1.2 - Added check for the lipo command
+# 1.3 - Added file command fallback
+#       Added executable lookup fallback
+#       Added shell script recognition
+#       Added option to hide .app extensions
+#       Added WebApp detection
+#       Added scans inside the logged-in user's Applications directory
+# 1.4 - Reworked scan logic using zsh features
+# 1.5 - Added option to show the application path
+# 1.6 - Changed the Rosetta deprecation reference to macOS 27
+# 2.0 - Updated SwiftDialog requirement to 3.1.0
+#       Added configurable banner subtitle, color, and padding
+# 2.1 - Unified application discovery and scan arrays
+#       Rebuilt the SwiftDialog JSON using jq
+#       Separated Intel and Unknown application results
+#       Improved temporary-file cleanup and export handling
+#       Added zero-application and dialog-process safeguards
+#
 
 ######################################################################################################
 #
@@ -34,35 +42,25 @@ SCRIPT_NAME="ArchitectureScan"
 export PATH=/usr/bin:/bin:/usr/sbin:/sbin
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-USER_UID=$(id -u "$LOGGED_IN_USER")
 
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_NAME=$(sw_vers -productName)
-MACOS_VERSION=$(sw_vers -productVersion)
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
 MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
-
-ICON_FILES="/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/"
 
 # Swift Dialog version requirements
 
 SW_DIALOG="/usr/local/bin/dialog"
 MIN_SD_REQUIRED_VERSION="3.1.0"
-HOUR=$(date +%H)
-case $HOUR in
-    0[0-9]|1[0-1]) GREET="morning" ;;
-    1[2-7])        GREET="afternoon" ;;
-    *)             GREET="evening" ;;
-esac
-SD_DIALOG_GREETING="Good $GREET"
 
-JSON_DIALOG_BLOB=$(mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX")
-DIALOG_COMMAND_FILE=$(mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX")
-TMP_FILE_STORAGE=$(mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX")
+JSON_DIALOG_BLOB=$(mktemp "/var/tmp/${SCRIPT_NAME}_json.XXXXX") || exit 1
+DIALOG_COMMAND_FILE=$(mktemp "/var/tmp/${SCRIPT_NAME}_cmd.XXXXX") || exit 1
+INTEL_EXPORT_FILE=$(mktemp "/var/tmp/${SCRIPT_NAME}_intel.XXXXX") || exit 1
+UNKNOWN_EXPORT_FILE=$(mktemp "/var/tmp/${SCRIPT_NAME}_unknown.XXXXX") || exit 1
 
-chmod 666 $JSON_DIALOG_BLOB
-chmod 666 $DIALOG_COMMAND_FILE
-chmod 666 $TMP_FILE_STORAGE
+chmod 644 "${JSON_DIALOG_BLOB}"
+chmod 644 "${DIALOG_COMMAND_FILE}"
+chmod 600 "${INTEL_EXPORT_FILE}"
+chmod 600 "${UNKNOWN_EXPORT_FILE}"
 
 ###################################################
 #
@@ -72,19 +70,19 @@ chmod 666 $TMP_FILE_STORAGE
    
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -f "$DEFAULTS_DIR" ]]; then
-    echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE="${SUPPORT_DIR}$(defaults read "$DEFAULTS_DIR" BannerImage)"
-    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
-    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
-    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
-else
-    SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="${SUPPORT_DIR}/SupportFiles/GE_SD_BannerImage.png"
-    BANNER_SUBTITLE=""
-    BANNER_TEXT_COLOR="white"
-    BANNER_TEXT_PADDING=5 #5 spaces to accommodate for icon offset
+echo "Setting Default values"
+SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles 2>/dev/null) || SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage 2>/dev/null) || SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding 2>/dev/null) || BANNER_TEXT_PADDING=10
+BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle 2>/dev/null) || BANNER_SUBTITLE=""
+BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor 2>/dev/null) || BANNER_TEXT_COLOR="white"
+
+SUPPORT_DIR="${SUPPORT_DIR%/}"
+
+if [[ "${SD_BANNER_IMAGE#/SupportFiles/}" != "$SD_BANNER_IMAGE" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE#/}"
+elif [[ "${SD_BANNER_IMAGE:0:1}" != "/" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE}"
 fi
 
 # Log files location
@@ -108,10 +106,12 @@ JQ_FILE_INSTALL_POLICY="install_jq"
 ###################################################
 
 # Define directories to scan (defaulting to /Applications and /System/Applications)
-APPDIR_SCAN=("/Applications" "/System/Applications" "$USER_DIR/Applications")
+APPDIR_SCAN=("/Applications"
+             "/System/Applications"
+             "$USER_DIR/Applications")
 
-STRIP_EXTENSION="yes"   # show .APP at the end of the display names.  Set to 'yes' or 'no'
-SHOW_PATH="no"         # show the path in the 2nd line of the display (yes / no)
+STRIP_EXTENSION="yes"  # Hide the .app extension in display names: yes or no
+SHOW_PATH="no"         # Show the application path beneath the display name: yes or no
 
 ####################################################################################################
 #
@@ -121,7 +121,17 @@ SHOW_PATH="no"         # show the path in the 2nd line of the display (yes / no)
 
 function admin_user ()
 {
-    [[ $UID -eq 0 ]] && return 0 || return 1
+    (( UID == 0 ))
+}
+
+function check_for_sudo ()
+{
+    if ! admin_user; then
+        print -u2 -r -- "ERROR: This script must be run as root."
+        return 1
+    fi
+
+    return 0
 }
 
 function create_log_directory ()
@@ -132,15 +142,38 @@ function create_log_directory ()
     # RETURN: None
 
 	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
-    if admin_user; then
-        LOG_DIR=${LOG_FILE%/*}
-        [[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
-        /bin/chmod 755 "${LOG_DIR}"
+    local LOG_DIR="${LOG_FILE%/*}"
 
-        # If the log file does not exist - create it and set the permissions
-        [[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
-        /bin/chmod 644 "${LOG_FILE}"
+    admin_user || return 0
+
+    if [[ ! -d "$LOG_DIR" ]]; then
+        mkdir -p "$LOG_DIR" || {print -u2 "ERROR: Unable to create log directory: ${LOG_DIR}"; return 1; }
     fi
+    chmod 755 "$LOG_DIR" || {print -u2 "ERROR: Unable to set permissions on: ${LOG_DIR}"; return 1; }
+    # If the log file does not exist - create it and set the permissions
+    if [[ ! -f "$LOG_FILE" ]]; then
+        touch "$LOG_FILE" || {print -u2 "ERROR: Unable to create log file: ${LOG_FILE}"; return 1;}
+    fi
+
+    chmod 640 "$LOG_FILE" || {print -u2 "ERROR: Unable to secure log file: ${LOG_FILE}"; return 1;}
+    return 0
+}
+
+function check_logged_in_user ()
+{
+    if [[ -z "${LOGGED_IN_USER}" ||
+          "${LOGGED_IN_USER}" == "loginwindow" ||
+          -z "${USER_DIR}" ||
+          ! -d "${USER_DIR}" ]]; then
+
+        logMe "ERROR: No valid logged-in user was found."
+        return 1
+    fi
+
+    logMe "Logged-in user: ${LOGGED_IN_USER}"
+    logMe "User home directory: ${USER_DIR}"
+
+    return 0
 }
 
 function logMe () 
@@ -155,68 +188,131 @@ function logMe ()
     #
     # RETURN: None
     if admin_user; then
-        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | /usr/bin/tee -a "${LOG_FILE}" >&2
     else
         echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
     fi
 }
 
-function check_for_sudo ()
-{
-	# Ensures that script is run as ROOT
-    if ! admin_user; then
-    	MainDialogBody=(
-        --message "**Admin access required!**<br><br>In order for this script to function properly, it must be run as an admin user!"
-        --ontop
-        --icon "${SD_ICON_FILE}"
-        --subtitle "${BANNER_SUBTITLE}"
-        --titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}"
-        --overlayicon warning
-        --bannerimage "${SD_BANNER_IMAGE}"
-        --bannertitle "${SD_WINDOW_TITLE}"
-        --width 700
-        --button1text "OK"
-    )
-    	"${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-		cleanup_and_exit 1
-	fi
-}
-
 function check_swift_dialog_install ()
 {
-    # Check to make sure that Swift Dialog is installed and functioning correctly
-    # Will install process if missing or corrupted
-    #
-    # RETURN: None
+    local SD_VERSION
 
-    logMe "Ensuring that swiftDialog version is installed..."
-    if [[ ! -x "${SW_DIALOG}" ]]; then
-        logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
-        install_swift_dialog
+    logMe "Ensuring that SwiftDialog is installed..."
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "SwiftDialog is missing. Attempting installation."
+
+        if ! install_swift_dialog || [[ ! -x "$SW_DIALOG" ]]; then
+            logMe "ERROR: SwiftDialog installation failed." >&2
+            return 1
+        fi
     fi
-    SD_VERSION=$( ${SW_DIALOG} --version) 
-    if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
-        logMe "Swift Dialog is outdated - Installing version '${MIN_SD_REQUIRED_VERSION}' from JAMF..."
-        install_swift_dialog
-    else    
-        logMe "Swift Dialog is currently running: ${SD_VERSION}"
+
+    if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
+        logMe "ERROR: Unable to determine SwiftDialog version." >&2
+        return 1
     fi
+
+    if [[ -z "$SD_VERSION" ]]; then
+        logMe "ERROR: SwiftDialog returned an empty version." >&2
+        return 1
+    fi
+
+    if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+        logMe "SwiftDialog ${SD_VERSION} is outdated. Attempting update."
+
+        if ! install_swift_dialog; then
+            logMe "ERROR: SwiftDialog update failed." >&2
+            return 1
+        fi
+
+        if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
+            logMe "ERROR: Unable to read SwiftDialog version after update." >&2
+            return 1
+        fi
+
+        if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+            logMe "ERROR: SwiftDialog remains below the required version." >&2
+            return 1
+        fi
+    fi
+
+    logMe "SwiftDialog version ${SD_VERSION} is available."
+    return 0
 }
 
 function install_swift_dialog ()
 {
-    # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
-    #
-    # RETURN: None
+    local jamf_exit=0
 
-	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
+    if [[ ! -x /usr/local/bin/jamf ]]; then
+        logMe "ERROR: Jamf binary not found. Cannot install SwiftDialog."
+        return 1
+    fi
+
+    /usr/local/bin/jamf policy -event "$DIALOG_INSTALL_POLICY"
+    jamf_exit=$?
+
+    if (( jamf_exit != 0 )); then
+        logMe "ERROR: Jamf policy failed while installing SwiftDialog. Exit code: ${jamf_exit}"
+        return 1
+    fi
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "ERROR: SwiftDialog remains unavailable after the installation attempt."
+        return 1
+    fi
+
+    return 0
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
-    [[ $(which jq) == *"not found"* ]] && /usr/local/bin/jamf policy -event ${JQ_INSTALL_POLICY}
+    if [[ -f "$SD_BANNER_IMAGE" ]]; then
+        logMe "Banner image found: ${SD_BANNER_IMAGE}"
+    else
+        logMe "Banner image not found: ${SD_BANNER_IMAGE}"
+
+        if [[ -x /usr/local/bin/jamf ]]; then
+            logMe "Running support-file installation policy."
+
+            if ! /usr/local/bin/jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"; then
+                logMe "WARNING: Support-file installation policy failed."
+            fi
+        else
+            logMe "WARNING: The local Jamf binary is unavailable. The support-file installation policy cannot be run."
+        fi
+
+        if [[ -f "$SD_BANNER_IMAGE" ]]; then
+            logMe "Banner image successfully installed: ${SD_BANNER_IMAGE}"
+        else
+            logMe "WARNING: Banner image remains unavailable: ${SD_BANNER_IMAGE}"
+        fi
+    fi
+
+    if ! command -v jq >/dev/null 2>&1; then
+        logMe "jq is not installed."
+
+        if [[ ! -x /usr/local/bin/jamf ]]; then
+            logMe "ERROR: The local Jamf binary is unavailable, so jq cannot be installed."
+            return 1
+        fi
+
+        logMe "Running jq installation policy."
+
+        if ! /usr/local/bin/jamf policy -event "$JQ_FILE_INSTALL_POLICY"; then
+            logMe "ERROR: jq installation policy failed."
+            return 1
+        fi
+    fi
+
+    if ! command -v jq >/dev/null 2>&1; then
+        logMe "ERROR: jq remains unavailable after installation."
+        return 1
+    fi
+
+    return 0
 }
 
 function create_infobox_message()
@@ -232,281 +328,486 @@ function create_infobox_message()
 	SD_INFO_BOX_MSG+="{serialnumber}<br>"
 	SD_INFO_BOX_MSG+="${MAC_RAM} RAM<br>"
 	SD_INFO_BOX_MSG+="${FREE_DISK_SPACE}GB Available<br>"
-	SD_INFO_BOX_MSG+="${MACOS_NAME} ${MACOS_VERSION}<br>"
-}
-
-function check_logged_in_user ()
-{    
-    # PURPOSE: Make sure there is a logged in user
-    # RETURN: None
-    # EXPECTED: $LOGGED_IN_USER
-    if [[ -z "$LOGGED_IN_USER" ]] || [[ "$LOGGED_IN_USER" == "loginwindow" ]]; then
-        logMe "INFO: No user logged in, exiting"
-        cleanup_and_exit 0
-    else
-        logMe "INFO: User $LOGGED_IN_USER is logged in"
-    fi
+	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
 function cleanup_and_exit ()
 {
-  [[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-  [[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-  [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-  exit $1
+    local exit_code="${1:-0}"
+
+    trap - INT TERM
+
+    [[ -n "${JSON_DIALOG_BLOB:-}" && -f "${JSON_DIALOG_BLOB}" ]] && /bin/rm -f -- "${JSON_DIALOG_BLOB}"
+    [[ -n "${DIALOG_COMMAND_FILE:-}" && -f "${DIALOG_COMMAND_FILE}" ]] && /bin/rm -f -- "${DIALOG_COMMAND_FILE}"
+    [[ -n "${INTEL_EXPORT_FILE:-}" && -f "${INTEL_EXPORT_FILE}" ]] && /bin/rm -f -- "${INTEL_EXPORT_FILE}"
+    [[ -n "${UNKNOWN_EXPORT_FILE:-}" && -f "${UNKNOWN_EXPORT_FILE}" ]] && /bin/rm -f -- "${UNKNOWN_EXPORT_FILE}"
+    [[ -n "${DIALOG_COMMAND_FILE:-}" && -d "${DIALOG_COMMAND_FILE}.lock" ]] && /bin/rm -rf -- "${DIALOG_COMMAND_FILE}.lock"
+
+    exit "${exit_code}"
 }
 
-function construct_dialog_header_settings ()
+####################################################################################################
+#
+# SwiftDialog functions
+#
+####################################################################################################
+
+function construct_dialog_json ()
 {
-    # Construct the basic Swift Dialog screen info that is used on all messages
+    local message="$1"
+    local app_list_file
+    local jq_exit=0
+    local app
+
+    app_list_file=$(/usr/bin/mktemp "/var/tmp/${SCRIPT_NAME}_applist.XXXXX") || {
+        logMe "ERROR: Unable to create temporary application-list file."
+        return 1
+    }
+
+    /bin/chmod 600 "${app_list_file}"
+
     #
-    # RETURN: None
-	# VARIABLES expected: All of the Widow variables should be set
-	# PARMS Passed: $1 is message to be displayed on the window
-
-	echo '{
-        "icon" : "'${SD_ICON_FILE}'",
-        "message" : "'$1'",
-        "bannerimage" : "'${SD_BANNER_IMAGE}'",
-        "subtitle" : "'${BANNER_SUBTITLE}'",
-        "titlefont" : "shadow=1, offset='${BANNER_TEXT_PADDING}', color='${BANNER_TEXT_COLOR:l}'",
-        "infobox" : "'${SD_INFO_BOX_MSG}'",
-        "overlayicon" : "'${SD_OVERLAY_ICON}'",
-        "ontop" : "true",
-        "bannertitle" : "'${SD_WINDOW_TITLE}'",
-        "titlefont" : "shadow=1",
-        "button1text" : "Export",
-        "button2text" : "OK",
-        "moveable" : "true",
-        "height" : "780",
-        "width" : "900",
-        "json" : "true", 
-        "ignorednd" : "true",
-        "quitkey" : "0",'
-}
-
-function create_listitem_list ()
-{
-    # PURPOSE: Create the display list for the dialog box
-    # RETURN: None
-    # EXPECTED: JSON_DIALOG_BLOB should be defined
-    # PARMS: $1 - message to be displayed on the window
-    #        $2 - type of data to parse XML or JSON
-    #        #3 - key to parse for list items
-    #        $4 - string to parse for list items
-    # EXPECTED: None
-
-
-    construct_dialog_header_settings $1 > "${JSON_DIALOG_BLOB}"
-    create_listitem_message_body "" "" "" "" "" "first"
-
-    for item in "${app_list[@]}"; do
-        name=${item:t}
-        [[ ${SHOW_PATH:l} == "yes" ]] && appPath=${item:h} || appPath=""
-        [[ ${STRIP_EXTENSION:l} == "yes" ]] && item=$item.app
-        create_listitem_message_body "$name" "$appPath" "$item" "Pending..." "pending" ""
+    # Store the actual application paths.
+    # One application per line.
+    #
+    for app in "${APP_LIST[@]}"; do
+        print -r -- "${app}" >> "${app_list_file}"
     done
-    create_listitem_message_body "" "" "" "" "" "last"
-    update_display_list "Create"
+
+    #
+    # Construct the complete SwiftDialog configuration with ONE jq process.
+    #
+    /usr/bin/jq -Rn \
+        --arg icon "${SD_ICON_FILE}" \
+        --arg message "${message}" \
+        --arg bannerimage "${SD_BANNER_IMAGE}" \
+        --arg subtitle "${BANNER_SUBTITLE}" \
+        --arg titlefont "shadow=1,offset=${BANNER_TEXT_PADDING},color=${BANNER_TEXT_COLOR:l}" \
+        --arg infobox "${SD_INFO_BOX_MSG}" \
+        --arg overlayicon "${SD_OVERLAY_ICON}" \
+        --arg bannertitle "${SD_WINDOW_TITLE}" \
+        --arg strip_extension "${STRIP_EXTENSION:l}" \
+        --arg show_path "${SHOW_PATH:l}" \
+        '
+        [
+            inputs |
+            select(length > 0) |
+
+            . as $path |
+
+            ($path | split("/") | last) as $filename |
+
+            (
+                if $strip_extension == "yes" then
+                    $filename | sub("\\.app$"; "")
+                else
+                    $filename
+                end
+            ) as $title |
+
+            (
+                if $show_path == "yes" then
+                    $path | split("/") | .[0:-1] | join("/") |
+                    if . == "" then "/" else . end
+                else
+                    ""
+                end
+            ) as $app_path |
+
+            {
+                title: $title,
+                icon: $path,
+                status: "pending",
+                statustext: "Pending..."
+            }
+            +
+            if $app_path != "" then
+                {
+                    subtitle: $app_path
+                }
+            else
+                {}
+            end
+        ] as $listitem |
+
+        {
+            icon: $icon,
+            message: $message,
+            bannerimage: $bannerimage,
+            subtitle: $subtitle,
+            titlefont: $titlefont,
+            infobox: $infobox,
+            overlayicon: $overlayicon,
+            ontop: true,
+            bannertitle: $bannertitle,
+            button1text: "Export",
+            button2text: "OK",
+            button1disabled: true,
+            moveable: true,
+            height: 780,
+            width: 900,
+            ignorednd: true,
+            quitkey: "0",
+            listitem: $listitem
+        }
+        ' < "${app_list_file}" > "${JSON_DIALOG_BLOB}"
+
+    jq_exit=$?
+
+    /bin/rm -f "${app_list_file}"
+
+    if (( jq_exit != 0 )) || [[ ! -s "${JSON_DIALOG_BLOB}" ]]; then
+        logMe "ERROR: Unable to create the SwiftDialog JSON configuration."
+        return 1
+    fi
+
+    return 0
 }
 
-function create_listitem_message_body ()
+function start_scan_dialog ()
 {
-    # PURPOSE: Construct the List item body of the dialog box
-    # "listitem" : [
-    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
-    # RETURN: None
-    # EXPECTED: message
-    # PARMS: $1 - title 
-    #        $2 - icon
-    #        $3 - status text (for display)
-    #        $4 - status
-    #        $5 - first or last - construct appropriate listitem heders / footers
+    "${SW_DIALOG}" --progress --jsonfile "${JSON_DIALOG_BLOB}" --commandfile "${DIALOG_COMMAND_FILE}" &
+    DIALOG_PROCESS=$!
+    /bin/sleep 1
 
-    declare line && line=""
-
-    [[ "$6:l" == "first" ]] && line+='"button1disabled" : "true", "listitem" : ['
-    [[ ! -z $1 ]] && [[ ! -z $2 ]] && line+='{"title" : "'$1'", "subtitle" : "'$2'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
-    [[ ! -z $1 ]] && [[ -z $2 ]] && line+='{"title" : "'$1'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
-    [[ "$6:l" == "last" ]] && line+=']}'
-    echo $line >> ${JSON_DIALOG_BLOB}
+    if ! /bin/kill -0 "${DIALOG_PROCESS}" 2>/dev/null; then
+        wait "${DIALOG_PROCESS}"
+        local dialog_exit_code=$?
+        DIALOG_PROCESS=""
+        logMe "ERROR: SwiftDialog failed to start. Exit code: ${dialog_exit_code}"
+        return 1
+    fi
 }
 
 function update_display_list ()
 {
-    # setopt -s nocasematch
-    # This function updates the Swift Dialog list display with easy to implement parameter passing...
-    # The Swift Dialog native structure is very strict with the command structure...this routine makes
-    # it easier to implement
-    #
-    # Param list
-    #
-    # $1 - Action to be done ("Create", "Add", "Change", "Clear", "Info", "Show", "Done", "Update")
-    # ${2} - Affected item (2nd field in JSON Blob listitem entry)
-    # ${3} - Icon status "wait, success, fail, error, pending or progress"
-    # ${4} - Status Text
-    # $5 - Progress Text (shown below progress bar)
-    # $6 - Progress amount
-            # increment - increments the progress by one
-            # reset - resets the progress bar to 0
-            # complete - maxes out the progress bar
-            # If an integer value is sent, this will move the progress bar to that value of steps
-    # the GLOB :l converts any inconing parameter into lowercase
-    
-    case "${1:l}" in
- 
-        "create" | "show" )
- 
-            # Display the Dialog prompt
-            $SW_DIALOG --progress --jsonfile "${JSON_DIALOG_BLOB}" --commandfile "${DIALOG_COMMAND_FILE}" &
-            DIALOG_PROCESS=$! #Grab the process ID of the background process
+    local action="${1:l}"
+    local item_title="$2"
+    local status_text="$3"
+    local item_status="$4"
+    local progress_value="$5"
+    local progress_text="$6"
+
+    case "${action}" in
+        update|change)
+            print -r -- "listitem: title: ${item_title}, status: ${item_status}, statustext: ${status_text}" >> "${DIALOG_COMMAND_FILE}"
+            print -r -- "progress: ${progress_value}" >> "${DIALOG_COMMAND_FILE}"
             ;;
 
-        "buttondisable" )
+        progress)
+            print -r -- "progress: ${progress_value}" >> "${DIALOG_COMMAND_FILE}"
 
-            # disable button 1
-            /bin/echo "button1: disable" >> "${DIALOG_COMMAND_FILE}"
+            if [[ -n "${progress_text}" ]]; then
+                print -r -- "progresstext: ${progress_text}" >> "${DIALOG_COMMAND_FILE}"
+            fi
             ;;
 
-        "buttonenable" )
-
-            # Enable button 1
-            /bin/echo "button1: enable" >> "${DIALOG_COMMAND_FILE}"
+        buttondisable)
+            print -r -- "button1: disable" >> "${DIALOG_COMMAND_FILE}"
             ;;
 
-        "update" | "change" )
-
-            #
-            # Increment the progress bar by ${2} amount
-            #
-
-            # change the list item status and increment the progress bar
-            /bin/echo "listitem: title: ${3}, status: ${5}, statustext: ${4}" >> "${DIALOG_COMMAND_FILE}"
-            /bin/echo "progress: ${6}" >> "${DIALOG_COMMAND_FILE}"
-
-            /bin/sleep .5
+        buttonenable)
+            print -r -- "button1: enable" >> "${DIALOG_COMMAND_FILE}"
             ;;
-  
-        "progress" )
-  
-            # Increment the progress bar by static amount ($6)
-            # Display the progress bar text ($5)
-            /bin/echo "progress: ${6}" >> "${DIALOG_COMMAND_FILE}"
-            /bin/echo "progresstext: ${5}" >> "${DIALOG_COMMAND_FILE}"
-            ;;
-  
     esac
 }
 
 ####################################################################################################
 #
-# Script Specific Functions
+# Application scan functions
 #
 ####################################################################################################
-
-function welcomemsg ()
-{
-    local -a app_list
-    message="Apple said that after macOS 27, Rosetta app support will be deprecated. This script will list all of the apps on your system and display"
-    message+=" the architecture type, so you can determine which applications need updated.<br>"
-    preload_apps
-    app_list=("${reply[@]}")
-    create_listitem_list $message
-    scan_apps
-    update_display_list "progress" "" "" "" "" 100
-    update_display_list "buttonenable"
-    wait
-    buttonpress=$?
-    [[ $buttonpress == 0 ]] && export_failed_items
-}
 
 function preload_apps ()
 {
-    find "${APPDIR_SCAN[@]}" -maxdepth 2 -name "*.app" 2>/dev/null | while read -r app; do
-        [[ ${STRIP_EXTENSION:l} == "yes" ]] && reply+=("${app:r}") || reply+=("$app")
+    local scan_directory
+    local app
+    local -a discovered_apps
+
+    APP_LIST=()
+    discovered_apps=()
+
+    for scan_directory in "${APPDIR_SCAN[@]}"; do
+        [[ -d "${scan_directory}" ]] || continue
+
+        discovered_apps+=(
+            "${scan_directory}"/*.app(N)
+            "${scan_directory}"/*/*.app(N)
+        )
     done
-    APPLIST_COUNT=$#reply
+
+    if (( ${#discovered_apps[@]} > 0 )); then
+        APP_LIST=("${(@ou)discovered_apps}")
+    fi
+
+    APPLIST_COUNT=${#APP_LIST[@]}
+
+    logMe "INFO: Found ${APPLIST_COUNT} applications in the configured scan locations."
 }
 
-function scan_apps() 
+function get_application_architecture ()
 {
-    local count=1
-    local app_name exe_name exe_path archs kind app_status info bid
+    local app="$1"
+    local bundle_info=""
+    local bundle_id=""
+    local executable_path=""
+    local file_output=""
+    local -a executable_files
 
-    # Use Zsh globbing to find .app folders (replaces find)
-    for app in ${^APPDIR_SCAN}/*.app(N) ${^APPDIR_SCAN}/*/*.app(N); do
-        
-        # Handle naming
-        [[ ${STRIP_EXTENSION:l} == "yes" ]] && app_name="${app:t:r}" || app_name="${app:t}"
-        
-        # 1. Extract info using plutil (one call for multiple values)
-        # Returns: ExecutableName|BundleID
-        BundleInfo=$(/usr/bin/plutil -extract CFBundleExecutable raw -o - "${app}/Contents/Info.plist" 2>/dev/null || echo "")
-        BundleID=$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "${app}/Contents/Info.plist" 2>/dev/null || echo "")
-        
-        exe_path="${app}/Contents/MacOS/${BundleInfo}"
+    bundle_info=$(/usr/bin/plutil -extract CFBundleExecutable raw -o - "${app}/Contents/Info.plist" 2>/dev/null)
+    bundle_id=$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "${app}/Contents/Info.plist" 2>/dev/null)
 
-        # 2. Fallback for Executable Path
-        if [[ -z "$BundleInfo" || ! -f "$exe_path" ]]; then
-            # Zsh glob: pick the first file in MacOS directory
-            local files=("${app}/Contents/MacOS/"*(N.))
-            exe_path="${files[1]}"
-        fi
+    if [[ -n "${bundle_info}" ]]; then
+        executable_path="${app}/Contents/MacOS/${bundle_info}"
+    fi
 
-        # 3. Detect Architecture (Single Call)
-        if [[ -f "${exe_path}" ]]; then
-            archs=$(/usr/bin/file -b "${exe_path}")
-            
-            case "$archs" in
-                *"Mach-O universal binary"*) kind="Universal" ;;
-                *"arm64"*)                   kind="Apple Silicon" ;;
-                *"x86_64"*)                  kind="Intel" ;;
-                *"shell script"*)            kind="Shell Script" ;;
-                *)                           kind="Unknown" ;;
-            esac
-        elif [[ "$BundleID" == *"Safari.WebApp"* ]]; then
-            kind="WebApp"
+    if [[ -z "${executable_path}" || ! -f "${executable_path}" ]]; then
+        executable_files=("${app}/Contents/MacOS/"*(N.))
+
+        if (( ${#executable_files[@]} > 0 )); then
+            executable_path="${executable_files[1]}"
         else
-            kind="Unknown"
+            executable_path=""
         fi
+    fi
 
-        # 4. Status and Logic
-        if [[ "$kind" =~ (Universal|Apple Silicon|Shell Script|WebApp) ]]; then
-            app_status="success"
-        else
-            app_status="fail"
-            FAILED_APPS+=("${app_name}")
-            echo "${app}" >> "$TMP_FILE_STORAGE"
-        fi
+    if [[ -n "${executable_path}" && -f "${executable_path}" ]]; then
+        file_output=$(/usr/bin/file -b "${executable_path}" 2>/dev/null)
 
-        # 5. UI Update
-        logMe "$app_name has an architecture of: ${kind}"
-        update_display_list "Update" "" "${app_name}" "${kind}" "${app_status}" $((100*count/APPLIST_COUNT))
-        
-        ((count++))
-    done
+        case "${file_output}" in
+            *"Mach-O universal binary"*)
+                REPLY="Universal"
+                ;;
+
+            *"Mach-O 64-bit executable arm64"*|*"Mach-O executable arm64"*)
+                REPLY="Apple Silicon"
+                ;;
+
+            *"Mach-O 64-bit executable x86_64"*|*"Mach-O executable x86_64"*)
+                REPLY="Intel"
+                ;;
+
+            *"shell script"*|*"script text executable"*)
+                REPLY="Shell Script"
+                ;;
+
+            *)
+                REPLY="Unknown"
+                ;;
+        esac
+    elif [[ "${bundle_id}" == *"Safari.WebApp"* ]]; then
+        REPLY="WebApp"
+    else
+        REPLY="Unknown"
+    fi
 }
 
-function export_failed_items ()
+function scan_apps ()
 {
-    logMe "Failed/Unknown app list stored in $USER_DIR/Desktop/Intel Apps.txt"
-    cp $TMP_FILE_STORAGE "$USER_DIR/Desktop/Intel Apps.txt"
+    local count=0
+    local progress_value=0
+    local app
+    local app_name
+    local architecture
+    local app_status
+
+    INTEL_APPS=()
+    UNKNOWN_APPS=()
+
+    : > "${INTEL_EXPORT_FILE}"
+    : > "${UNKNOWN_EXPORT_FILE}"
+
+    if (( APPLIST_COUNT == 0 )); then
+        logMe "INFO: No applications are available to scan."
+        return 1
+    fi
+
+    for app in "${APP_LIST[@]}"; do
+        (( count++ ))
+
+        if [[ "${STRIP_EXTENSION:l}" == "yes" ]]; then
+            app_name="${app:t:r}"
+        else
+            app_name="${app:t}"
+        fi
+
+        get_application_architecture "${app}"
+        architecture="${REPLY}"
+
+        case "${architecture}" in
+            Universal|Apple\ Silicon|Shell\ Script|WebApp)
+                app_status="success"
+                ;;
+
+            Intel)
+                app_status="fail"
+                INTEL_APPS+=("${app}")
+                print -r -- "${app}" >> "${INTEL_EXPORT_FILE}"
+                ;;
+
+            *)
+                app_status="error"
+                UNKNOWN_APPS+=("${app}")
+                print -r -- "${app}" >> "${UNKNOWN_EXPORT_FILE}"
+                ;;
+        esac
+
+        progress_value=$(( count * 100 / APPLIST_COUNT ))
+        logMe "${app_name} has an architecture of: ${architecture}"
+        update_display_list "update" "${app_name}" "${architecture}" "${app_status}" "${progress_value}" ""
+    done
+
+    return 0
+}
+
+function export_scan_results ()
+{
+    local desktop_directory="${USER_DIR}/Desktop"
+    local intel_destination="${desktop_directory}/Intel Apps.txt"
+    local unknown_destination="${desktop_directory}/Unknown Architecture Apps.txt"
+    local user_group
+    local exported_count=0
+
+    if [[ ! -d "${desktop_directory}" ]]; then
+        logMe "ERROR: The logged-in user's Desktop directory could not be found."
+        return 1
+    fi
+
+    user_group=$(/usr/bin/id -gn "${LOGGED_IN_USER}" 2>/dev/null)
+
+    if [[ -z "${user_group}" ]]; then
+        logMe "ERROR: Unable to determine the primary group for ${LOGGED_IN_USER}."
+        return 1
+    fi
+
+    #
+    # Intel applications
+    #
+    if (( ${#INTEL_APPS[@]} > 0 )); then
+
+        if [[ ! -s "${INTEL_EXPORT_FILE}" ]]; then
+            logMe "ERROR: Intel applications were detected, but the Intel export file is missing or empty."
+        elif /bin/cp "${INTEL_EXPORT_FILE}" "${intel_destination}"; then
+
+            /usr/sbin/chown "${LOGGED_IN_USER}:${user_group}" "${intel_destination}"
+            /bin/chmod 644 "${intel_destination}"
+            logMe "Intel application list exported to ${intel_destination}"
+
+            (( exported_count++ ))
+        else
+            logMe "ERROR: Unable to export Intel application list."
+        fi
+    fi
+
+    #
+    # Unknown applications
+    #
+    if (( ${#UNKNOWN_APPS[@]} > 0 )); then
+
+        if [[ ! -s "${UNKNOWN_EXPORT_FILE}" ]]; then
+            logMe "ERROR: Unknown applications were detected, but the Unknown export file is missing or empty."
+        elif /bin/cp "${UNKNOWN_EXPORT_FILE}" "${unknown_destination}"; then
+
+            /usr/sbin/chown "${LOGGED_IN_USER}:${user_group}" "${unknown_destination}"
+            /bin/chmod 644 "${unknown_destination}"
+
+            logMe "Unknown architecture application list exported to ${unknown_destination}"
+
+            (( exported_count++ ))
+        else
+            logMe "ERROR: Unable to export Unknown architecture application list."
+        fi
+    fi
+
+    if (( exported_count == 0 )); then
+        logMe "INFO: No scan results were exported."
+    fi
+
+    return 0
+}
+
+function run_architecture_scan ()
+{
+    local message
+    local dialog_exit_code
+
+    message="Apple has announced that Rosetta support will be deprecated after macOS 27. "
+    message+="This utility scans installed applications and identifies their architecture so applications requiring updates can be located."
+
+    preload_apps
+
+    if (( APPLIST_COUNT == 0 )); then
+        logMe "INFO: No applications were found in the configured scan locations."
+
+        "${SW_DIALOG}" --bannertitle "${SD_WINDOW_TITLE}" \
+            --bannerimage "${SD_BANNER_IMAGE}" \
+            --icon "${SD_ICON_FILE}" \
+            --overlayicon warning \
+            --message "No applications were found in the configured scan locations." \
+            --button1text "OK" \
+            --width 700 \
+            --ontop 2>/dev/null
+
+        return 0
+    fi
+
+    if ! construct_dialog_json "${message}"; then
+        logMe "ERROR: Failed to construct SwiftDialog configuration."
+        return 1
+    fi
+
+    start_scan_dialog || {
+        logMe "ERROR: Unable to start the scan dialog."
+        return 1
+    }
+
+    scan_apps || {
+        logMe "ERROR: Architecture scan failed."
+        return 1
+    }
+
+
+    update_display_list "progress" "" "" "" "100" "Scan complete. Intel: ${#INTEL_APPS[@]} | Unknown: ${#UNKNOWN_APPS[@]}"
+    update_display_list "buttonenable" "" "" "" "" ""
+
+    wait "${DIALOG_PROCESS}"
+    dialog_exit_code=$?
+
+    DIALOG_PROCESS=""
+
+    case "${dialog_exit_code}" in
+        0)
+            export_scan_results
+            ;;
+
+        2)
+            logMe "INFO: Scan completed without exporting results."
+            ;;
+
+        *)
+            logMe "INFO: SwiftDialog exited with code ${dialog_exit_code}."
+            ;;
+    esac
 }
 
 ####################################################################################################
 #
-# Main Script
+# Main
 #
 ####################################################################################################
-local APPLIST_COUNT
-local -a FAILED_APPS
 
-autoload 'is-at-least'
+autoload -Uz is-at-least
 
-check_for_sudo
-create_log_directory
-check_swift_dialog_install
-check_support_files
+trap 'cleanup_and_exit 1' HUP INT TERM
+
+check_for_sudo || cleanup_and_exit 1
+create_log_directory || cleanup_and_exit 1
+check_logged_in_user || cleanup_and_exit 1
+check_swift_dialog_install || cleanup_and_exit 1
+check_support_files || cleanup_and_exit 1
+
 create_infobox_message
-welcomemsg
+
+run_architecture_scan || cleanup_and_exit 1
+
 cleanup_and_exit 0
