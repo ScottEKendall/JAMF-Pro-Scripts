@@ -46,6 +46,8 @@
 #       Adds application bundles to the preflight preview and JSON manifest
 #       Added protected package-prefix support for package receipt removal
 #       com.apple and com.jamf receipts are hidden and revalidated before preflight/forget
+#       Converted installed-package selection from multi-select switches to a single-selection dropdown
+# 3.1 - Changed the Packages list to a dropdown menu instead of a checkbox list
 
 
 ######################################################################################################
@@ -55,7 +57,7 @@
 ######################################################################################################
 #set -x
 SCRIPT_NAME="AppDelete"
-SCRIPT_VERSION="3.0"
+SCRIPT_VERSION="3.1"
 PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
@@ -918,12 +920,13 @@ function receipt_is_protected ()
     [[ -n "$package_id" ]] || return 0
 
     for protected_prefix in "${PROTECTED_PACKAGE_PREFIXES[@]}"; do
+
         [[ -n "$protected_prefix" ]] || continue
 
-        if [[ "$package_id" == "$protected_prefix" ||
-              "$package_id" == "${protected_prefix}."* ]]; then
+        if [[ "$package_id" == "${protected_prefix}"* ]]; then
             return 0
         fi
+
     done
 
     return 1
@@ -1019,26 +1022,184 @@ function get_receipt_app_bundle ()
 
 function construct_receipt_list ()
 {
-    local label item_json checkbox_json
-    local -a checkbox_items
-    checkbox_items=()
-    for label in "${RECEIPT_LABELS[@]}"; do
-        item_json=$(jq -n --arg label "$label" '{label:$label,checked:false,disabled:false,icon:"SF=shippingbox.fill,color=auto"}') || return 1
-        checkbox_items+=("$item_json")
-    done
-    checkbox_json=$(printf '%s\n' "${checkbox_items[@]}" | jq -s '.') || return 1
-    jq -n \
-        --arg message "Select exactly one eligible installer receipt. Protected package prefixes are excluded. AppDelete will perform a safety preflight before removing anything." \
+    local receipt_values_json=""
+
+    receipt_values_json=$(
+        printf '%s\n' "${RECEIPT_LABELS[@]}" |
+            jq -Rsc '
+                split("\n")
+                | map(select(length > 0))
+            '
+    ) || {
+        logMe "ERROR: Unable to construct package receipt list."
+        return 1
+    }
+
+    if ! jq -n \
+        --arg message "Select an eligible installer receipt. Protected package prefixes are excluded. AppDelete will perform a safety preflight before removing anything." \
         --arg bannertitle "Remove Installed Package" \
         --arg subtitle "$BANNER_SUBTITLE" \
         --arg titlefont "shadow=1, offset=${BANNER_TEXT_PADDING}, color=${BANNER_TEXT_COLOR:l}" \
         --arg icon "SF=shippingbox.fill,color=auto" \
         --arg bannerimage "$SD_BANNER_IMAGE" \
-        --arg helpmessage "Package receipts are not vendor uninstallers. Protected, shared, missing, and unsafe paths are excluded. The receipt is forgotten only after approved removals succeed." \
+        --arg helpmessage "Package receipts are not vendor uninstallers. Protected, missing, and unsafe paths are excluded. The receipt is forgotten only after approved removals succeed." \
         --arg infotext "V ${SCRIPT_VERSION}" \
-        --argjson checkbox "$checkbox_json" \
-        '{message:$message,messageposition:"top",bannertitle:$bannertitle,subtitle:$subtitle,titlefont:$titlefont,icon:$icon,bannerimage:$bannerimage,helpmessage:$helpmessage,width:1040,height:760,moveable:true,ontop:true,buttonstyle:"right",infotext:$infotext,quitkey:"0",button1text:"Preflight",button2text:"Back",checkboxstyle:{style:"switch",size:"regular"},checkbox:$checkbox}' > "$JSON_OPTIONS" || return 1
-    jq empty "$JSON_OPTIONS" >/dev/null 2>&1
+        --argjson receiptValues "$receipt_values_json" \
+        '
+        {
+            message: $message,
+            messageposition: "top",
+            bannertitle: $bannertitle,
+            subtitle: $subtitle,
+            titlefont: $titlefont,
+            icon: $icon,
+            bannerimage: $bannerimage,
+            helpmessage: $helpmessage,
+            width: 1040,
+            height: 600,
+            moveable: true,
+            ontop: true,
+            buttonstyle: "right",
+            infotext: $infotext,
+            quitkey: "0",
+            button1text: "Preflight",
+            button2text: "Back",
+            selectitems: [
+                {
+                    title: "Package Receipt",
+                    name: "PackageReceipt",
+                    values: $receiptValues
+                }
+            ]
+        }
+        ' > "$JSON_OPTIONS"
+    then
+        logMe "ERROR: Unable to construct package receipt dialog."
+        return 1
+    fi
+
+    if ! jq empty "$JSON_OPTIONS" >/dev/null 2>&1; then
+        logMe "ERROR: Package receipt dialog JSON is invalid."
+        return 1
+    fi
+
+    return 0
+}
+
+function choose_receipt ()
+{
+    local output=""
+    local return_code=0
+    local selected_label=""
+    local approved_label=""
+    local approved_package_id=""
+    local selection_is_approved=false
+
+    SELECTED_RECEIPT_ID=""
+
+    output=$(
+        "$SW_DIALOG" \
+            --jsonfile "$JSON_OPTIONS" \
+            --json \
+            2>/dev/null
+    )
+
+    return_code=$?
+
+    case "$return_code" in
+        0)
+            ;;
+
+        2|10)
+            logMe "User returned from package receipt selection."
+            return 2
+            ;;
+
+        *)
+            logMe "ERROR: Package receipt dialog exited with code ${return_code}."
+            return 1
+            ;;
+    esac
+
+    if ! print -r -- "$output" |
+        jq empty >/dev/null 2>&1
+    then
+        logMe "ERROR: Package receipt dialog returned invalid JSON."
+        return 1
+    fi
+
+    selected_label=$(
+        print -r -- "$output" |
+            jq -r '
+                if (."PackageReceipt" | type) == "object" then
+                    ."PackageReceipt".selectedValue // empty
+                else
+                    ."PackageReceipt" // empty
+                end
+            '
+    )
+
+    if [[ -z "$selected_label" ]]; then
+        logMe "No package receipt was selected."
+        return 3
+    fi
+
+    logMe "Package dropdown returned: ${selected_label}"
+
+    #
+    # Validate the returned label against the exact list AppDelete
+    # provided to SwiftDialog.
+    #
+    for approved_label in "${RECEIPT_LABELS[@]}"; do
+
+        if [[ "$selected_label" == "$approved_label" ]]; then
+            selection_is_approved=true
+            break
+        fi
+
+    done
+
+    if [[ "$selection_is_approved" != true ]]; then
+        logMe "ERROR: Selected package receipt is not in the approved receipt list: ${selected_label}"
+        return 1
+    fi
+
+    #
+    # Labels are deliberately constructed as:
+    #
+    # package-id | version | install-location
+    #
+    SELECTED_RECEIPT_ID="${selected_label%% | *}"
+
+    if [[ -z "$SELECTED_RECEIPT_ID" ]]; then
+        logMe "ERROR: Unable to determine package ID from selected receipt."
+        return 1
+    fi
+
+    #
+    # Defense-in-depth: make sure the recovered package ID is
+    # still represented by the approved receipt inventory.
+    #
+    approved_package_id="${RECEIPT_IDS[$approved_label]:-}"
+
+    if [[ "$SELECTED_RECEIPT_ID" != "$approved_package_id" ]]; then
+        logMe "ERROR: Selected package ID does not match the approved receipt."
+        SELECTED_RECEIPT_ID=""
+        return 1
+    fi
+
+    #
+    # Revalidate package protection immediately before proceeding.
+    #
+    if receipt_is_protected "$SELECTED_RECEIPT_ID"; then
+        logMe "ERROR: Refusing protected package receipt: ${SELECTED_RECEIPT_ID}"
+        SELECTED_RECEIPT_ID=""
+        return 1
+    fi
+
+    logMe "Selected package receipt: ${SELECTED_RECEIPT_ID}"
+
+    return 0
 }
 
 function preflight_receipt ()
@@ -1158,28 +1319,6 @@ function build_receipt_list ()
     done < <(/usr/sbin/pkgutil --pkgs 2>/dev/null)
     (( ${#discovered[@]} > 0 )) || return 1
     RECEIPT_LABELS=("${(@on)discovered}")
-}
-
-function choose_receipt ()
-{
-    local output return_code selected_label
-    local -a selections
-    selections=()
-    output=$("$SW_DIALOG" --jsonfile "$JSON_OPTIONS" --json 2>/dev/null)
-    return_code=$?
-    case "$return_code" in 0) ;; 2|10) return 2 ;; *) return 1 ;; esac
-    while IFS= read -r selected_label; do
-        [[ -n "$selected_label" ]] && selections+=("$selected_label")
-    done < <(print -r -- "$output" | jq -r 'to_entries[] | select(.value == true) | .key')
-    (( ${#selections[@]} == 1 )) || { logMe "Select exactly one package receipt."; return 3; }
-    selected_label="${selections[1]}"
-    SELECTED_RECEIPT_ID="${RECEIPT_IDS[$selected_label]:-}"
-    [[ -n "$SELECTED_RECEIPT_ID" ]] || return 1
-    if receipt_is_protected "$SELECTED_RECEIPT_ID"; then
-        logMe "ERROR: Refusing protected package receipt: ${SELECTED_RECEIPT_ID}"
-        SELECTED_RECEIPT_ID=""
-        return 1
-    fi
 }
 
 function write_receipt_manifest ()
