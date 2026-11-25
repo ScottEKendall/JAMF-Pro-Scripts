@@ -20,4 +20,11 @@ Quick script to display the largest files & folders in the User's home folder.  
 ||       Fixed variable names in the defaults file section
 | 2.0 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.1 | Improved disk scanning performance and result handling
+||       Reworked file scanning to use find/stat with numeric size sorting
+||      Reworked directory scanning to return directory-only results
+||      Added human-readable size formatting for displayed and exported results
+||      Added scan validation and improved error handling
+||      Added formatted Desktop results export
+||      Improved temporary-file cleanup
 
