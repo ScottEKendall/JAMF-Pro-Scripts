@@ -4,10 +4,10 @@
 # 
 # Written by: Scott Kendall
 #
-# Created Date: 01/227/2025
-# Last modified: 09/16/2026
+# Created Date: 01/27/2025
+# Last modified: 11/25/2026
 #
-# Script Purpose: Display a generic SWifDialog notification to JAMF users.  Pass in variables to customize display
+# Script Purpose: Display a generic SWifDialog notification to Jamf users.  Pass in variables to customize display
 #
 # 1.0 - Initial script
 # 1.1 - Code cleanup to be more consistent with all apps
@@ -29,7 +29,13 @@
 # 2.2 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 # 2.3 - Updated SD Version requirements to 3.1.0
 #       Added ability to set subtitle, color, and padding from defaults file
-# 2.4 - Incorporated changes from previous scripts, to make sure script workflow doesn't error out at the worst time.
+# 2.4 - Improved script workflow and error handling
+#       Added validation for logged-in user context
+#       Improved SwiftDialog installation and version validation
+#       Improved support-file installation handling
+#       Added multilingual message support based on the user's preferred language
+#       Added default-language fallback when no preferred-language match is found
+#       Improved handling of Jamf parameters and optional display images
 #
 # Expected Parameters: 
 # #4 - Title
@@ -48,13 +54,7 @@
 ######################################################################################################
 #set -x
 SCRIPT_NAME="DialogMsg"
-LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
-USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
-USER_UID=$(id -u "$LOGGED_IN_USER")
-
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_NAME=$(sw_vers -productName)
-MACOS_VERSION=$(sw_vers -productVersion)
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
 MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
@@ -112,9 +112,7 @@ DISPLAY_MESSAGE=""
 # 
 #################################################
 
-JAMF_LOGGED_IN_USER=${3:-"$LOGGED_IN_USER"}    # Passed in by JAMF automatically
-SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"   
-
+JAMF_PARAMETER_USER="$3"
 SD_WINDOW_TITLE="$4"
 SD_WELCOME_MSG="${5:-"Information Message"}"
 SD_WELCOME_MSG_ALT="${6:-""}"
@@ -176,7 +174,7 @@ function check_swift_dialog_install ()
         fi
     fi
 
-    if ! SD_VERSION=$("$SW_DIALOG" --version ); then #2>/dev/null); then
+    if ! SD_VERSION=$("$SW_DIALOG" --version ); then
         logMe "ERROR: Unable to determine SwiftDialog version." >&2
         return 1
     fi
@@ -212,22 +210,24 @@ function check_swift_dialog_install ()
 function install_swift_dialog ()
 {
     if [[ ! -x /usr/local/bin/jamf ]]; then
-        logMe "ERROR: Jamf binary not found. Cannot install Swift Dialog."
-        cleanup_and_exit 1
+        logMe "ERROR: Jamf binary not found. Cannot install SwiftDialog."
+        return 1
     fi
 
     /usr/local/bin/jamf policy -event "${DIALOG_INSTALL_POLICY}"
-    local jamf_exit="$?"
+    local jamf_exit=$?
 
-    if [[ "$jamf_exit" -ne 0 ]]; then
-        logMe "ERROR: Jamf policy failed while installing Swift Dialog. Exit code: $jamf_exit"
-        cleanup_and_exit 1
+    if (( jamf_exit != 0 )); then
+        logMe "ERROR: Jamf policy failed while installing SwiftDialog. Exit code: ${jamf_exit}"
+        return 1
     fi
 
     if [[ ! -x "${SW_DIALOG}" ]]; then
-        logMe "ERROR: Swift Dialog still missing after install attempt."
-        cleanup_and_exit 1
+        logMe "ERROR: SwiftDialog is still missing after install attempt."
+        return 1
     fi
+
+    return 0
 }
 
 function check_support_files ()
@@ -238,37 +238,23 @@ function check_support_files ()
             logMe "WARNING: Support-file installation failed." >&2
         fi
     fi
-    [[ ! -e "${SD_IMAGE_TO_DISPLAY}" ]] && /usr/local/bin/jamf policy -event ${SD_IMAGE_POLICY}
+    if [[ -n "$SD_IMAGE_TO_DISPLAY" && ! -e "$SD_IMAGE_TO_DISPLAY" ]]; then
+        if [[ -n "$SD_IMAGE_POLICY" ]]; then
+            logMe "Image missing. Attempting installation with event: ${SD_IMAGE_POLICY}"
 
+            if ! /usr/local/bin/jamf policy -event "$SD_IMAGE_POLICY"; then
+                logMe "WARNING: Image installation policy failed." >&2
+            fi
+        else
+            logMe "WARNING: Image is missing and no installation policy was supplied."
+        fi
+    fi
     return 0
-}
-
-function cleanup_files ()
-{
-    # Perform a clean-up on all of the temp files that were created at run-time
-    (( ZSH_SUBSHELL == 0 )) || return 0
-    [[ "$$" == "$MAIN_PID" ]] || return 0
-    local file
-
-    for file in \
-        "$JSON_DIALOG_BLOB" \
-        "$DIALOG_COMMAND_FILE" \
-        "$TMP_FILE_STORAGE"
-    do
-        [[ -n "$file" && -e "$file" ]] && rm -f -- "$file"
-    done
-
-    [[ -n "$RESULTS_DIR" && -d "$RESULTS_DIR" ]] && rm -rf -- "$RESULTS_DIR"
-    [[ -n "$CSV_LOCK_DIR" && -d "$CSV_LOCK_DIR" ]] && rmdir "$CSV_LOCK_DIR" 2>/dev/null
-    [[ -n "$DIALOG_LOCK_DIR" && -d "$DIALOG_LOCK_DIR" ]] && rmdir "$DIALOG_LOCK_DIR" 2>/dev/null
 }
 
 function cleanup_and_exit ()
 {
     local exit_code="${1:-0}"
-
-    trap - EXIT
-    cleanup_files
     exit "$exit_code"
 }
 
@@ -296,9 +282,8 @@ function initialize_user_context ()
         return 1
     fi
 
-    Jamf_LOGGED_IN_USER="${Jamf_PARAMETER_USER:-$LOGGED_IN_USER}"
-    SD_FIRST_NAME="${(C)${Jamf_LOGGED_IN_USER%%.*}}"
-
+    JAMF_LOGGED_IN_USER="${JAMF_PARAMETER_USER:-$LOGGED_IN_USER}"
+    SD_FIRST_NAME="${(C)${JAMF_LOGGED_IN_USER%%.*}}"
     return 0
 }
 
@@ -316,6 +301,8 @@ function check_display_sleep ()
 
 function display_msg ()
 {
+    local return_code
+    local -a MainDialogBody
     MainDialogBody=(
         --message "${SD_DIALOG_GREETING} ${SD_FIRST_NAME}.  ${DISPLAY_MESSAGE}"
         --ontop
@@ -333,14 +320,16 @@ function display_msg ()
         --timer "${SD_TIMER}"
         --button1text "${SD_BUTTON1_PROMPT}"
         )
-        [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 520 --image "${SD_IMAGE_TO_DISPLAY}")
+        [[ -n "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 520 --image "${SD_IMAGE_TO_DISPLAY}")
 
     # Show the dialog screen and allow the user to choose
 
     "${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null
-    returnCode=$?
-    [[ $returnCode = 4 ]] && logMe "Timer Expired"
-    [[ $returnCode = 0 ]] && logMe "User Clicked $SD_BUTTON1_PROMPT"
+    return_code=$?
+
+    [[ "$return_code" == 4 ]] && logMe "Timer Expired"
+    [[ "$return_code" == 0 ]] && logMe "User Clicked $SD_BUTTON1_PROMPT"
+
 }
 
 function create_infobox_message()
@@ -361,42 +350,65 @@ function create_infobox_message()
 
 function check_language_support ()
 {
+    local preferred_language="${LANG[1,2]:u}"
+    local entry
+    local lang_code
+    local message
+    local default_message=""
+    local first_message=""
+    local -a language_array
 
-    declare -a languageArray
-    declare preferredLanguage && preferredLanguage=${LANG[1,2]:u}
+    # Preserve each configured message as a single array element
+    language_array=("$SD_WELCOME_MSG")
 
-    # if there is no 2nd language line, the just return the 1st line
-    
-    if [[ -z "${SD_WELCOME_MSG_ALT}" ]]; then
-        echo "${SD_WELCOME_MSG}"
+    [[ -n "$SD_WELCOME_MSG_ALT" ]] && language_array+=("$SD_WELCOME_MSG_ALT")
+
+    for entry in "${language_array[@]}"; do
+
+        # If an entry does not contain a language code,
+        # preserve it as a possible fallback
+        if [[ "$entry" != *"|"* ]]; then
+            [[ -z "$first_message" ]] && first_message="$entry"
+            continue
+        fi
+
+        # Split only on the first "|" character
+        lang_code="${entry%%|*}"
+        message="${entry#*|}"
+
+        # Normalize the language code
+        lang_code="${lang_code//[[:space:]]/}"
+        lang_code="${lang_code:u}"
+
+        # Remove leading whitespace from the message
+        while [[ "$message" == [[:space:]]* ]]; do
+            message="${message#?}"
+        done
+
+        # Save the first valid message as a final fallback
+        [[ -z "$first_message" ]] && first_message="$message"
+
+        # Save the configured default-language message
+        if [[ "$lang_code" == "${SD_DEFAULT_LANGUAGE:u}" ]]; then
+            default_message="$message"
+        fi
+
+        # Return the preferred-language message
+        if [[ "$lang_code" == "$preferred_language" ]]; then
+            print -r -- "$message"
+            return 0
+        fi
+    done
+
+    # No preferred-language match, use configured default
+    if [[ -n "$default_message" ]]; then
+        print -r -- "$default_message"
         return 0
     fi
 
-    languageArray+=(${SD_WELCOME_MSG})
-    languageArray+=(${SD_WELCOME_MSG_ALT})
-
-    # get the system(s) default language
-
-    # Loop through the array and print the message for the preferred language
-    for entry in "${languageArray[@]}"; do
-        langCode=$(echo $entry | awk -F "|" '{print $1}' | xargs)
-        message=$(echo $entry | awk -F "|" '{print $2}'| xargs)
-        if [[ "$preferredLanguage" == "$langCode" ]]; then
-            echo "${message}"
-            return 0
-        fi
-    done
-
-    # If no match was found, print the message for the default language
-    for entry in "${languageArray[@]}"; do
-        langCode=$(echo $entry | awk -F "|" '{print $1}'| xargs)
-        message=$(echo $entry | awk -F "|" '{print $2}' | xargs)
-
-        if [[ "$SD_DEFAULT_LANGUAGE" == "$langCode" ]]; then
-            echo "${message}"
-            return 0
-        fi
-    done
+    # Final fallback
+    print -r -- "$first_message"
+    return 0
 }
 
 ####################################################################################################
@@ -406,26 +418,14 @@ function check_language_support ()
 ####################################################################################################
 autoload 'is-at-least'
 
-if ! initialize_user_context; then
-    cleanup_and_exit 0
-fi
+initialize_user_context || cleanup_and_exit 0
+create_log_directory || cleanup_and_exit 1
+check_swift_dialog_install || cleanup_and_exit 1
+check_support_files || cleanup_and_exit 1
 
-if ! create_log_directory; then
-    cleanup_and_exit 1
-fi
-
-if ! check_swift_dialog_install; then
-    cleanup_and_exit 1
-fi
-
-if ! check_support_files; then
-    cleanup_and_exit 1
-fi
 # Check and make sure there is a user logged in and system is awake
 
-if ! check_display_sleep; then    
-    exit 1
-fi
+check_display_sleep || cleanup_and_exit 0
 
 create_infobox_message
 DISPLAY_MESSAGE=$(check_language_support)

@@ -48,5 +48,11 @@ The script will determine the country code of the local Mac and display the appr
 | 2.2 | Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 | 2.3 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
-| 2.4 | Incorporated changes from previous scripts, to make sure script workflow doesn't error out at the worst time.
+| 2.4 | Improved script workflow and error handling
+||       Added validation for logged-in user context
+||      Improved SwiftDialog installation and version validation
+||      Improved support-file installation handling
+||      Added multilingual message support based on the user's preferred language
+||      Added default-language fallback when no preferred-language match is found
+||      Improved handling of Jamf parameters and optional display images
 
