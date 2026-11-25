@@ -1,6 +1,6 @@
 ## GetBundleIDs  
 
-Handy little utility to retreive all of the bundleIDs & TeamIDs from a given directory.  If you need to only do one app, I have also included an Automator droplet to extract the BundleID from a single app.  I like to use this app when I am setting up manaaged login items in JAMF.  It needs both the BundleID and the TeamID.
+Handy little utility to retreive all of the bundle IDs & Team IDs from a given directory.  If you need to only do one app, I have also included an Automator droplet to extract the Bundle ID from a single app.  I like to use this app when I am setting up manaaged login items in JAMF.  It needs both the Bundle ID and the Team ID.
 
 Welcome Screen
 
@@ -24,4 +24,13 @@ Results screen
 || Changed the order of the items in the welcome screen
 | 2.1 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.2 | Improved application discovery and support for application paths containing spaces
+||       Improved Bundle ID and Team ID retrieval with handling for missing values
+||       Updated SwiftDialog list-item construction to use jq for safer JSON generation
+||       Added error handling and return-code validation throughout the application workflow
+||       Added notification when no applications are found in the selected directory
+||       Enhanced exported results to include application name, path, Bundle ID, and Team ID
+||       Improved SwiftDialog process management, command updates, and error handling
+||       Improved temporary file handling and cleanup
+||       General code cleanup and reliability improvements
 

@@ -5,9 +5,9 @@
 # by: Scott Kendall
 #
 # Written: 07/11/2025
-# Last updated: 04/01/2026
+# Last updated: 11/25/2026
 #
-# Script Purpose: Extract the bundle ID of all of the apps found in a given directory
+# Script Purpose: Extract the Bundle ID and Team ID of applications found in a selected directory
 #
 # 1.0 - Initial
 # 1.1 - Code cleanup
@@ -18,24 +18,32 @@
 # 1.3 - Changed JAMF 'policy -trigger' to 'JAMF policy -event'
 #       Optimized "Common" section for better performance
 #       Fixed variable names in the defaults file section
-# 2.0 - Now includes TeamID in the listing as well
+# 2.0 - Now includes Team ID in the listing as well
 #       Changed the order of the items in the welcome screen
 # 2.1 - Updated SD Version requirements to 3.1.0
 #       Added ability to set subtitle, color, and padding from defaults file
+# 2.2 - Improved application discovery and support for application paths containing spaces
+#       Improved Bundle ID and Team ID retrieval with handling for missing values
+#       Updated SwiftDialog list-item construction to use jq for safer JSON generation
+#       Added error handling and return-code validation throughout the application workflow
+#       Added notification when no applications are found in the selected directory
+#       Enhanced exported results to include application name, path, Bundle ID, and Team ID
+#       Improved SwiftDialog process management, command updates, and error handling
+#       Improved temporary file handling and cleanup
+#       General code cleanup and reliability improvements
+
 
 ######################################################################################################
 #
 # Global "Common" variables
 #
 ######################################################################################################
-
+#set -x
 SCRIPT_NAME="GetBundleID"
 LOGGED_IN_USER=$( scutil <<< "show State:/Users/ConsoleUser" | awk '/Name :/ && ! /loginwindow/ { print $3 }' )
 USER_DIR=$( dscl . -read /Users/${LOGGED_IN_USER} NFSHomeDirectory | awk '{ print $2 }' )
 
 FREE_DISK_SPACE=$(($( /usr/sbin/diskutil info / | /usr/bin/grep "Free Space" | /usr/bin/awk '{print $6}' | /usr/bin/cut -c 2- ) / 1024 / 1024 / 1024 ))
-MACOS_NAME=$(sw_vers -productName)
-MACOS_VERSION=$(sw_vers -productVersion)
 MAC_RAM=$(($(sysctl -n hw.memsize) / 1024**3))" GB"
 MAC_CPU=$(sysctl -n machdep.cpu.brand_string)
 
@@ -53,32 +61,31 @@ SD_DIALOG_GREETING=$((){print Good ${argv[2+($1>11)+($1>18)]}} ${(%):-%D{%H}} mo
 
 JSON_DIALOG_BLOB=$(mktemp /var/tmp/ExtractBundleIDs.XXXXX)
 DIALOG_COMMAND_FILE=$(mktemp /var/tmp/ExtractBundleIDs.XXXXX)
-chmod 666 $JSON_DIALOG_BLOB
-chmod 666 $DIALOG_COMMAND_FILE
+chmod 644 "$JSON_DIALOG_BLOB"
+chmod 644 "$DIALOG_COMMAND_FILE"
 
 ###################################################
 #
 # App Specific variables (Feel free to change these)
 #
 ###################################################
-   
+
 # See if there is a "defaults" file...if so, read in the contents
 DEFAULTS_DIR="/Library/Managed Preferences/com.gianteaglescript.defaults.plist"
-if [[ -f "$DEFAULTS_DIR" ]]; then
-    echo "Found Defaults Files.  Reading in Info"
-    SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles)
-    SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage)
-    BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding)
-    BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle)
-    BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor)
-else
-    SUPPORT_DIR="/Library/Application Support/GiantEagle"
-    SD_BANNER_IMAGE="GE_SD_BannerImage.png"
-    BANNER_TEXT_PADDING=10 #10 spaces to accommodate for icon offset
-    BANNER_SUBTITLE=""
+echo "Setting Default values"
+SUPPORT_DIR=$(defaults read "$DEFAULTS_DIR" SupportFiles 2>/dev/null) || SUPPORT_DIR="/Library/Application Support/GiantEagle"
+SD_BANNER_IMAGE=$(defaults read "$DEFAULTS_DIR" BannerImage 2>/dev/null) || SD_BANNER_IMAGE="GE_SD_BannerImage.png"
+BANNER_TEXT_PADDING=$(defaults read "$DEFAULTS_DIR" BannerPadding 2>/dev/null) || BANNER_TEXT_PADDING=10
+BANNER_SUBTITLE=$(defaults read "$DEFAULTS_DIR" BannerSubtitle 2>/dev/null) || BANNER_SUBTITLE=""
+BANNER_TEXT_COLOR=$(defaults read "$DEFAULTS_DIR" TitleFontColor 2>/dev/null) || BANNER_TEXT_COLOR="white"
+
+SUPPORT_DIR="${SUPPORT_DIR%/}"
+
+if [[ "${SD_BANNER_IMAGE#/SupportFiles/}" != "$SD_BANNER_IMAGE" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE#/}"
+elif [[ "${SD_BANNER_IMAGE:0:1}" != "/" ]]; then
+    SD_BANNER_IMAGE="${SUPPORT_DIR}/${SD_BANNER_IMAGE}"
 fi
-[[ -e $SUPPORT_DIR/$SD_BANNER_IMAGE ]] && SD_BANNER_IMAGE="$SUPPORT_DIR/$SD_BANNER_IMAGE"
-[[ -z "$BANNER_TEXT_COLOR" ]] && BANNER_TEXT_COLOR="white"
 
 # Log files location
 
@@ -86,9 +93,14 @@ LOG_FILE="${SUPPORT_DIR}/logs/${SCRIPT_NAME}.log"
 
 # Display items (banner / icon)
 
-SD_WINDOW_TITLE="Extract BundleID"
+SD_WINDOW_TITLE="Extract Bundle ID"
 SD_ICON_FILE=$ICON_FILES"ToolbarCustomizeIcon.icns"
 OVERLAY_ICON="/System/Applications/App Store.app"
+
+SUPPORT_FILE_INSTALL_POLICY="install_SymFiles"
+DIALOG_INSTALL_POLICY="install_SwiftDialog"
+JQ_FILE_INSTALL_POLICY="install_jq"
+
 
 ##################################################
 #
@@ -105,6 +117,11 @@ SD_FIRST_NAME="${(C)JAMF_LOGGED_IN_USER%%.*}"
 #
 ####################################################################################################
 
+function admin_user ()
+{
+    (( UID == 0 ))
+}
+
 function create_log_directory ()
 {
     # Ensure that the log directory and the log files exist. If they
@@ -112,14 +129,22 @@ function create_log_directory ()
     #
     # RETURN: None
 
-	# If the log directory doesnt exist - create it and set the permissions
-    LOG_DIR=${LOG_FILE%/*}
-	[[ ! -d "${LOG_DIR}" ]] && /bin/mkdir -p "${LOG_DIR}"
-	/bin/chmod 755 "${LOG_DIR}"
+	# If the log directory doesn't exist - create it and set the permissions (using zsh parameter expansion to get directory)
+    local LOG_DIR="${LOG_FILE%/*}"
 
-	# If the log file does not exist - create it and set the permissions
-	[[ ! -f "${LOG_FILE}" ]] && /usr/bin/touch "${LOG_FILE}"
-	/bin/chmod 644 "${LOG_FILE}"
+    admin_user || return 0
+
+    if [[ ! -d "$LOG_DIR" ]]; then
+        mkdir -p "$LOG_DIR" || {print -u2 "ERROR: Unable to create log directory: ${LOG_DIR}"; return 1; }
+    fi
+    chmod 755 "$LOG_DIR" || {print -u2 "ERROR: Unable to set permissions on: ${LOG_DIR}"; return 1; }
+    # If the log file does not exist - create it and set the permissions
+    if [[ ! -f "$LOG_FILE" ]]; then
+        touch "$LOG_FILE" || {print -u2 "ERROR: Unable to create log file: ${LOG_FILE}"; return 1;}
+    fi
+
+    chmod 640 "$LOG_FILE" || {print -u2 "ERROR: Unable to secure log file: ${LOG_FILE}"; return 1;}
+    return 0
 }
 
 function logMe () 
@@ -130,54 +155,135 @@ function logMe ()
     #
     # This function logs both to STDOUT/STDERR and a file
     # The log file is set by the $LOG_FILE variable.
+    # if the user is an admin, it will write to the logfile, otherwise it will just echo to the screen
     #
     # RETURN: None
-    echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | tee -a "${LOG_FILE}"
+    if admin_user; then
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}" | /usr/bin/tee -a "${LOG_FILE}" >&2
+    else
+        echo "$(/bin/date '+%Y-%m-%d %H:%M:%S'): ${1}"
+    fi
 }
 
 function check_swift_dialog_install ()
 {
-    # Check to make sure that Swift Dialog is installed and functioning correctly
-    # Will install process if missing or corrupted
-    #
-    # RETURN: None
+    local SD_VERSION
 
-    logMe "Ensuring that swiftDialog version is installed..."
-    if [[ ! -x "${SW_DIALOG}" ]]; then
-        logMe "Swift Dialog is missing or corrupted - Installing from JAMF"
-        install_swift_dialog
-        SD_VERSION=$( ${SW_DIALOG} --version)        
+    logMe "Ensuring that SwiftDialog is installed..."
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "SwiftDialog is missing. Attempting installation."
+
+        if ! install_swift_dialog || [[ ! -x "$SW_DIALOG" ]]; then
+            logMe "ERROR: SwiftDialog installation failed." >&2
+            return 1
+        fi
     fi
 
-    if ! is-at-least "${MIN_SD_REQUIRED_VERSION}" "${SD_VERSION}"; then
-        logMe "Swift Dialog is outdated - Installing version '${MIN_SD_REQUIRED_VERSION}' from JAMF..."
-        install_swift_dialog
-    else    
-        logMe "Swift Dialog is currently running: ${SD_VERSION}"
+    if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
+        logMe "ERROR: Unable to determine SwiftDialog version." >&2
+        return 1
     fi
+
+    if [[ -z "$SD_VERSION" ]]; then
+        logMe "ERROR: SwiftDialog returned an empty version." >&2
+        return 1
+    fi
+
+    if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+        logMe "SwiftDialog ${SD_VERSION} is outdated. Attempting update."
+
+        if ! install_swift_dialog; then
+            logMe "ERROR: SwiftDialog update failed." >&2
+            return 1
+        fi
+
+        if ! SD_VERSION=$("$SW_DIALOG" --version 2>/dev/null); then
+            logMe "ERROR: Unable to read SwiftDialog version after update." >&2
+            return 1
+        fi
+
+        if ! is-at-least "$MIN_SD_REQUIRED_VERSION" "$SD_VERSION"; then
+            logMe "ERROR: SwiftDialog remains below the required version." >&2
+            return 1
+        fi
+    fi
+
+    logMe "SwiftDialog version ${SD_VERSION} is available."
+    return 0
 }
 
 function install_swift_dialog ()
 {
-    # Install Swift dialog From JAMF
-    # PARMS Expected: DIALOG_INSTALL_POLICY - policy trigger from JAMF
-    #
-    # RETURN: None
+    local jamf_exit=0
 
-	/usr/local/bin/jamf policy -event ${DIALOG_INSTALL_POLICY}
+    if [[ ! -x /usr/local/bin/jamf ]]; then
+        logMe "ERROR: Jamf binary not found. Cannot install SwiftDialog."
+        return 1
+    fi
+
+    /usr/local/bin/jamf policy -event "$DIALOG_INSTALL_POLICY"
+    jamf_exit=$?
+
+    if (( jamf_exit != 0 )); then
+        logMe "ERROR: Jamf policy failed while installing SwiftDialog. Exit code: ${jamf_exit}"
+        return 1
+    fi
+
+    if [[ ! -x "$SW_DIALOG" ]]; then
+        logMe "ERROR: SwiftDialog remains unavailable after the installation attempt."
+        return 1
+    fi
+
+    return 0
 }
 
 function check_support_files ()
 {
-    [[ ! -e "${SD_BANNER_IMAGE}" ]] && [[ "${SD_BANNER_IMAGE}" =~ \.(jpg|png|heic)$ ]] && /usr/local/bin/jamf policy -event ${SUPPORT_FILE_INSTALL_POLICY}
-}
+    if [[ -f "$SD_BANNER_IMAGE" ]]; then
+        logMe "Banner image found: ${SD_BANNER_IMAGE}"
+    else
+        logMe "Banner image not found: ${SD_BANNER_IMAGE}"
 
-function cleanup_and_exit ()
-{
-	[[ -f ${JSON_OPTIONS} ]] && /bin/rm -rf ${JSON_OPTIONS}
-	[[ -f ${TMP_FILE_STORAGE} ]] && /bin/rm -rf ${TMP_FILE_STORAGE}
-    [[ -f ${DIALOG_COMMAND_FILE} ]] && /bin/rm -rf ${DIALOG_COMMAND_FILE}
-	exit 0
+        if [[ -x /usr/local/bin/jamf ]]; then
+            logMe "Running support-file installation policy."
+
+            if ! /usr/local/bin/jamf policy -event "$SUPPORT_FILE_INSTALL_POLICY"; then
+                logMe "WARNING: Support-file installation policy failed."
+            fi
+        else
+            logMe "WARNING: The local Jamf binary is unavailable. The support-file installation policy cannot be run."
+        fi
+
+        if [[ -f "$SD_BANNER_IMAGE" ]]; then
+            logMe "Banner image successfully installed: ${SD_BANNER_IMAGE}"
+        else
+            logMe "WARNING: Banner image remains unavailable: ${SD_BANNER_IMAGE}"
+        fi
+    fi
+
+    if ! command -v jq >/dev/null 2>&1; then
+        logMe "jq is not installed."
+
+        if [[ ! -x /usr/local/bin/jamf ]]; then
+            logMe "ERROR: The local Jamf binary is unavailable, so jq cannot be installed."
+            return 1
+        fi
+
+        logMe "Running jq installation policy."
+
+        if ! /usr/local/bin/jamf policy -event "$JQ_FILE_INSTALL_POLICY"; then
+            logMe "ERROR: jq installation policy failed."
+            return 1
+        fi
+    fi
+
+    if ! command -v jq >/dev/null 2>&1; then
+        logMe "ERROR: jq remains unavailable after installation."
+        return 1
+    fi
+
+    return 0
 }
 
 function create_infobox_message()
@@ -196,6 +302,21 @@ function create_infobox_message()
 	SD_INFO_BOX_MSG+="{osname} {osversion}<br>"
 }
 
+function cleanup_and_exit ()
+{
+    local exit_code="${1:-0}"
+
+    trap - INT TERM
+
+    [[ -n "${JSON_DIALOG_BLOB:-}" ]] && /bin/rm -f -- "$JSON_DIALOG_BLOB"
+    [[ -n "${DIALOG_COMMAND_FILE:-}" ]] && /bin/rm -f -- "$DIALOG_COMMAND_FILE"
+
+    exit "$exit_code"
+}
+
+trap 'cleanup_and_exit 130' INT
+trap 'cleanup_and_exit 143' TERM
+
 ####################################################################################################
 #
 # Script Specific Functions
@@ -205,7 +326,7 @@ function create_infobox_message()
 
 function welcomemsg ()
 {
-    message="This script is designed to display the BundleIDs and TeamIDs of the applications found in a selected directory, with an option to export a list of found applications and their associated BundleIDs & TeamIDs.<br><br>Please enter a location to get started."
+    message="This script is designed to display the Bundle IDs and Team IDs of the applications found in a selected directory, with an option to export a list of found applications and their associated Bundle IDs & Team IDs.<br><br>Please enter a location to get started."
 
 	MainDialogBody=(
         --message "$SD_DIALOG_GREETING $SD_FIRST_NAME. $message"
@@ -228,44 +349,38 @@ function welcomemsg ()
         --button2text "Cancel"
     )
 
-    # Example of appending items to the display array
-    #    [[ ! -z "${SD_IMAGE_TO_DISPLAY}" ]] && MainDialogBody+=(--height 520 --image "${SD_IMAGE_TO_DISPLAY}")
-
 	temp=$("${SW_DIALOG}" "${MainDialogBody[@]}" 2>/dev/null)
     returnCode=$?
-    [[ $returnCode = 2 ]] && cleanup_and_exit
 
-    # Examples of how to extra data from returned string
-    fileLocation=$(echo $temp | plutil -extract "fileLocation" 'raw' -)
-    exportList=$(echo $temp | plutil -extract "ExportList" 'raw' -)
+    case "$returnCode" in
+        0)
+            ;;
+        2)
+            cleanup_and_exit 0
+            ;;
+        *)
+            logMe "ERROR: SwiftDialog exited unexpectedly with code: ${returnCode}"
+            cleanup_and_exit "$returnCode"
+            ;;
+    esac
+
+    fileLocation=$(echo "$temp" | /usr/bin/plutil -extract "fileLocation" raw -)
+    exportList=$(echo "$temp" | /usr/bin/plutil -extract "ExportList" raw -)
 
 }
 
 function build_file_list_array ()
 {
-	declare -a tmp_array
-	declare saved_IFS=$IFS
+    FILES_LIST=()
 
-	IFS=$'\n'
-	FILES_LIST=( $(/usr/bin/find $fileLocation/* -maxdepth 0 -type d -iname '*.app' ! -ipath '*Contents*' | /usr/bin/sort -f | /usr/bin/awk -F '/' '{ print $3 }' | /usr/bin/awk -F '.app' '{ print $1 }')) 2> /dev/null
-	${IFS+':'} unset saved_IFS
-
-	# remove the items from array that are in the Managed apps array
-
-	for i in "${MANAGED_APPS[@]}"; do FILES_LIST=("${FILES_LIST[@]/$i}") ; done
-
-	# Add only the non-empty items into the tmp_array
-
-	for i in "${FILES_LIST[@]}"; do [[ -n "$i" ]] && tmp_array+=("${i}") ; done
-
-	# copy the newly created array back into the working array
-
-	FILES_LIST=(${tmp_array[@]})
+    while IFS= read -r app_path; do
+        [[ -n "$app_path" ]] && FILES_LIST+=("$app_path")
+    done < <(/usr/bin/find "$fileLocation" -maxdepth 1 -type d -iname '*.app' -print 2>/dev/null | /usr/bin/sort -f)
 }
 
 function construct_dialog_header_settings ()
 {
-    # Construct the basic Switft Dialog screen info that is used on all messages
+    # Construct the basic SwiftDialog screen information that is used on all messages
     #
     # RETURN: None
 	# VARIABLES expected: All of the Widow variables should be set
@@ -292,152 +407,286 @@ function construct_dialog_header_settings ()
 
 function update_display_list ()
 {
-    # setopt -s nocasematch
-    # This function updates the Swift Dialog list display with easy to implement parameter passing...
-    # The Swift Dialog native structure is very strict with the command structure...this routine makes
-    # it easier to implement
+    # PURPOSE:
+    #   Update the active SwiftDialog window using the command file.
     #
-    # Param list
+    # PARAMETERS:
+    #   $1 - Action
+    #        add
+    #        buttonenable
+    #        buttonchange
+    #        change
+    #        subtitle
     #
-    # $1 - Action to be done ("Create", "Add", "Change", "Clear", "Info", "Show", "Done", "Update")
-    # ${2} - Affected item (2nd field in JSON Blob listitem entry)
-    # ${3} - Icon status "wait, success, fail, error, pending or progress"
-    # ${4} - Status Text
-    # $5 - Progress Text (shown below progress bar)
-    # $6 - Progress amount
-            # increment - increments the progress by one
-            # reset - resets the progress bar to 0
-            # complete - maxes out the progress bar
-            # If an integer value is sent, this will move the progress bar to that value of steps
-    # the GLOB :l converts any inconing parameter into lowercase
+    #   $2 - Item title / button text
+    #   $3 - Status / subtitle
+    #   $4 - Status text
+    #   $5 - Progress text
+    #   $6 - Progress value
+    #
+    # RETURN:
+    #   0 - Command written successfully
+    #   1 - Invalid action or command file unavailable
 
-    
-    case "${1:l}" in
- 
-        "create" | "show" )
- 
-            # Display the Dialog prompt
-            eval "${JSON_DIALOG_BLOB}"
-            ;;
-     
-        "add" )
-  
-            # Add an item to the list
-            #
-            # $2 name of item
-            # $3 Icon status "wait, success, fail, error, pending or progress"
-            # $4 Optional status text
-  
-            /bin/echo "listitem: add, title: ${2}, status: ${3}, statustext: ${4}" >> "${DIALOG_COMMAND_FILE}"
+    local action="${1:l}"
+    local item="${2:-}"
+    local display_status="${3:-}"
+    local status_text="${4:-}"
+    local progress_text="${5:-}"
+    local progress_value="${6:-}"
+
+    if [[ -z "${DIALOG_COMMAND_FILE:-}" || ! -e "$DIALOG_COMMAND_FILE" ]]; then
+        logMe "ERROR: SwiftDialog command file is unavailable."
+        return 1
+    fi
+
+    case "$action" in
+
+        "add")
+            /bin/echo "listitem: add, title: ${item}, status: ${display_status}, statustext: ${status_text}" >> "$DIALOG_COMMAND_FILE"
             ;;
 
-        "buttonenable" )
-
-            # Enable button 1
-            /bin/echo "button1: enable" >> "${DIALOG_COMMAND_FILE}"
+        "buttonenable")
+            /bin/echo "button1: enable" >> "$DIALOG_COMMAND_FILE"
             ;;
 
-        "buttonchange" )
-
-            # change text of button 1
-            /bin/echo "button1text: ${2}" >> "${DIALOG_COMMAND_FILE}"
+        "buttonchange")
+            /bin/echo "button1text: ${item}" >> "$DIALOG_COMMAND_FILE"
             ;;
 
-        "change" )
-          
-            # Change the listitem Status
-            # Increment the progress bar by static amount ($6)
-            # Display the progress bar text ($5)
-             
-            /bin/echo "listitem: title: ${2}, status: ${3}, statustext: ${4}" >> "${DIALOG_COMMAND_FILE}"
-            if [[ ! -z $5 ]]; then
-                /bin/echo "progresstext: $5" >> "${DIALOG_COMMAND_FILE}"
-                /bin/echo "progress: $6" >> "${DIALOG_COMMAND_FILE}"
-            fi
+        "change")
+            /bin/echo "listitem: title: ${item}, status: ${display_status}, statustext: ${status_text}" >> "$DIALOG_COMMAND_FILE"
+
+            [[ -n "$progress_text" ]] && /bin/echo "progresstext: ${progress_text}" >> "$DIALOG_COMMAND_FILE"
+            [[ -n "$progress_value" ]] && /bin/echo "progress: ${progress_value}" >> "$DIALOG_COMMAND_FILE"
             ;;
 
-        "subtitle" )
-
-            # Change the listitem subtitle
-            /bin/echo "listitem: title: ${2}, subtitle: ${3}" >> "${DIALOG_COMMAND_FILE}"
+        "subtitle")
+            /bin/echo "listitem: title: ${item}, subtitle: ${display_status}" >> "$DIALOG_COMMAND_FILE"
             ;;
-  
+
+        *)
+            logMe "ERROR: Invalid SwiftDialog update action: ${1}"
+            return 1
+            ;;
+
     esac
+    return 0
 }
 
 function construct_display_list ()
 {
+    # PURPOSE:
+    #   Construct the SwiftDialog JSON containing all discovered applications.
+    #
+    # PARMS: None
+    # EXPECTED: FILES_LIST contains full application paths
+    # RETURN:
+    #   0 - Dialog JSON successfully constructed
+    #   1 - Unable to construct dialog JSON
 
-	# Construct the Swift Dialog display list based on files that can be deleted
+    local app_path
+    local app_name
 
-	if [[ ${#FILES_LIST[@]} -ne 0 ]]; then
+    if ! construct_dialog_header_settings "Below are the discovered applications and their Bundle IDs and Team IDs" > "$JSON_DIALOG_BLOB"; then
 
-		# Construct the fils(s) list
-        construct_dialog_header_settings "Below are the discovered apps and their BundleIDs" > "${JSON_DIALOG_BLOB}"
-        create_listitem_message_body "" "" "" "" "" "first"
-		for i in "${FILES_LIST[@]}"; do
-            create_listitem_message_body "${i}" "File Info" "${fileLocation}/${i}.app" "Working" "working"
-		done
-        create_listitem_message_body "" "" "" "" "" "last"
-        /bin/chmod 644 "${JSON_DIALOG_BLOB}"
-	fi
+        logMe "ERROR: Unable to create SwiftDialog JSON header."
+        return 1
+    fi
 
+    if ! create_listitem_message_body "" "" "" "" "" "first"; then
+        logMe "ERROR: Unable to create SwiftDialog list header."
+        return 1
+    fi
+
+    for app_path in "${FILES_LIST[@]}"; do
+        app_name="${app_path:t:r}"
+        if ! create_listitem_message_body "$app_name" "File Info" "$app_path" "Working" "working"; then
+            logMe "ERROR: Unable to create SwiftDialog list item for: ${app_name}"
+            return 1
+        fi
+
+    done
+
+    if ! create_listitem_message_body "" "" "" "" "" "last"; then
+        logMe "ERROR: Unable to create SwiftDialog list footer."
+        return 1
+    fi
+
+    if ! /bin/chmod 644 "$JSON_DIALOG_BLOB"; then
+        logMe "ERROR: Unable to set permissions on SwiftDialog JSON file."
+        return 1
+    fi
+
+    return 0
 }
 
 function create_listitem_message_body ()
 {
-    # PURPOSE: Construct the List item body of the dialog box
-    # "listitem" : [
-    #			{"title" : "macOS Version:", "icon" : "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/FinderIcon.icns", "status" : "${macOS_version_icon}", "statustext" : "$sw_vers"},
-    # RETURN: None
-    # EXPECTED: message
-    # PARMS: $1 - title 
-    #        $2 - icon
-    #        $3 - status text (for display)
-    #        $4 - status
-    #        $5 - first or last - construct appropriate listitem heders / footers
+    # PURPOSE:
+    #   Construct SwiftDialog list item JSON and append it to the
+    #   existing dialog JSON file.
+    #
+    # PARAMETERS:
+    #   $1 - Item title
+    #   $2 - Item subtitle
+    #   $3 - Item icon
+    #   $4 - Status text
+    #   $5 - Status
+    #   $6 - Position: first, last, or blank
+    #
+    # RETURN:
+    #   0 - JSON successfully written
+    #   1 - Unable to construct or write JSON
 
-    declare line && line=""
+    local item_title="${1:-}"
+    local item_subtitle="${2:-}"
+    local item_icon="${3:-}"
+    local status_text="${4:-}"
+    local item_status="${5:-}"
+    local position="${6:l}"
+    local json_line=""
 
-    [[ "$6:l" == "first" ]] && line+='"button1disabled" : "true", "listitem" : ['
-    [[ ! -z $1 ]] && [[ ! -z $2 ]] && line+='{"title" : "'$1'", "subtitle" : "'$2'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
-    [[ ! -z $1 ]] && [[ -z $2 ]] && line+='{"title" : "'$1'", "icon" : "'$3'", "status" : "'$5'", "statustext" : "'$4'"},'
-    [[ "$6:l" == "last" ]] && line+=']}'
-    echo $line >> ${JSON_DIALOG_BLOB}
+    case "$position" in
+
+        "first")
+            json_line='"button1disabled": true, "listitem": ['
+
+            if ! /bin/echo "$json_line" >> "$JSON_DIALOG_BLOB"; then
+                logMe "ERROR: Unable to write list header to SwiftDialog JSON file."
+                return 1
+            fi
+            ;;
+
+        "last")
+            if ! /bin/echo ']}' >> "$JSON_DIALOG_BLOB"; then
+                logMe "ERROR: Unable to write list footer to SwiftDialog JSON file."
+                return 1
+            fi
+            ;;
+
+        *)
+            if [[ -z "$item_title" ]]; then
+                logMe "ERROR: Unable to create SwiftDialog list item without a title."
+                return 1
+            fi
+
+            json_line=$(
+                /usr/bin/jq -cn \
+                    --arg title "$item_title" \
+                    --arg subtitle "$item_subtitle" \
+                    --arg icon "$item_icon" \
+                    --arg status "$item_status" \
+                    --arg statustext "$status_text" \
+                    '{
+                        title: $title,
+                        subtitle: $subtitle,
+                        icon: $icon,
+                        status: $status,
+                        statustext: $statustext
+                    }'
+            ) || {
+                logMe "ERROR: Unable to construct SwiftDialog list item JSON for: ${item_title}"
+                return 1
+            }
+
+            if ! /bin/echo "${json_line}," >> "$JSON_DIALOG_BLOB"; then
+                logMe "ERROR: Unable to write SwiftDialog list item: ${item_title}"
+                return 1
+            fi
+            ;;
+
+    esac
+
+    return 0
 }
 
 function get_bundleID ()
 {
-    # PURPOSE: Extract the BundleIDs from each application in the array
-    # PARMS None
-    # EXPECTED: FILES_LIST to be filled with list of applications
-    # RETURN: None
+    # PURPOSE: Extract the Bundle IDs and Team IDs from each application
+    #          in the FILES_LIST array and update SwiftDialog.
+    #
+    # PARMS: None
+    # EXPECTED: FILES_LIST contains full application paths
+    # RETURN:
+    #   0 - Application information successfully processed
+    #   1 - Unable to update SwiftDialog
     
-    logMe "Extracting bundleIDs from $fileLocation"
-    for i in "${FILES_LIST[@]}"; do
-        bundleID=$(defaults read "${fileLocation}/${i}.app/Contents/Info.plist" CFBundleIdentifier)
-        teamsID=$(codesign -dv "${fileLocation}/${i}.app" 2>&1 | grep "TeamIdentifier" | awk -F "=" '{print $2}')
-        update_display_list "subtitle" "${i}" "Team ID -  $teamsID | Bundle ID - $bundleID"
-        update_display_list "change" "${i}" "success" "Done"
+    local app_path
+    local app_name
+    local bundleID
+    local teamID
 
+    logMe "Extracting Bundle IDs and Team IDs from: ${fileLocation}"
+    for app_path in "${FILES_LIST[@]}"; do
+        app_name="${app_path:t:r}"
+        bundleID=$(/usr/bin/plutil -extract CFBundleIdentifier raw "${app_path}/Contents/Info.plist" 2>/dev/null)
+        [[ -z "$bundleID" ]] && bundleID="Not Found"
+
+        teamID=$(/usr/bin/codesign -dv "${app_path}" 2>&1 | /usr/bin/awk -F= '/^TeamIdentifier=/ {print $2; exit}')
+        [[ -z "$teamID" ]] && teamID="Not Found"
+
+        if ! update_display_list "subtitle" "$app_name" "Team ID - $teamID | Bundle ID - $bundleID"; then
+            logMe "ERROR: Unable to update Bundle ID and Team ID for: ${app_name}"
+            return 1
+        fi
+
+        if ! update_display_list "change" "$app_name" "success" "Done"; then
+            logMe "ERROR: Unable to update completion status for: ${app_name}"
+            return 1
+        fi
     done
+    return 0
 }
 
 function export_bundleID_list ()
 {
-    # PURPOSE: Export the BundleIDs from each application in the array to a file on the desktop
-    # PARMS None
-    # EXPECTED: FILES_LIST to be filled with list of applications
-    # RETURN: None
+    # PURPOSE: Export the Bundle IDs and Team IDs from each application
+    #          in the array to a file on the Desktop.
+    #
+    # PARMS: None
+    # EXPECTED: FILES_LIST contains full application paths
+    # RETURN: 0 on success, 1 on failure
 
-    touch "${USER_DIR}/Desktop/BundleIDlist.txt"
-    for i in "${FILES_LIST[@]}"; do
-        bundleID=$(defaults read "${fileLocation}/${i}.app/Contents/Info.plist" CFBundleIdentifier)
-        echo ${fileLocation}/${i}.app : $bundleID >> "${USER_DIR}/Desktop/BundleIDlist.txt"
+    local export_file="${USER_DIR}/Desktop/BundleIDlist.txt"
+    local app_name
+    local app_path
+    local bundleID
+    local teamID
+
+    : > "$export_file" || {
+        logMe "ERROR: Unable to create export file: ${export_file}"
+        return 1
+    }
+
+    for app_path in "${FILES_LIST[@]}"; do
+
+        app_name="${app_path:t:r}"
+
+        bundleID=$(/usr/bin/plutil -extract CFBundleIdentifier raw "${app_path}/Contents/Info.plist" 2>/dev/null)
+        [[ -z "$bundleID" ]] && bundleID="Not Found"
+
+        teamID=$(/usr/bin/codesign -dv "${app_path}" 2>&1 | /usr/bin/awk -F= '/^TeamIdentifier=/ {print $2; exit}')
+        [[ -z "$teamID" ]] && teamID="Not Found"
+
+        if ! {
+            echo "Application: ${app_name}"
+            echo "Path: ${app_path}"
+            echo "Bundle ID: ${bundleID}"
+            echo "Team ID: ${teamID}"
+            echo
+        } >> "$export_file"; then
+
+            logMe "ERROR: Unable to write application information to: ${export_file}"
+            return 1
+        fi
+
     done
-    logMe "Export File list to: ${USER_DIR}/Desktop/BundleIDlist.txt"
 
+    logMe "Exported application information to: ${export_file}"
+    return 0
 }
+
 
 ####################################################################################################
 #
@@ -450,18 +699,43 @@ typeset -a FILES_LIST
 
 autoload 'is-at-least'
 
-create_log_directory
-check_swift_dialog_install
-check_support_files
+create_log_directory || cleanup_and_exit 1
+check_swift_dialog_install || cleanup_and_exit 1
+check_support_files || cleanup_and_exit 1
 create_infobox_message
 welcomemsg
-build_file_list_array
-if [[ ${#FILES_LIST[@]} -ne 0 ]];then
-    construct_display_list
-    ${SW_DIALOG} --jsonfile ${JSON_DIALOG_BLOB} --commandfile "${DIALOG_COMMAND_FILE}" & sleep .1
-    get_bundleID
-    [[ $exportList = "true" ]] && update_display_list "buttonchange" "Export"
-    update_display_list "buttonenable"
-    [[ $exportList = "true" ]] && export_bundleID_list 
+if [[ ! -d "$fileLocation" ]]; then
+    logMe "ERROR: Selected scan location is invalid: ${fileLocation}"
+    cleanup_and_exit 1
 fi
-cleanup_and_exit
+
+build_file_list_array
+
+if (( ${#FILES_LIST[@]} == 0 )); then
+    logMe "No applications found in: ${fileLocation}"
+    "$SW_DIALOG" --title "$SD_WINDOW_TITLE" --message "No applications were found in the selected directory." --icon "$SD_ICON_FILE" --button1text "OK"
+    cleanup_and_exit 0
+fi
+
+construct_display_list || cleanup_and_exit 1
+
+"$SW_DIALOG" --jsonfile "$JSON_DIALOG_BLOB" --commandfile "$DIALOG_COMMAND_FILE" &
+dialog_pid=$!
+
+get_bundleID || cleanup_and_exit 1
+
+if [[ "$exportList" == "true" ]]; then
+    update_display_list "buttonchange" "Export" || cleanup_and_exit 1
+fi
+
+update_display_list "buttonenable" || cleanup_and_exit 1
+wait "$dialog_pid"
+
+if [[ "$exportList" == "true" ]]; then
+    if ! export_bundleID_list; then
+        logMe "ERROR: Failed to export application information."
+        cleanup_and_exit 1
+    fi
+fi
+
+cleanup_and_exit 0
