@@ -52,4 +52,14 @@ echo "<result>${uptimeDays:-0}</result>"
 ||       Fixed variable names in the defaults file section
 | 2.0 | Updated SD Version requirements to 3.1.0
 ||       Added ability to set subtitle, color, and padding from defaults file
+| 2.1 | Replaced human-readable uptime parsing with kern.boottime calculation
+||       Added local uptime validation to prevent notifications after a recent restart
+||      Added configurable uptime-threshold enforcement
+||      Added validation for uptime and restart-timer parameters
+||      Added root-execution validation
+||      Improved SwiftDialog installation and version checks
+||      Improved support-file installation and verification
+||      Added explicit SwiftDialog return-code handling
+||      Removed the unused jq dependency
+||      Improved logging and restart fallback handling
 
